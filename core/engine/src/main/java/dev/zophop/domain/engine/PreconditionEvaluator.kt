@@ -18,6 +18,7 @@ import dev.zophop.domain.model.Workflow
 import dev.zophop.domain.model.calculateRetryDelaySeconds
 import dev.zophop.plugin.api.ExecutionContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -137,85 +138,9 @@ open class PreconditionEvaluator(
             val isQueuePolicy = precondition.onFailureAction.trim().contains("QUEUE", ignoreCase = true)
             val isRetryPolicy = precondition.onFailureAction.trim().contains("RETRY", ignoreCase = true)
             if (result is PreconditionResult.Failed && isRetryPolicy && precondition.maxRetries > 0) {
-                val maxRetries = precondition.maxRetries
-                val baseIntervalSec = precondition.retryIntervalSeconds.coerceAtLeast(1)
-
-                // Keep failed attempt steps intact as FAILED so they render red as earlier
-                val historySteps = result.steps.toMutableList()
-
-                for (attempt in 1..maxRetries) {
-                    ensureActive()
-
-                    val intervalSec =
-                        calculateRetryDelaySeconds(
-                            strategy = precondition.retryStrategy,
-                            baseIntervalSeconds = baseIntervalSec,
-                            attempt = attempt,
-                            randomGenerator = randomGenerator,
-                        )
-
-                    // Second-by-second live countdown ticker
-                    for (sec in intervalSec downTo 1) {
-                        ensureActive()
-                        val retryNoticeStep =
-                            NodeExecutionStep(
-                                nodeId = "retry_delay_$attempt",
-                                nodeName = "⏳ Retrying ($attempt/$maxRetries)",
-                                nodeType = CoreEngineNodesModule.HTTP_ACTION,
-                                state = NodeStepState.EXECUTING,
-                                logMessage = "Precondition check failed (${precondition.retryStrategy} backoff). Waiting ${sec}s remaining before attempt #${attempt + 1}/${maxRetries + 1}...",
-                            )
-                        val currentProgress = historySteps + retryNoticeStep
-                        onStepUpdate?.invoke(currentProgress)
-
-                        delayDuration(1000L.milliseconds)
-                    }
-
-                    ensureActive()
-
-                    val retryResult =
-                        evaluateSingleAttempt(precondition, nextStack) { attemptSteps ->
-                            val currentList = historySteps + attemptSteps
-                            onStepUpdate?.invoke(currentList)
-                        }
-
-                    if (retryResult is PreconditionResult.Passed) {
-                        historySteps.addAll(retryResult.steps)
-                        result = PreconditionResult.Passed(steps = historySteps.toList())
-                        onStepUpdate?.invoke(historySteps.toList())
-                        break
-                    } else if (retryResult is PreconditionResult.Failed) {
-                        val failedReason = retryResult.reason
-                        historySteps.addAll(retryResult.steps)
-
-                        result =
-                            PreconditionResult.Failed(
-                                reason = if (attempt == maxRetries) "$failedReason (Failed after $maxRetries retries)" else failedReason,
-                                steps = historySteps.toList(),
-                            )
-                        onStepUpdate?.invoke(historySteps.toList())
-                    }
-                }
-            }
-
-            if (result is PreconditionResult.Failed && isQueuePolicy) {
-                val queueReason = "Precondition check failed (${result.reason}). Queued for background resolution."
-                val queueStep =
-                    NodeExecutionStep(
-                        nodeId = "queue_policy_${precondition.id.ifBlank { precondition.type.name }}",
-                        nodeName = "⏸️ Queued For Resolution",
-                        nodeType = CoreEngineNodesModule.CONDITION,
-                        state = NodeStepState.EXECUTING,
-                        logMessage = queueReason,
-                    )
-                val updatedSteps = result.steps + queueStep
-                onStepUpdate?.invoke(updatedSteps)
-                result =
-                    PreconditionResult.Failed(
-                        reason = result.reason,
-                        steps = updatedSteps,
-                        shouldQueue = true,
-                    )
+                result = evaluateRetryPolicy(precondition, nextStack, result, onStepUpdate)
+            } else if (result is PreconditionResult.Failed && isQueuePolicy) {
+                result = evaluateQueuePolicy(precondition, nextStack, result, onStepUpdate)
             }
 
             if (result is PreconditionResult.Failed && precondition.showNotificationOnFailure) {
@@ -224,6 +149,170 @@ open class PreconditionEvaluator(
 
             result
         }
+
+    private suspend fun evaluateRetryPolicy(
+        precondition: Precondition,
+        nextStack: Set<String>,
+        initialFailedResult: PreconditionResult.Failed,
+        onStepUpdate: ((List<NodeExecutionStep>) -> Unit)?,
+    ): PreconditionResult {
+        val maxRetries = precondition.maxRetries
+        val baseIntervalSec = precondition.retryIntervalSeconds.coerceAtLeast(1)
+        val historySteps = initialFailedResult.steps.toMutableList()
+        var lastResult: PreconditionResult = initialFailedResult
+
+        for (attempt in 1..maxRetries) {
+            currentCoroutineContext().ensureActive()
+
+            val intervalSec =
+                calculateRetryDelaySeconds(
+                    strategy = precondition.retryStrategy,
+                    baseIntervalSeconds = baseIntervalSec,
+                    attempt = attempt,
+                    randomGenerator = randomGenerator,
+                )
+
+            for (sec in intervalSec downTo 1) {
+                currentCoroutineContext().ensureActive()
+                val retryNoticeStep =
+                    NodeExecutionStep(
+                        nodeId = "retry_delay_$attempt",
+                        nodeName = "⏳ Retrying ($attempt/$maxRetries)",
+                        nodeType = CoreEngineNodesModule.HTTP_ACTION,
+                        state = NodeStepState.EXECUTING,
+                        logMessage = "Precondition check failed (${precondition.retryStrategy} backoff). Waiting ${sec}s remaining before attempt #${attempt + 1}/${maxRetries + 1}...",
+                    )
+                val currentProgress = historySteps + retryNoticeStep
+                onStepUpdate?.invoke(currentProgress)
+
+                delayDuration(1000L.milliseconds)
+            }
+
+            currentCoroutineContext().ensureActive()
+
+            val retryResult =
+                evaluateSingleAttempt(precondition, nextStack) { attemptSteps ->
+                    val currentList = historySteps + attemptSteps
+                    onStepUpdate?.invoke(currentList)
+                }
+
+            if (retryResult is PreconditionResult.Passed) {
+                historySteps.addAll(retryResult.steps)
+                lastResult = PreconditionResult.Passed(steps = historySteps.toList())
+                onStepUpdate?.invoke(historySteps.toList())
+                return lastResult
+            } else if (retryResult is PreconditionResult.Failed) {
+                val failedReason = retryResult.reason
+                historySteps.addAll(retryResult.steps)
+
+                lastResult =
+                    PreconditionResult.Failed(
+                        reason = if (attempt == maxRetries) "$failedReason (Failed after $maxRetries retries)" else failedReason,
+                        steps = historySteps.toList(),
+                    )
+                onStepUpdate?.invoke(historySteps.toList())
+            }
+        }
+        return lastResult
+    }
+
+    private suspend fun evaluateQueuePolicy(
+        precondition: Precondition,
+        nextStack: Set<String>,
+        initialFailedResult: PreconditionResult.Failed,
+        onStepUpdate: ((List<NodeExecutionStep>) -> Unit)?,
+    ): PreconditionResult {
+        val timeoutSeconds = precondition.queueTimeoutMinutes.coerceAtLeast(1) * 60
+        val baseIntervalSec = precondition.retryIntervalSeconds.coerceAtLeast(1)
+        val historySteps = initialFailedResult.steps.toMutableList()
+
+        var elapsedSeconds = 0
+        var attempt = 1
+        var lastFailReason = initialFailedResult.reason
+
+        while (elapsedSeconds < timeoutSeconds) {
+            currentCoroutineContext().ensureActive()
+
+            val remainingTimeoutSec = (timeoutSeconds - elapsedSeconds).coerceAtLeast(1)
+            val nextDelaySec =
+                calculateRetryDelaySeconds(
+                    strategy = precondition.retryStrategy,
+                    baseIntervalSeconds = baseIntervalSec,
+                    attempt = attempt,
+                    maxCapSeconds = remainingTimeoutSec,
+                    randomGenerator = randomGenerator,
+                ).coerceAtMost(remainingTimeoutSec)
+
+            for (sec in nextDelaySec downTo 1) {
+                currentCoroutineContext().ensureActive()
+                val currentQueueRemaining = (timeoutSeconds - elapsedSeconds - (nextDelaySec - sec)).coerceAtLeast(0)
+                val queueNoticeStep =
+                    NodeExecutionStep(
+                        nodeId = "queue_waiting_$attempt",
+                        nodeName = "⏳ Queued (Attempt #$attempt)",
+                        nodeType = CoreEngineNodesModule.CONDITION,
+                        state = NodeStepState.EXECUTING,
+                        logMessage = "Precondition unsatisfied ($lastFailReason). Waiting in queue (${precondition.retryStrategy} backoff: ${sec}s to next check, ${currentQueueRemaining / 60}m ${currentQueueRemaining % 60}s timeout remaining)...",
+                    )
+                val currentProgress = historySteps + queueNoticeStep
+                onStepUpdate?.invoke(currentProgress)
+
+                delayDuration(1000L.milliseconds)
+            }
+
+            elapsedSeconds += nextDelaySec
+            currentCoroutineContext().ensureActive()
+
+            val queueAttemptResult =
+                evaluateSingleAttempt(precondition, nextStack) { attemptSteps ->
+                    val currentList = historySteps + attemptSteps
+                    onStepUpdate?.invoke(currentList)
+                }
+
+            if (queueAttemptResult is PreconditionResult.Passed) {
+                historySteps.addAll(queueAttemptResult.steps)
+                val resolvedStep =
+                    NodeExecutionStep(
+                        nodeId = "queue_resolved_${precondition.id.ifBlank { precondition.type.name }}",
+                        nodeName = "✅ Precondition Satisfied in Queue",
+                        nodeType = CoreEngineNodesModule.CONDITION,
+                        state = NodeStepState.SUCCESS,
+                        logMessage = "Precondition resolved in queue after ${elapsedSeconds}s (attempt #$attempt). Resuming workflow execution.",
+                    )
+                historySteps.add(resolvedStep)
+                val passed = PreconditionResult.Passed(steps = historySteps.toList())
+                onStepUpdate?.invoke(historySteps.toList())
+                return passed
+            } else if (queueAttemptResult is PreconditionResult.Failed) {
+                lastFailReason = queueAttemptResult.reason
+                historySteps.addAll(queueAttemptResult.steps)
+                attempt++
+                if (elapsedSeconds >= timeoutSeconds) {
+                    break
+                }
+            }
+        }
+
+        val timeoutMsg = "Precondition unsatisfied after ${precondition.queueTimeoutMinutes}m queue timeout: $lastFailReason"
+        val timeoutStep =
+            NodeExecutionStep(
+                nodeId = "queue_timeout_${precondition.id.ifBlank { precondition.type.name }}",
+                nodeName = "⚠️ Queue Timeout Exceeded",
+                nodeType = CoreEngineNodesModule.CONDITION,
+                state = NodeStepState.FAILED,
+                logMessage = timeoutMsg,
+                errorReason = timeoutMsg,
+            )
+        historySteps.add(timeoutStep)
+        val finalFailed =
+            PreconditionResult.Failed(
+                reason = timeoutMsg,
+                steps = historySteps.toList(),
+                shouldQueue = true,
+            )
+        onStepUpdate?.invoke(historySteps.toList())
+        return finalFailed
+    }
 
     private suspend fun evaluateSingleAttempt(
         precondition: Precondition,

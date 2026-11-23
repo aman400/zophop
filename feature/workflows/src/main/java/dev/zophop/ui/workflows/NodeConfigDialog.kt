@@ -414,7 +414,13 @@ private fun RenderDynamicConfigField(
         else -> {
             when (field) {
                 is dev.zophop.plugin.api.ConfigFieldSpec.TextField -> {
-                    if (field.key == "variable" && availableVariables.isNotEmpty()) {
+                    val isVariableField =
+                        (field.key.equals("variable", ignoreCase = true) ||
+                            field.key.equals("inputVariable", ignoreCase = true) ||
+                            field.key.endsWith("Variable", ignoreCase = true)) &&
+                            availableVariables.isNotEmpty()
+
+                    if (isVariableField) {
                         AutocompleteTextField(
                             value = currentVal,
                             onValueChange = onValueChange,

@@ -385,7 +385,12 @@ class PreconditionEvaluatorExtendedTest {
                             .build()
                     }.build()
 
-            val evaluator = PreconditionEvaluator(context = null, okHttpClient = failingClient)
+            val evaluator =
+                PreconditionEvaluator(
+                    context = null,
+                    okHttpClient = failingClient,
+                    delayDuration = { /* skip real delay in test */ },
+                )
             val healthCheck =
                 Precondition.HealthCheck(
                     id = "queue_health_check",
@@ -393,6 +398,8 @@ class PreconditionEvaluatorExtendedTest {
                     targetUrl = "https://example.com/health",
                     expectedStatus = 200,
                     onFailureAction = PreconditionFailurePolicy.QUEUE,
+                    queueTimeoutMinutes = 1,
+                    retryIntervalSeconds = 30,
                 )
 
             var progressSteps = emptyList<NodeExecutionStep>()
@@ -404,7 +411,7 @@ class PreconditionEvaluatorExtendedTest {
             assertTrue(result is PreconditionResult.Failed)
             val failed = result as PreconditionResult.Failed
             assertTrue("shouldQueue must be true", failed.shouldQueue)
-            assertTrue(progressSteps.any { it.nodeName.contains("Queued") && it.state == NodeStepState.EXECUTING })
+            assertTrue(progressSteps.any { it.nodeName.contains("Queued") || it.nodeName.contains("Timeout") })
         }
 
     @Test
@@ -424,7 +431,12 @@ class PreconditionEvaluatorExtendedTest {
                             .build()
                     }.build()
 
-            val evaluator = PreconditionEvaluator(context = null, okHttpClient = failingClient)
+            val evaluator =
+                PreconditionEvaluator(
+                    context = null,
+                    okHttpClient = failingClient,
+                    delayDuration = { /* skip real delay in test */ },
+                )
             val engine = WorkflowEngine(preconditionEvaluator = evaluator, executorFactory = NodeExecutorFactory(failingClient))
 
             val trigger = WorkflowNode("trig", "Trigger", NodeType.MANUAL_TRIGGER)
@@ -441,6 +453,8 @@ class PreconditionEvaluatorExtendedTest {
                                 targetUrl = "https://health.example.com/check",
                                 expectedStatus = 200,
                                 onFailureAction = "QUEUE",
+                                queueTimeoutMinutes = 1,
+                                retryIntervalSeconds = 30,
                             ),
                         ),
                 )
@@ -483,6 +497,19 @@ class PreconditionEvaluatorExtendedTest {
 
         // Clamped to max cap
         assertEquals(3600, calculateRetryDelaySeconds(RetryStrategy.EXPONENTIAL, 500, attempt = 10, maxCapSeconds = 3600))
+    }
+
+    @Test
+    fun testCalculateRetryDelayLinearStrategy() {
+        val base = 10
+        assertEquals(10, calculateRetryDelaySeconds(RetryStrategy.LINEAR, base, attempt = 1))
+        assertEquals(20, calculateRetryDelaySeconds(RetryStrategy.LINEAR, base, attempt = 2))
+        assertEquals(30, calculateRetryDelaySeconds(RetryStrategy.LINEAR, base, attempt = 3))
+        assertEquals(40, calculateRetryDelaySeconds(RetryStrategy.LINEAR, base, attempt = 4))
+        assertEquals(100, calculateRetryDelaySeconds(RetryStrategy.LINEAR, base, attempt = 10))
+
+        // Clamped to max cap
+        assertEquals(25, calculateRetryDelaySeconds(RetryStrategy.LINEAR, base, attempt = 5, maxCapSeconds = 25))
     }
 
     @Test
@@ -678,10 +705,11 @@ class PreconditionEvaluatorExtendedTest {
                     nodes = listOf(trigger, cond),
                     connections = listOf(WorkflowConnection("trig", "cond")),
                     onFailureAction = PreconditionFailurePolicy.QUEUE,
-                    queueTimeoutMinutes = 20,
+                    queueTimeoutMinutes = 1,
+                    retryIntervalSeconds = 30,
                 )
 
-            val evaluator = PreconditionEvaluator(context = null)
+            val evaluator = PreconditionEvaluator(context = null, delayDuration = {})
             var recordedSteps = emptyList<NodeExecutionStep>()
             val result =
                 evaluator.evaluate(chain) { steps ->
@@ -691,6 +719,151 @@ class PreconditionEvaluatorExtendedTest {
             assertTrue(result is PreconditionResult.Failed)
             val failed = result as PreconditionResult.Failed
             assertTrue("shouldQueue must be true for failing chain in QUEUE mode", failed.shouldQueue)
-            assertTrue(recordedSteps.any { it.nodeName.contains("Queued") && it.state == NodeStepState.EXECUTING })
+            assertTrue(recordedSteps.any { it.nodeName.contains("Queued") || it.nodeName.contains("Timeout") })
+        }
+
+    @Test
+    fun testQueueModeRecoversWhenConditionSatisfiesBeforeTimeoutWithLinearBackoff() =
+        runTest {
+            var callCount = 0
+            val recordedSteps = mutableListOf<String>()
+            val okHttpClient =
+                OkHttpClient
+                    .Builder()
+                    .addInterceptor { chain ->
+                        callCount++
+                        val statusCode = if (callCount >= 3) 200 else 503
+                        Response
+                            .Builder()
+                            .request(chain.request())
+                            .protocol(Protocol.HTTP_1_1)
+                            .code(statusCode)
+                            .message(if (statusCode == 200) "OK" else "Service Unavailable")
+                            .body("{}".toResponseBody())
+                            .build()
+                    }.build()
+
+            val evaluator =
+                PreconditionEvaluator(
+                    context = null,
+                    okHttpClient = okHttpClient,
+                    delayDuration = { /* fast test execution */ },
+                )
+
+            val healthCheck =
+                Precondition.HealthCheck(
+                    id = "prec_queue_linear_recovery",
+                    isEnabled = true,
+                    targetUrl = "https://backend.example.com/health",
+                    expectedStatus = 200,
+                    onFailureAction = PreconditionFailurePolicy.QUEUE,
+                    queueTimeoutMinutes = 5,
+                    retryIntervalSeconds = 10,
+                    retryStrategy = RetryStrategy.LINEAR,
+                )
+
+            val result =
+                evaluator.evaluate(healthCheck) { steps ->
+                    steps.lastOrNull()?.let { recordedSteps.add(it.nodeName) }
+                }
+
+            assertTrue("Result must be Passed after recovering in queue", result is PreconditionResult.Passed)
+            val passed = result as PreconditionResult.Passed
+            assertEquals(3, callCount)
+            assertTrue(passed.steps.any { it.nodeName.contains("Precondition Satisfied in Queue") })
+        }
+
+    @Test
+    fun testQueueModeRecoversWhenConditionSatisfiesBeforeTimeoutWithExponentialBackoff() =
+        runTest {
+            var callCount = 0
+            val okHttpClient =
+                OkHttpClient
+                    .Builder()
+                    .addInterceptor { chain ->
+                        callCount++
+                        val statusCode = if (callCount >= 2) 200 else 500
+                        Response
+                            .Builder()
+                            .request(chain.request())
+                            .protocol(Protocol.HTTP_1_1)
+                            .code(statusCode)
+                            .message(if (statusCode == 200) "OK" else "Internal Server Error")
+                            .body("{}".toResponseBody())
+                            .build()
+                    }.build()
+
+            val evaluator =
+                PreconditionEvaluator(
+                    context = null,
+                    okHttpClient = okHttpClient,
+                    delayDuration = { /* fast test execution */ },
+                )
+
+            val healthCheck =
+                Precondition.HealthCheck(
+                    id = "prec_queue_exp_recovery",
+                    isEnabled = true,
+                    targetUrl = "https://backend.example.com/health",
+                    expectedStatus = 200,
+                    onFailureAction = PreconditionFailurePolicy.QUEUE,
+                    queueTimeoutMinutes = 10,
+                    retryIntervalSeconds = 5,
+                    retryStrategy = RetryStrategy.EXPONENTIAL,
+                )
+
+            val result = evaluator.evaluate(healthCheck)
+
+            assertTrue("Result must be Passed after recovering in queue", result is PreconditionResult.Passed)
+            val passed = result as PreconditionResult.Passed
+            assertEquals(2, callCount)
+            assertTrue(passed.steps.any { it.nodeName.contains("Precondition Satisfied in Queue") })
+        }
+
+    @Test
+    fun testQueueModeHonorsQueueTimeoutAndFailsWhenConditionNeverSatisfies() =
+        runTest {
+            var callCount = 0
+            val okHttpClient =
+                OkHttpClient
+                    .Builder()
+                    .addInterceptor { chain ->
+                        callCount++
+                        Response
+                            .Builder()
+                            .request(chain.request())
+                            .protocol(Protocol.HTTP_1_1)
+                            .code(500)
+                            .message("Down")
+                            .body("{}".toResponseBody())
+                            .build()
+                    }.build()
+
+            val evaluator =
+                PreconditionEvaluator(
+                    context = null,
+                    okHttpClient = okHttpClient,
+                    delayDuration = { /* fast test execution */ },
+                )
+
+            val healthCheck =
+                Precondition.HealthCheck(
+                    id = "prec_queue_timeout_test",
+                    isEnabled = true,
+                    targetUrl = "https://backend.example.com/health",
+                    expectedStatus = 200,
+                    onFailureAction = PreconditionFailurePolicy.QUEUE,
+                    queueTimeoutMinutes = 1, // 60 seconds timeout
+                    retryIntervalSeconds = 25,
+                    retryStrategy = RetryStrategy.FIXED,
+                )
+
+            val result = evaluator.evaluate(healthCheck)
+
+            assertTrue("Result must be Failed when queue timeout reached", result is PreconditionResult.Failed)
+            val failed = result as PreconditionResult.Failed
+            assertTrue("shouldQueue must remain true on queue timeout", failed.shouldQueue)
+            assertTrue("Reason must mention queue timeout", failed.reason.contains("queue timeout"))
+            assertTrue(failed.steps.any { it.nodeName.contains("Queue Timeout Exceeded") })
         }
 }

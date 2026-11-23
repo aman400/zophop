@@ -147,15 +147,27 @@ fun FailurePolicyCard(
                     }
                 }
 
-                OutlinedTextField(
-                    value = queueTimeoutMinutes,
-                    onValueChange = onQueueTimeoutMinutesChanged,
-                    label = { Text("Queue Timeout (Minutes)") },
-                    placeholder = { Text("10") },
-                    supportingText = { Text("Max time execution will remain queued waiting for this precondition") },
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                )
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    OutlinedTextField(
+                        value = queueTimeoutMinutes,
+                        onValueChange = onQueueTimeoutMinutesChanged,
+                        label = { Text("Timeout (min)") },
+                        placeholder = { Text("10") },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                    )
+                    OutlinedTextField(
+                        value = retryIntervalSeconds,
+                        onValueChange = onRetryIntervalSecondsChanged,
+                        label = { Text("Check Interval (sec)") },
+                        placeholder = { Text("30") },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                    )
+                }
             }
 
             if (onFailureAction == "RETRY") {
@@ -180,10 +192,12 @@ fun FailurePolicyCard(
                         singleLine = true,
                     )
                 }
+            }
 
+            if (onFailureAction == "RETRY" || onFailureAction == "QUEUE") {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
-                        text = "Retry Backoff Strategy",
+                        text = if (onFailureAction == "QUEUE") "Queue Polling Strategy" else "Retry Backoff Strategy",
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -198,6 +212,17 @@ fun FailurePolicyCard(
                             label = { Text("Fixed Backoff", fontSize = 12.sp) },
                             leadingIcon =
                                 if (retryStrategy == "FIXED") {
+                                    { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(FilterChipDefaults.IconSize)) }
+                                } else {
+                                    null
+                                },
+                        )
+                        FilterChip(
+                            selected = retryStrategy == "LINEAR",
+                            onClick = { onRetryStrategyChanged("LINEAR") },
+                            label = { Text("Linear Backoff", fontSize = 12.sp) },
+                            leadingIcon =
+                                if (retryStrategy == "LINEAR") {
                                     { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(FilterChipDefaults.IconSize)) }
                                 } else {
                                     null
@@ -228,9 +253,10 @@ fun FailurePolicyCard(
                     }
                     val strategyDesc =
                         when (retryStrategy) {
-                            "EXPONENTIAL" -> "Interval doubles with each retry attempt (${retryIntervalSeconds}s, ${retryIntervalSeconds.toIntOrNull()?.times(2) ?: "2x"}s, ...)."
+                            "EXPONENTIAL" -> "Interval doubles with each attempt (${retryIntervalSeconds}s, ${retryIntervalSeconds.toIntOrNull()?.times(2) ?: "2x"}s, ...)."
+                            "LINEAR" -> "Interval scales linearly with each attempt (${retryIntervalSeconds}s, ${retryIntervalSeconds.toIntOrNull()?.times(2) ?: "2x"}s, ${retryIntervalSeconds.toIntOrNull()?.times(3) ?: "3x"}s, ...)."
                             "RANDOMIZED" -> "Applies randomized jitter up to exponential ceiling to avoid collisions."
-                            else -> "Constant wait interval (${retryIntervalSeconds}s) before every retry attempt."
+                            else -> "Constant wait interval (${retryIntervalSeconds}s) before every check attempt."
                         }
                     Text(
                         text = strategyDesc,

@@ -18,6 +18,7 @@ object PreconditionFailurePolicy {
 
 object RetryStrategy {
     const val FIXED = "FIXED"
+    const val LINEAR = "LINEAR"
     const val EXPONENTIAL = "EXPONENTIAL"
     const val RANDOMIZED = "RANDOMIZED"
 }
@@ -26,6 +27,7 @@ object RetryStrategy {
  * Calculates the retry delay in seconds based on the selected backoff strategy.
  *
  * - FIXED: Constant delay of baseIntervalSeconds on every attempt.
+ * - LINEAR: Linearly increasing delay: baseIntervalSeconds * attempt, capped at maxCapSeconds.
  * - EXPONENTIAL: baseIntervalSeconds * 2^(attempt - 1), capped at maxCapSeconds.
  * - RANDOMIZED: Full-jitter delay randomly chosen between 1 and the exponential ceiling for that attempt.
  */
@@ -44,6 +46,10 @@ fun calculateRetryDelaySeconds(
         RetryStrategy.EXPONENTIAL -> {
             val shift = (attempt - 1).coerceIn(0, 10)
             (base.toLong() * (1 shl shift)).coerceIn(1L, cap.toLong()).toInt()
+        }
+        RetryStrategy.LINEAR -> {
+            val att = attempt.coerceAtLeast(1)
+            (base.toLong() * att).coerceIn(1L, cap.toLong()).toInt()
         }
         RetryStrategy.RANDOMIZED -> {
             val shift = (attempt - 1).coerceIn(0, 10)
