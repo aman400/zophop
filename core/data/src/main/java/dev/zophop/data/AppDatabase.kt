@@ -76,9 +76,51 @@ val MIGRATION_3_4 =
         }
     }
 
+val MIGRATION_4_5 =
+    object : Migration(4, 5) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            val cursor = db.query("PRAGMA table_info(`preconditions`)")
+            val existingColumns = mutableSetOf<String>()
+            cursor.use {
+                val nameIndex = it.getColumnIndex("name")
+                while (it.moveToNext()) {
+                    if (nameIndex != -1) {
+                        existingColumns.add(it.getString(nameIndex))
+                    }
+                }
+            }
+            if ("minBatteryPercent" !in existingColumns) {
+                db.execSQL("ALTER TABLE `preconditions` ADD COLUMN `minBatteryPercent` INTEGER NOT NULL DEFAULT 15")
+            }
+            if ("requireCharging" !in existingColumns) {
+                db.execSQL("ALTER TABLE `preconditions` ADD COLUMN `requireCharging` INTEGER NOT NULL DEFAULT 0")
+            }
+            if ("retryStrategy" !in existingColumns) {
+                db.execSQL("ALTER TABLE `preconditions` ADD COLUMN `retryStrategy` TEXT NOT NULL DEFAULT 'FIXED'")
+            }
+            if ("queueTimeoutMinutes" !in existingColumns) {
+                db.execSQL("ALTER TABLE `preconditions` ADD COLUMN `queueTimeoutMinutes` INTEGER NOT NULL DEFAULT 10")
+            }
+        }
+    }
+
+val ALL_MIGRATIONS =
+    arrayOf(
+        MIGRATION_1_2,
+        MIGRATION_2_3,
+        MIGRATION_3_4,
+        MIGRATION_4_5,
+    )
+
 @Database(
-    entities = [MessageEntity::class, WorkflowEntity::class, WorkflowExecutionLogEntity::class, CredentialEntity::class, PreconditionEntity::class],
-    version = 4,
+    entities = [
+        MessageEntity::class,
+        WorkflowEntity::class,
+        WorkflowExecutionLogEntity::class,
+        CredentialEntity::class,
+        PreconditionEntity::class,
+    ],
+    version = 5,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -101,7 +143,12 @@ abstract class AppDatabase : RoomDatabase() {
                         context.applicationContext,
                         AppDatabase::class.java,
                         "zophop_db",
-                    ).fallbackToDestructiveMigration(false)
+                    ).addMigrations(
+                        MIGRATION_1_2,
+                        MIGRATION_2_3,
+                        MIGRATION_3_4,
+                        MIGRATION_4_5,
+                    ).fallbackToDestructiveMigrationOnDowngrade(true)
                         .build()
                 INSTANCE = instance
                 instance
