@@ -1,10 +1,40 @@
 package dev.zophop.ui.workflows
 
+import dev.zophop.plugin.api.NodePluginManifest
 import java.util.regex.Pattern
 import java.util.regex.PatternSyntaxException
 
 object NodeConfigValidator {
     fun validateNodeConfig(
+        nodeType: String,
+        config: Map<String, String>,
+        manifest: NodePluginManifest? = null,
+    ): String? {
+        val schemaError = validateAgainstSchema(config, manifest)
+        if (schemaError != null) return schemaError
+
+        return validateByTypeFallback(nodeType, config)
+    }
+
+    private fun validateAgainstSchema(
+        config: Map<String, String>,
+        manifest: NodePluginManifest?,
+    ): String? {
+        if (manifest == null) return null
+        for (field in manifest.configSchema) {
+            if (field.isTestField) continue
+            val value = config[field.key]?.trim() ?: ""
+            if ((field.key == "url" || field.key == "serverUrl") && value.isNotBlank()) {
+                val isHttp = value.startsWith("http://", ignoreCase = true) || value.startsWith("https://", ignoreCase = true)
+                if (!isHttp) {
+                    return "URL must start with http:// or https://."
+                }
+            }
+        }
+        return null
+    }
+
+    private fun validateByTypeFallback(
         nodeType: String,
         config: Map<String, String>,
     ): String? =

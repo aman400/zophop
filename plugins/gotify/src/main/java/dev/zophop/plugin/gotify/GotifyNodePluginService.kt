@@ -55,7 +55,9 @@ object GotifyPluginModule : NodePluginModule {
                 displayName = "Gotify Push Action",
                 description = "Sends payload to a Gotify push server",
                 category = NodeCategory.ACTION,
+                iconResName = "ic_node_gotify",
                 requiredCredentialType = "GOTIFY_AUTH",
+                defaultConfigJson = """{"serverUrl":"https://gotify.example.com","priority":"5","title":"ZopHop Notification","template":"${'$'}{body}"}""",
                 credentialSpec =
                     CredentialSpec(
                         typeId = "GOTIFY_AUTH",

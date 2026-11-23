@@ -206,6 +206,28 @@ class MainViewModel(
                 initialValue = emptyList(),
             )
 
+    val queuedMessages: StateFlow<List<MessageEntity>> =
+        db
+            .messageDao()
+            .getQueuedMessagesFlow()
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000),
+                initialValue = emptyList(),
+            )
+
+    fun processQueueNow() {
+        viewModelScope.launch(Dispatchers.IO) {
+            forwardingManager.processPendingQueue()
+        }
+    }
+
+    fun deleteQueuedMessage(id: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            db.messageDao().deleteMessage(id)
+        }
+    }
+
     init {
         loadSettings()
         checkPermissionsAndStatus()
@@ -631,7 +653,7 @@ class MainViewModel(
                         status =
                             when (result) {
                                 is WorkflowExecutionResult.Success -> "SUCCESS"
-                                is WorkflowExecutionResult.PreconditionFailed -> "PRECONDITION_FAILED"
+                                is WorkflowExecutionResult.PreconditionFailed -> if (result.shouldQueue) "QUEUED" else "PRECONDITION_FAILED"
                                 is WorkflowExecutionResult.Failed -> "FAILED"
                                 is WorkflowExecutionResult.Cancelled -> "CANCELLED"
                             },

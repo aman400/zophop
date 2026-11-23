@@ -68,6 +68,12 @@ android {
         unitTests.isReturnDefaultValues = true
         unitTests.isIncludeAndroidResources = true
     }
+
+    packaging {
+        resources {
+            merges += "META-INF/services/dev.zophop.plugin.api.NodePluginModule"
+        }
+    }
 }
 
 androidComponents {

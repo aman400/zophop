@@ -15,6 +15,7 @@ import dev.zophop.domain.engine.plugin.CoreEngineNodesModule
 import dev.zophop.domain.model.Precondition
 import dev.zophop.domain.model.PreconditionType
 import dev.zophop.domain.model.Workflow
+import dev.zophop.domain.model.calculateRetryDelaySeconds
 import dev.zophop.plugin.api.ExecutionContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -37,6 +38,7 @@ sealed class PreconditionResult {
     data class Failed(
         val reason: String,
         val steps: List<NodeExecutionStep> = emptyList(),
+        val shouldQueue: Boolean = false,
     ) : PreconditionResult()
 }
 
@@ -48,6 +50,10 @@ open class PreconditionEvaluator(
             .connectTimeout(5, TimeUnit.SECONDS)
             .readTimeout(5, TimeUnit.SECONDS)
             .build(),
+    private val delayDuration: suspend (kotlin.time.Duration) -> Unit = { kotlinx.coroutines.delay(it) },
+    private val randomGenerator: (min: Int, max: Int) -> Int = { min, max ->
+        if (min >= max) min else kotlin.random.Random.nextInt(min, max + 1)
+    },
 ) {
     open suspend fun evaluateAll(
         preconditions: List<Precondition>,
@@ -75,7 +81,11 @@ open class PreconditionEvaluator(
                     is PreconditionResult.Failed -> {
                         accumulatedSteps.addAll(result.steps)
                         onStepUpdate?.invoke(accumulatedSteps.toList())
-                        return@withContext PreconditionResult.Failed(result.reason, steps = accumulatedSteps.toList())
+                        return@withContext PreconditionResult.Failed(
+                            reason = result.reason,
+                            steps = accumulatedSteps.toList(),
+                            shouldQueue = result.shouldQueue,
+                        )
                     }
                 }
             }
@@ -124,16 +134,25 @@ open class PreconditionEvaluator(
             val nextStack = callStack + precKey
             var result = evaluateSingleAttempt(precondition, nextStack, onStepUpdate)
 
+            val isQueuePolicy = precondition.onFailureAction.trim().contains("QUEUE", ignoreCase = true)
             val isRetryPolicy = precondition.onFailureAction.trim().contains("RETRY", ignoreCase = true)
             if (result is PreconditionResult.Failed && isRetryPolicy && precondition.maxRetries > 0) {
                 val maxRetries = precondition.maxRetries
-                val intervalSec = precondition.retryIntervalSeconds.coerceAtLeast(1)
+                val baseIntervalSec = precondition.retryIntervalSeconds.coerceAtLeast(1)
 
                 // Keep failed attempt steps intact as FAILED so they render red as earlier
                 val historySteps = result.steps.toMutableList()
 
                 for (attempt in 1..maxRetries) {
                     ensureActive()
+
+                    val intervalSec =
+                        calculateRetryDelaySeconds(
+                            strategy = precondition.retryStrategy,
+                            baseIntervalSeconds = baseIntervalSec,
+                            attempt = attempt,
+                            randomGenerator = randomGenerator,
+                        )
 
                     // Second-by-second live countdown ticker
                     for (sec in intervalSec downTo 1) {
@@ -144,12 +163,12 @@ open class PreconditionEvaluator(
                                 nodeName = "⏳ Retrying ($attempt/$maxRetries)",
                                 nodeType = CoreEngineNodesModule.HTTP_ACTION,
                                 state = NodeStepState.EXECUTING,
-                                logMessage = "Precondition check failed. Waiting ${sec}s remaining before attempt #${attempt + 1}/${maxRetries + 1}...",
+                                logMessage = "Precondition check failed (${precondition.retryStrategy} backoff). Waiting ${sec}s remaining before attempt #${attempt + 1}/${maxRetries + 1}...",
                             )
                         val currentProgress = historySteps + retryNoticeStep
                         onStepUpdate?.invoke(currentProgress)
 
-                        kotlinx.coroutines.delay(1000L.milliseconds)
+                        delayDuration(1000L.milliseconds)
                     }
 
                     ensureActive()
@@ -177,6 +196,26 @@ open class PreconditionEvaluator(
                         onStepUpdate?.invoke(historySteps.toList())
                     }
                 }
+            }
+
+            if (result is PreconditionResult.Failed && isQueuePolicy) {
+                val queueReason = "Precondition check failed (${result.reason}). Queued for background resolution."
+                val queueStep =
+                    NodeExecutionStep(
+                        nodeId = "queue_policy_${precondition.id.ifBlank { precondition.type.name }}",
+                        nodeName = "⏸️ Queued For Resolution",
+                        nodeType = CoreEngineNodesModule.CONDITION,
+                        state = NodeStepState.EXECUTING,
+                        logMessage = queueReason,
+                    )
+                val updatedSteps = result.steps + queueStep
+                onStepUpdate?.invoke(updatedSteps)
+                result =
+                    PreconditionResult.Failed(
+                        reason = result.reason,
+                        steps = updatedSteps,
+                        shouldQueue = true,
+                    )
             }
 
             if (result is PreconditionResult.Failed && precondition.showNotificationOnFailure) {
@@ -643,6 +682,7 @@ open class PreconditionEvaluator(
         is WorkflowExecutionResult.PreconditionFailed -> PreconditionResult.Failed(
             reason = "Chained check failed at node '${result.nodeName}': ${result.reason}",
             steps = capturedSteps,
+            shouldQueue = result.shouldQueue,
         )
         is WorkflowExecutionResult.Failed -> PreconditionResult.Failed(
             reason = "Chained execution failed: ${result.reason}",

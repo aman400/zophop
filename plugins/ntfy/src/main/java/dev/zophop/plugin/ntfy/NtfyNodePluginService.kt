@@ -55,7 +55,9 @@ object NtfyPluginModule : NodePluginModule {
                 displayName = "ntfy Push Action",
                 description = "Sends payload to a ntfy.sh or self-hosted server",
                 category = NodeCategory.ACTION,
+                iconResName = "ic_node_ntfy",
                 requiredCredentialType = "NTFY_AUTH",
+                defaultConfigJson = """{"serverUrl":"https://ntfy.sh","topic":"my-topic","priority":"3","title":"ZopHop Notification","template":"${'$'}{body}"}""",
                 credentialSpec =
                     CredentialSpec(
                         typeId = "NTFY_AUTH",

@@ -145,12 +145,15 @@ class CallNodePluginService : Service() {
                 }
 
             private fun performDisconnect(callerNumber: String): String {
-                val telecomManager = getSystemService(TELECOM_SERVICE) as TelecomManager
+                val telecomManager = getSystemService(TELECOM_SERVICE) as? TelecomManager
                 val endSuccess =
-                    try {
-                        telecomManager.endCall()
-                        true
-                    } catch (_: SecurityException) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && telecomManager != null) {
+                        try {
+                            telecomManager.endCall()
+                        } catch (_: SecurityException) {
+                            false
+                        }
+                    } else {
                         false
                     }
 
@@ -173,8 +176,6 @@ class CallNodePluginService : Service() {
 
             private fun validateAnswerPrerequisites(): String? =
                 when {
-                    Build.VERSION.SDK_INT < Build.VERSION_CODES.O ->
-                        "Answering call requires Android 8.0+ (API 26)"
                     checkSelfPermission(Manifest.permission.ANSWER_PHONE_CALLS) != PackageManager.PERMISSION_GRANTED ->
                         "ANSWER_PHONE_CALLS permission not granted in Call Plugin App"
                     else ->

@@ -97,12 +97,11 @@ abstract class AppDatabase : RoomDatabase() {
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 val instance =
-                    Room
-                        .databaseBuilder(
-                            context.applicationContext,
-                            AppDatabase::class.java,
-                            "zophop_db",
-                        ).fallbackToDestructiveMigration()
+                    Room.databaseBuilder(
+                        context.applicationContext,
+                        AppDatabase::class.java,
+                        "zophop_db",
+                    ).fallbackToDestructiveMigration(false)
                         .build()
                 INSTANCE = instance
                 instance

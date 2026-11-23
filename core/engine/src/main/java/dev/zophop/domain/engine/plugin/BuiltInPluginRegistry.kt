@@ -6,7 +6,6 @@ import dev.zophop.plugin.api.NodeExecutor
 import dev.zophop.plugin.api.NodePluginManifest
 import dev.zophop.plugin.api.NodePluginModule
 import okhttp3.OkHttpClient
-import java.util.Locale
 import java.util.ServiceLoader
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -32,38 +31,76 @@ object BuiltInPluginRegistry {
 
     fun getRegisteredModules(): List<NodePluginModule> = registeredModules.toList()
 
+    fun discoverBundledModules() {
+        discoverAndRegisterBundledModules()
+    }
+
     private fun discoverAndRegisterBundledModules() {
-        try {
-            val loader = ServiceLoader.load(NodePluginModule::class.java, NodePluginModule::class.java.classLoader)
-            for (module in loader) {
-                registerModule(module)
+        val loaders = listOfNotNull(
+            Thread.currentThread().contextClassLoader,
+            BuiltInPluginRegistry::class.java.classLoader,
+            NodePluginModule::class.java.classLoader,
+            ClassLoader.getSystemClassLoader(),
+        ).distinct()
+
+        for (classLoader in loaders) {
+            try {
+                val loader = ServiceLoader.load(NodePluginModule::class.java, classLoader)
+                for (module in loader) {
+                    registerModule(module)
+                }
+            } catch (_: java.util.ServiceConfigurationError) {
+            } catch (_: LinkageError) {
             }
-        } catch (_: java.util.ServiceConfigurationError) {
-        } catch (_: LinkageError) {
         }
 
-        val pluginNames = listOf("sms", "ntfy", "gotify", "gps", "call", "notification", "telegram")
-        for (name in pluginNames) {
-            val module = loadBundledModule(name)
-            if (module != null) {
-                registerModule(module)
-            }
+        discoverViaMetaInfServices(loaders)
+    }
+
+    private fun discoverViaMetaInfServices(loaders: List<ClassLoader>) {
+        val serviceResource = "META-INF/services/dev.zophop.plugin.api.NodePluginModule"
+        for (loader in loaders) {
+            readServiceResourceLines(loader, serviceResource)
         }
     }
 
-    private fun loadBundledModule(name: String): NodePluginModule? {
-        val capitalized = name.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
-        val className = "dev.zophop.plugin.$name.${capitalized}PluginModule"
-        return try {
-            val clazz = Class.forName(className)
-            val instance = resolveSingletonInstance(clazz)
-            instance as? NodePluginModule
+    private fun readServiceResourceLines(loader: ClassLoader, resource: String) {
+        try {
+            val urls = loader.getResources(resource)
+            while (urls.hasMoreElements()) {
+                val url = urls.nextElement()
+                parseServiceUrl(url, loader)
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun parseServiceUrl(url: java.net.URL, loader: ClassLoader) {
+        try {
+            url.openStream()?.bufferedReader()?.useLines { lines ->
+                for (rawLine in lines) {
+                    val line = rawLine.substringBefore('#').trim()
+                    if (line.isNotEmpty()) {
+                        val module = tryLoadModuleClass(line, loader)
+                        if (module != null) {
+                            registerModule(module)
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun tryLoadModuleClass(className: String, loader: ClassLoader): NodePluginModule? =
+        try {
+            val clazz = Class.forName(className, true, loader)
+            resolveSingletonInstance(clazz) as? NodePluginModule
         } catch (_: ClassNotFoundException) {
             null
         } catch (_: LinkageError) {
             null
         }
-    }
 
     private fun resolveSingletonInstance(clazz: Class<*>): Any? = try {
         clazz.getField("INSTANCE").get(null)

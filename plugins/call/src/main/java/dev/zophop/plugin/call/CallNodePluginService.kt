@@ -112,12 +112,16 @@ private fun executeTelecomDisconnect(
     ctx: Context,
     context: ExecutionContext,
 ): NodeExecutionResult {
-    val telecomManager = ctx.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
+    val telecomManager = ctx.getSystemService(Context.TELECOM_SERVICE) as? TelecomManager
+        ?: return NodeExecutionResult.Failed("TelecomManager unavailable")
     val endSuccess =
-        try {
-            telecomManager.endCall()
-            true
-        } catch (_: SecurityException) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            try {
+                telecomManager.endCall()
+            } catch (_: SecurityException) {
+                false
+            }
+        } else {
             false
         }
 
@@ -125,7 +129,10 @@ private fun executeTelecomDisconnect(
     return if (endSuccess) {
         NodeExecutionResult.Success(logMessage = "Disconnected incoming call")
     } else {
-        NodeExecutionResult.Failed("Failed to end call")
+        NodeExecutionResult.Failed(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) "Failed to end call"
+            else "Ending calls via TelecomManager requires Android 9.0 (API 28) or higher",
+        )
     }
 }
 
@@ -147,8 +154,6 @@ class AnswerCallExecutor : NodeExecutor {
 
 private fun validateAnswerPrerequisites(ctx: Context): String? =
     when {
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.O ->
-            "Answering call requires Android 8.0+ (API 26)"
         ContextCompat.checkSelfPermission(
             ctx,
             Manifest.permission.ANSWER_PHONE_CALLS,
@@ -203,10 +208,12 @@ object CallPluginModule : NodePluginModule {
                 displayName = "Incoming Call Trigger",
                 description = "Triggers when an incoming phone call is received",
                 category = NodeCategory.TRIGGER,
+                iconResName = "ic_node_call",
                 requiredPermissions = listOf(Manifest.permission.READ_PHONE_STATE),
                 setupActivity = "dev.zophop.plugin.call.SetupActivity",
                 triggerTestPayload = """{"caller_number":"+15559876543","sender":"+15559876543"}""",
                 outputVariables = listOf("caller_number", "sender", "header"),
+                defaultConfigJson = """{"callerRegex":".*"}""",
                 configSchema =
                     listOf(
                         ConfigFieldSpec.TextField(
@@ -221,6 +228,7 @@ object CallPluginModule : NodePluginModule {
                 displayName = "Disconnect Call Action",
                 description = "Rejects or disconnects an incoming phone call",
                 category = NodeCategory.ACTION,
+                iconResName = "ic_node_call",
                 requiredPermissions = listOf(Manifest.permission.ANSWER_PHONE_CALLS),
                 setupActivity = "dev.zophop.plugin.call.SetupActivity",
                 supportedTriggerTypes = listOf("dev.zophop.plugin.call.CALL_TRIGGER"),
@@ -231,6 +239,7 @@ object CallPluginModule : NodePluginModule {
                 displayName = "Answer Call Action",
                 description = "Answers an incoming phone call in speakerphone/hands-free mode",
                 category = NodeCategory.ACTION,
+                iconResName = "ic_node_call",
                 requiredPermissions = listOf(Manifest.permission.ANSWER_PHONE_CALLS),
                 setupActivity = "dev.zophop.plugin.call.SetupActivity",
                 supportedTriggerTypes = listOf("dev.zophop.plugin.call.CALL_TRIGGER"),
@@ -327,12 +336,15 @@ class CallNodePluginService : Service() {
                 }
 
             private fun performServiceDisconnect(callerNumber: String): String {
-                val telecomManager = getSystemService(TELECOM_SERVICE) as TelecomManager
+                val telecomManager = getSystemService(TELECOM_SERVICE) as? TelecomManager
                 val endSuccess =
-                    try {
-                        telecomManager.endCall()
-                        true
-                    } catch (_: SecurityException) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && telecomManager != null) {
+                        try {
+                            telecomManager.endCall()
+                        } catch (_: SecurityException) {
+                            false
+                        }
+                    } else {
                         false
                     }
 
@@ -355,8 +367,6 @@ class CallNodePluginService : Service() {
 
             private fun validateServiceAnswer(): String? =
                 when {
-                    Build.VERSION.SDK_INT < Build.VERSION_CODES.O ->
-                        "Answering call requires Android 8.0+ (API 26)"
                     checkSelfPermission(Manifest.permission.ANSWER_PHONE_CALLS) != PackageManager.PERMISSION_GRANTED ->
                         "ANSWER_PHONE_CALLS permission not granted in Call Plugin App"
                     else ->

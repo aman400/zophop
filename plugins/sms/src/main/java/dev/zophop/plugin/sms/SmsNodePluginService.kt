@@ -62,9 +62,11 @@ object SmsPluginModule : NodePluginModule {
                 displayName = "SMS Trigger",
                 description = "Triggers workflow when an incoming SMS matches filters",
                 category = NodeCategory.TRIGGER,
+                iconResName = "ic_node_sms_trigger",
                 requiredPermissions = listOf(Manifest.permission.RECEIVE_SMS),
                 triggerTestPayload = """{"sender":"VM-HDFCBK","header":"VM-HDFCBK","body":"HDFC Bank: OTP for transaction of Rs 1,250 is 482910."}""",
                 outputVariables = listOf("sender", "body", "header", "text"),
+                defaultConfigJson = """{"allowlist":".*","keywordRegex":".*"}""",
                 configSchema =
                     listOf(
                         ConfigFieldSpec.TextField(
@@ -98,7 +100,9 @@ object SmsPluginModule : NodePluginModule {
                 displayName = "Send SMS Action",
                 description = "Sends an outbound SMS text message via mobile SIM",
                 category = NodeCategory.ACTION,
+                iconResName = "ic_node_send_sms",
                 requiredPermissions = listOf(Manifest.permission.SEND_SMS),
+                defaultConfigJson = """{"recipient":"","body":"${'$'}{body}"}""",
                 configSchema =
                     listOf(
                         ConfigFieldSpec.TextField(

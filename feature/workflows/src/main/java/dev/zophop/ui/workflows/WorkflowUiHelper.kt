@@ -53,13 +53,25 @@ data class PermissionInstructionData(
 )
 
 object WorkflowUiHelper {
-    fun getNodeTitle(type: String): String {
-        val manifest = BuiltInPluginRegistry.getBuiltInManifestByTypeId(type)
-        if (manifest != null) return manifest.displayName
+    fun getNodeTitle(
+        type: String,
+        manifest: NodePluginManifest? = null,
+    ): String {
+        val resolved = manifest ?: BuiltInPluginRegistry.getBuiltInManifestByTypeId(type)
+        if (resolved != null) return resolved.displayName
         return type.substringAfterLast(".").replace("_", " ")
     }
 
-    fun getDefaultConfigForType(type: String): String =
+    fun getDefaultConfigForType(
+        type: String,
+        manifest: NodePluginManifest? = null,
+    ): String {
+        val resolved = manifest ?: BuiltInPluginRegistry.getBuiltInManifestByTypeId(type)
+        if (resolved?.defaultConfigJson != null) return resolved.defaultConfigJson!!
+        return getLegacyDefaultConfig(type)
+    }
+
+    private fun getLegacyDefaultConfig(type: String): String =
         when {
             type.contains("INTERNET_CHECK", ignoreCase = true) ->
                 JSONObject()
@@ -192,9 +204,12 @@ object WorkflowUiHelper {
             else -> "{}"
         }
 
-    fun getNodeDescription(type: String): String {
-        val manifest = BuiltInPluginRegistry.getBuiltInManifestByTypeId(type)
-        if (manifest != null) return manifest.description
+    fun getNodeDescription(
+        type: String,
+        manifest: NodePluginManifest? = null,
+    ): String {
+        val resolved = manifest ?: BuiltInPluginRegistry.getBuiltInManifestByTypeId(type)
+        if (resolved != null) return resolved.description
         return "Plugin provided workflow step ($type)"
     }
 
@@ -202,7 +217,10 @@ object WorkflowUiHelper {
         nodeType: String,
         manifest: NodePluginManifest? = null,
     ): Boolean {
-        if (manifest?.category == NodeCategory.LOGIC) return true
+        val resolved = manifest ?: BuiltInPluginRegistry.getBuiltInManifestByTypeId(nodeType)
+        if (resolved != null) {
+            return resolved.category == NodeCategory.LOGIC
+        }
         val upper = nodeType.uppercase()
         return upper.contains("CONDITION") ||
             upper.contains("CHECK") ||
@@ -215,7 +233,48 @@ object WorkflowUiHelper {
             upper == NodeType.BATTERY_CHECK
     }
 
-    fun getNodeIcon(type: String): ImageVector =
+    fun getNodeIcon(
+        type: String,
+        manifest: NodePluginManifest? = null,
+    ): ImageVector {
+        val resolved = manifest ?: BuiltInPluginRegistry.getBuiltInManifestByTypeId(type)
+        return if (resolved != null) {
+            getIconForResName(resolved.iconResName) ?: when (resolved.category) {
+                NodeCategory.TRIGGER -> Icons.Default.PlayArrow
+                NodeCategory.LOGIC -> Icons.AutoMirrored.Filled.Rule
+                NodeCategory.EXTRACTION -> Icons.Default.Transform
+                NodeCategory.ACTION -> Icons.Default.Http
+            }
+        } else {
+            getLegacyNodeIcon(type)
+        }
+    }
+
+    private fun getIconForResName(resName: String): ImageVector? =
+        when (resName) {
+            "ic_node_vpn" -> Icons.Default.VpnKey
+            "ic_node_gps" -> Icons.Default.LocationOn
+            "ic_node_internet" -> Icons.Default.Wifi
+            "ic_node_bluetooth" -> Icons.Default.Bluetooth
+            "ic_node_sim" -> Icons.Default.PhoneAndroid
+            "ic_node_battery" -> Icons.Default.BatteryChargingFull
+            "ic_node_call" -> Icons.Default.Call
+            "ic_node_sms_trigger", "ic_node_send_sms" -> Icons.Default.Sms
+            "ic_node_cron_trigger" -> Icons.Default.Schedule
+            "ic_node_manual_trigger" -> Icons.Default.PlayArrow
+            "ic_node_parse_notification" -> Icons.Default.Transform
+            "ic_node_regex_parser" -> Icons.Default.Code
+            "ic_node_json_parser" -> Icons.Default.DataObject
+            "ic_node_template_formatter" -> Icons.Default.Transform
+            "ic_node_condition" -> Icons.AutoMirrored.Filled.Rule
+            "ic_node_http_action" -> Icons.Default.Http
+            "ic_node_notification_trigger", "ic_node_send_notification" -> Icons.Default.Notifications
+            "ic_node_ntfy" -> Icons.Default.DeviceHub
+            "ic_node_gotify" -> Icons.Default.NotificationImportant
+            else -> null
+        }
+
+    private fun getLegacyNodeIcon(type: String): ImageVector =
         when {
             type.contains("SMS_TRIGGER", ignoreCase = true) -> Icons.Default.Call
             type.contains("CALL_TRIGGER", ignoreCase = true) -> Icons.Default.Call
@@ -275,7 +334,7 @@ object WorkflowUiHelper {
             try {
                 val parsed = parseChainedPipelineSummary(pipelineJson)
                 if (parsed != null) return parsed
-            } catch (ignored: Exception) {
+            } catch (_: Exception) {
             }
         }
         return getPreconditionIcon(type) to getPreconditionTitle(type)
@@ -348,6 +407,16 @@ object WorkflowUiHelper {
         nodeType: String,
         manifest: NodePluginManifest? = null,
     ): List<String> {
+        val resolved = manifest ?: BuiltInPluginRegistry.getBuiltInManifestByTypeId(nodeType)
+        return when {
+            resolved != null && resolved.requiredPermissions.isNotEmpty() -> resolved.requiredPermissions
+            manifest?.requiredPermissions != null ->
+                (getLegacyRequiredPermissions(nodeType) + manifest.requiredPermissions).distinct()
+            else -> getLegacyRequiredPermissions(nodeType)
+        }
+    }
+
+    private fun getLegacyRequiredPermissions(nodeType: String): List<String> {
         val perms = mutableListOf<String>()
         when {
             nodeType.contains("NOTIFICATION_TRIGGER", ignoreCase = true) -> {
@@ -385,9 +454,6 @@ object WorkflowUiHelper {
                 nodeType.contains("DISCONNECT_CALL_ACTION", ignoreCase = true) -> {
                 perms.add(Manifest.permission.ANSWER_PHONE_CALLS)
             }
-        }
-        manifest?.requiredPermissions?.let {
-            perms.addAll(it)
         }
         return perms.distinct()
     }
@@ -436,13 +502,6 @@ object WorkflowUiHelper {
         return missing
     }
 
-    fun isPermissionMissing(
-        context: Context,
-        nodeType: String,
-        manifest: NodePluginManifest? = null,
-        pluginPackage: String? = null,
-    ): Boolean = getMissingPermissions(context, nodeType, manifest, pluginPackage).isNotEmpty()
-
     fun getMissingPermissionSummary(
         context: Context,
         nodeType: String,
@@ -469,69 +528,6 @@ object WorkflowUiHelper {
             missing.contains(Manifest.permission.ANSWER_PHONE_CALLS) -> "Call control permission required"
             pluginPackage != null -> "Plugin permission required"
             else -> "${missing.map { it.substringAfterLast('.') }.firstOrNull()?.replace('_', ' ') ?: "Permission"} required"
-        }
-    }
-
-    fun getMissingPermissionBanner(
-        context: Context,
-        nodeType: String,
-        manifest: NodePluginManifest? = null,
-        pluginPackage: String? = null,
-    ): Pair<String, String>? {
-        val missing = getMissingPermissions(context, nodeType, manifest, pluginPackage)
-        if (missing.isEmpty()) return null
-
-        return when {
-            missing.contains("NOTIFICATION_LISTENER") ->
-                Pair(
-                    "⚠️ Notification Access Missing",
-                    "Workflow cannot intercept notifications until Notification Access is enabled in settings.",
-                )
-            missing.contains(Manifest.permission.RECEIVE_SMS) ->
-                Pair(
-                    "⚠️ SMS Permission Missing (RECEIVE_SMS)",
-                    "Workflow cannot intercept incoming text messages without SMS permission.",
-                )
-            missing.contains(Manifest.permission.SEND_SMS) ->
-                Pair(
-                    "⚠️ Send SMS Permission Missing (SEND_SMS)",
-                    "Sending text messages requires SEND_SMS permission.",
-                )
-            Build.VERSION.SDK_INT >= 33 && missing.contains(Manifest.permission.POST_NOTIFICATIONS) ->
-                Pair(
-                    "⚠️ Notification Permission Missing (POST_NOTIFICATIONS)",
-                    "Displaying notifications requires POST_NOTIFICATIONS permission.",
-                )
-            missing.contains(Manifest.permission.ACCESS_FINE_LOCATION) || missing.contains(Manifest.permission.ACCESS_COARSE_LOCATION) ->
-                Pair(
-                    "⚠️ Location Permission Missing (ACCESS_FINE_LOCATION)",
-                    "Retrieving GPS coordinates and status requires Location permission.",
-                )
-            missing.contains("android.permission.BLUETOOTH_CONNECT") || missing.contains(Manifest.permission.BLUETOOTH) ->
-                Pair(
-                    "⚠️ Bluetooth Permission Missing",
-                    "Inspecting Bluetooth status and connected devices requires Bluetooth permission.",
-                )
-            missing.contains(Manifest.permission.READ_PHONE_STATE) ->
-                Pair(
-                    "⚠️ Phone Permission Missing (READ_PHONE_STATE)",
-                    "Inspecting SIM card / incoming call status requires READ_PHONE_STATE permission.",
-                )
-            missing.contains(Manifest.permission.ANSWER_PHONE_CALLS) ->
-                Pair(
-                    "⚠️ Call Control Permission Missing (ANSWER_PHONE_CALLS)",
-                    "Answering or rejecting phone calls requires Call Control permission.",
-                )
-            pluginPackage != null ->
-                Pair(
-                    "⚠️ Plugin Permission Missing",
-                    "Node requires ${missing.joinToString(", ") { it.substringAfterLast('.') }}. Grant in Plugin App.",
-                )
-            else ->
-                Pair(
-                    "⚠️ Permission Missing",
-                    "This node requires ${missing.joinToString(", ") { it.substringAfterLast('.') }}. Grant permission to enable.",
-                )
         }
     }
 

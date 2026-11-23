@@ -154,7 +154,9 @@ object NotificationPluginModule : NodePluginModule {
                 description = "Triggers when a notification from selected apps is intercepted",
                 category = NodeCategory.TRIGGER,
                 iconResName = "ic_node_notification_trigger",
+                requiredPermissions = listOf("NOTIFICATION_LISTENER"),
                 outputVariables = listOf("package_name", "title", "text", "sender", "body"),
+                defaultConfigJson = """{"packageFilter":".*","textRegex":".*"}""",
                 configSchema =
                     listOf(
                         ConfigFieldSpec.TextField(

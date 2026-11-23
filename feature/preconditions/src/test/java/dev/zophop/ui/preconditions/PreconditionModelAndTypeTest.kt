@@ -30,6 +30,56 @@ class PreconditionModelAndTypeTest {
     }
 
     @Test
+    fun testQueuePreconditionEntityToDomain() {
+        val entity =
+            PreconditionEntity(
+                id = "test_queue",
+                name = "Test Queue Precondition",
+                type = PreconditionType.INTERNET_CHECK.name,
+                isEnabled = true,
+                onFailureAction = "QUEUE",
+                queueTimeoutMinutes = 25,
+            )
+        val domain = entity.toDomain()
+        assertTrue(domain is Precondition.InternetCheck)
+        assertEquals("QUEUE", domain.onFailureAction)
+        assertEquals(25, domain.queueTimeoutMinutes)
+    }
+
+    @Test
+    fun testRetryStrategiesPreconditionEntityToDomain() {
+        val expEntity =
+            PreconditionEntity(
+                id = "test_exp",
+                name = "Exponential Backoff Check",
+                type = PreconditionType.HEALTH_CHECK.name,
+                onFailureAction = "RETRY",
+                maxRetries = 4,
+                retryIntervalSeconds = 15,
+                retryStrategy = "EXPONENTIAL",
+            )
+        val expDomain = expEntity.toDomain()
+        assertTrue(expDomain is Precondition.HealthCheck)
+        assertEquals("EXPONENTIAL", expDomain.retryStrategy)
+        assertEquals(4, expDomain.maxRetries)
+        assertEquals(15, expDomain.retryIntervalSeconds)
+
+        val randEntity =
+            PreconditionEntity(
+                id = "test_rand",
+                name = "Randomized Backoff Check",
+                type = PreconditionType.BATTERY_CHECK.name,
+                onFailureAction = "RETRY",
+                maxRetries = 3,
+                retryIntervalSeconds = 10,
+                retryStrategy = "RANDOMIZED",
+            )
+        val randDomain = randEntity.toDomain()
+        assertTrue(randDomain is Precondition.BatteryCheck)
+        assertEquals("RANDOMIZED", randDomain.retryStrategy)
+    }
+
+    @Test
     fun testVpnPreconditionEntityToDomain() {
         val entity =
             PreconditionEntity(

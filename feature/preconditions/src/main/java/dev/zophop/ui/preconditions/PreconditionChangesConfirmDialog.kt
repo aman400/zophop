@@ -34,6 +34,8 @@ fun PreconditionChangesConfirmDialog(
     onFailureAction: String,
     maxRetries: String,
     retryIntervalSeconds: String,
+    retryStrategy: String = "FIXED",
+    queueTimeoutMinutes: String = "10",
     showNotificationOnFailure: Boolean,
     chainNodes: List<WorkflowNode>,
     linkedWorkflows: List<Workflow>,
@@ -46,6 +48,8 @@ fun PreconditionChangesConfirmDialog(
         onFailureAction != (precondition?.onFailureAction ?: "FAIL_IMMEDIATELY") ||
             maxRetries != (precondition?.maxRetries?.toString() ?: "3") ||
             retryIntervalSeconds != (precondition?.retryIntervalSeconds?.toString() ?: "30") ||
+            retryStrategy != (precondition?.retryStrategy ?: "FIXED") ||
+            queueTimeoutMinutes != (precondition?.queueTimeoutMinutes?.toString() ?: "10") ||
             showNotificationOnFailure != (precondition?.showNotificationOnFailure ?: false)
     val originalChainIds = (precondition?.toDomain() as? Precondition.ChainCheck)?.nodes?.map { it.id }?.toSet() ?: emptySet()
     val currentChainIds = chainNodes.map { it.id }.toSet()
@@ -76,6 +80,8 @@ fun PreconditionChangesConfirmDialog(
                     onFailureAction = onFailureAction,
                     maxRetries = maxRetries,
                     retryIntervalSeconds = retryIntervalSeconds,
+                    retryStrategy = retryStrategy,
+                    queueTimeoutMinutes = queueTimeoutMinutes,
                     showNotificationOnFailure = showNotificationOnFailure,
                     addedSteps = addedSteps,
                     removedSteps = removedSteps,
@@ -144,6 +150,8 @@ private fun PreconditionChangesSummaryList(
     onFailureAction: String,
     maxRetries: String,
     retryIntervalSeconds: String,
+    retryStrategy: String,
+    queueTimeoutMinutes: String,
     showNotificationOnFailure: Boolean,
     addedSteps: List<WorkflowNode>,
     removedSteps: List<WorkflowNode>,
@@ -158,8 +166,13 @@ private fun PreconditionChangesSummaryList(
     if (retryPolicyChanged) {
         Text("• Failure & Retry Policy updated:", fontWeight = FontWeight.Bold)
         Text("  - Action: $onFailureAction (was ${precondition?.onFailureAction ?: "FAIL_IMMEDIATELY"})")
-        Text("  - Max Retries: $maxRetries (was ${precondition?.maxRetries ?: 3})")
-        Text("  - Retry Interval: ${retryIntervalSeconds}s (was ${precondition?.retryIntervalSeconds ?: 30}s)")
+        if (onFailureAction == "QUEUE") {
+            Text("  - Queue Timeout: ${queueTimeoutMinutes}m (was ${precondition?.queueTimeoutMinutes ?: 10}m)")
+        } else if (onFailureAction == "RETRY") {
+            Text("  - Max Retries: $maxRetries (was ${precondition?.maxRetries ?: 3})")
+            Text("  - Retry Interval: ${retryIntervalSeconds}s (was ${precondition?.retryIntervalSeconds ?: 30}s)")
+            Text("  - Backoff Strategy: $retryStrategy (was ${precondition?.retryStrategy ?: "FIXED"})")
+        }
         Text("  - Notification Alert: $showNotificationOnFailure (was ${precondition?.showNotificationOnFailure ?: false})")
     }
     if (addedSteps.isNotEmpty()) {

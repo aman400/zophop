@@ -86,7 +86,12 @@ data class NodePluginManifest(
     val configSchema: List<ConfigFieldSpec> = emptyList(),
     val supportedTriggerTypes: List<String> = emptyList(),
     val outputVariables: List<String> = emptyList(),
+    val supportsCredentials: Boolean = false,
+    val defaultConfigJson: String? = null,
 ) : Parcelable {
+    fun isCredentialSupported(): Boolean =
+        supportsCredentials || requiredCredentialType != null || credentialSpec != null
+
     fun isTriggerNode(): Boolean = (category == NodeCategory.TRIGGER)
 
     fun isRegularNode(): Boolean = (category != NodeCategory.TRIGGER)

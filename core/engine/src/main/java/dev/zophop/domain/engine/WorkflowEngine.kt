@@ -22,6 +22,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
+import kotlin.time.Duration.Companion.milliseconds
 
 private const val TAG = "WorkflowEngine"
 
@@ -41,6 +42,7 @@ sealed class WorkflowExecutionResult {
         val reason: String,
         val logs: List<String>,
         override val steps: List<NodeExecutionStep> = emptyList(),
+        val shouldQueue: Boolean = false,
     ) : WorkflowExecutionResult()
 
     data class Failed(
@@ -401,7 +403,7 @@ open class WorkflowEngine(
             "Executing step: '${currentNode.name}'",
             isFinished = false,
         )
-        delay(200)
+        delay(200.milliseconds)
 
         if (!currentNode.isEnabled) {
             logs.add("Node '${currentNode.name}' is disabled, skipping.")
@@ -445,8 +447,10 @@ open class WorkflowEngine(
 
         if (precResult is PreconditionResult.Failed) {
             val failReason = precResult.reason
-            logs.add("⏳ Precondition Failed for node '${currentNode.name}': $failReason")
-            updateStep(steps, currentNode.id, NodeStepState.FAILED, error = failReason, message = "Precondition failed: $failReason", onStepUpdate = onStepUpdate)
+            val logPrefix = if (precResult.shouldQueue) "⏸️ Precondition Queued" else "⏳ Precondition Failed"
+            logs.add("$logPrefix for node '${currentNode.name}': $failReason")
+            val stepMessage = if (precResult.shouldQueue) "Precondition queued: $failReason" else "Precondition failed: $failReason"
+            updateStep(steps, currentNode.id, NodeStepState.FAILED, error = failReason, message = stepMessage, onStepUpdate = onStepUpdate)
 
             steps.forEachIndexed { i, s ->
                 if ((s.state == NodeStepState.PENDING || s.state == NodeStepState.EXECUTING) && s.nodeId != currentNode.id) {
@@ -454,12 +458,18 @@ open class WorkflowEngine(
                 }
             }
             onStepUpdate(steps.toList())
+            val notifTitle =
+                if (precResult.shouldQueue) {
+                    "Precondition queued at '${currentNode.name}': $failReason"
+                } else {
+                    "Precondition failed at '${currentNode.name}': $failReason"
+                }
             postProgressNotification(
                 appContext,
                 context,
                 notifId,
                 workflow.name,
-                "Precondition failed at '${currentNode.name}': $failReason",
+                notifTitle,
                 isFinished = true,
                 isSuccess = false,
             )
@@ -470,6 +480,7 @@ open class WorkflowEngine(
                 reason = failReason,
                 logs = logs,
                 steps = steps.toList(),
+                shouldQueue = precResult.shouldQueue,
             )
         }
         return null

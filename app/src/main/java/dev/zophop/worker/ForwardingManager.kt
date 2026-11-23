@@ -168,8 +168,15 @@ class ForwardingManager(
             return null
         }
         if (now - current.receivedAt > expiryMillis || current.body == null) {
-            val note = if (current.body == null) null else "Expired after $expiryMinutes minutes"
+            val note = if (current.body == null) null else "Expired after $expiryMinutes minutes (Queue timeout reached)"
             messageDao.updateMessage(current.copy(status = MessageStatus.EXPIRED, body = null, errorMessage = note))
+            context?.let { ctx ->
+                SmsForwarderService.updateNotificationStatus(
+                    ctx,
+                    "⚠️ Queue Timeout Reached",
+                    "Message from ${current.sender} expired after $expiryMinutes min waiting in queue",
+                )
+            }
             return null
         }
         return current
@@ -335,11 +342,26 @@ class ForwardingManager(
             scope.launch {
                 try {
                     while (isPollingActive) {
-                        delay(10_000L) // Poll pre-conditions every 10s while messages are queued
+                        delay(10_000L.milliseconds) // Poll pre-conditions every 10s while messages are queued
                         val pending = messageDao.getPendingMessages()
                         if (pending.isEmpty()) {
                             synchronized(this@ForwardingManager) { isPollingActive = false }
+                            context?.let { SmsForwarderService.resetToDefaultStatus(it) }
                             break
+                        }
+                        val settings = settingsRepository.getSettings()
+                        val queuedCount = pending.count { it.status == MessageStatus.QUEUED }
+                        val firstQueued = pending.firstOrNull { it.status == MessageStatus.QUEUED }
+                        context?.let { ctx ->
+                            if (queuedCount > 0) {
+                                val waitingDesc = firstQueued?.errorMessage?.takeIf { it.isNotBlank() }
+                                    ?: "Waiting for preconditions to resolve"
+                                SmsForwarderService.updateNotificationStatus(
+                                    ctx,
+                                    "⏳ Pending Queue: $queuedCount waiting",
+                                    "$waitingDesc (Timeout: ${settings.expiryMinutes}m)",
+                                )
+                            }
                         }
                         processPendingQueue()
                     }

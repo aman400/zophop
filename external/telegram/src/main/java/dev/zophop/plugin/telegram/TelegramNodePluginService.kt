@@ -210,7 +210,9 @@ object TelegramPluginModule : NodePluginModule {
                 displayName = "Telegram Notification",
                 description = "Sends formatted notifications and alerts to a Telegram chat via Bot API",
                 category = NodeCategory.ACTION,
+                iconResName = "ic_node_telegram",
                 requiredCredentialType = "TELEGRAM_AUTH",
+                defaultConfigJson = """{"messageTemplate":"${'$'}{body}"}""",
                 credentialSpec =
                     CredentialSpec(
                         typeId = "TELEGRAM_AUTH",

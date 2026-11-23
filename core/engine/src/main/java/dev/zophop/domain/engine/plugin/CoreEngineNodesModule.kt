@@ -87,6 +87,7 @@ object CoreEngineNodesModule : NodePluginModule {
                 category = NodeCategory.TRIGGER,
                 iconResName = "ic_node_manual_trigger",
                 outputVariables = listOf("body", "text", "timestamp"),
+                defaultConfigJson = """{"testBody":"{\"status\":\"success\",\"message\":\"Manual test execution\"}"}""",
                 configSchema =
                     listOf(
                         ConfigFieldSpec.CodeTemplateField(
@@ -104,6 +105,7 @@ object CoreEngineNodesModule : NodePluginModule {
                 category = NodeCategory.TRIGGER,
                 iconResName = "ic_node_cron_trigger",
                 outputVariables = listOf("body", "text", "sender", "timestamp"),
+                defaultConfigJson = """{"cronExpression":"every 30m"}""",
                 configSchema =
                     listOf(
                         ConfigFieldSpec.TextField(
@@ -130,6 +132,7 @@ object CoreEngineNodesModule : NodePluginModule {
                 category = NodeCategory.EXTRACTION,
                 iconResName = "ic_node_parse_notification",
                 outputVariables = listOf("code", "otp"),
+                defaultConfigJson = """{"regex":"\\b\\d{6}\\b","outputKey":"code"}""",
                 configSchema =
                     listOf(
                         ConfigFieldSpec.TextField(
@@ -154,6 +157,7 @@ object CoreEngineNodesModule : NodePluginModule {
                 category = NodeCategory.EXTRACTION,
                 iconResName = "ic_node_regex_parser",
                 outputVariables = listOf("code", "otp"),
+                defaultConfigJson = """{"regex":"\\b\\d{6}\\b","outputKey":"code"}""",
                 configSchema =
                     listOf(
                         ConfigFieldSpec.TextField(
@@ -178,6 +182,7 @@ object CoreEngineNodesModule : NodePluginModule {
                 category = NodeCategory.EXTRACTION,
                 iconResName = "ic_node_json_parser",
                 outputVariables = listOf("json_output", "code", "otp"),
+                defaultConfigJson = """{"jsonKey":"data.status","outputKey":"parsedStatus","targetType":"AUTO"}""",
                 configSchema =
                     listOf(
                         ConfigFieldSpec.TextField(
@@ -219,9 +224,10 @@ object CoreEngineNodesModule : NodePluginModule {
                 typeId = TEMPLATE_FORMATTER,
                 displayName = "Template Formatter",
                 description = "Formats custom message templates using variables",
-                category = NodeCategory.LOGIC,
+                category = NodeCategory.EXTRACTION,
                 iconResName = "ic_node_template_formatter",
                 outputVariables = listOf("formatted_payload", "payload"),
+                defaultConfigJson = """{"template":"${'$'}{body}"}""",
                 configSchema =
                     listOf(
                         ConfigFieldSpec.CodeTemplateField(
@@ -240,6 +246,7 @@ object CoreEngineNodesModule : NodePluginModule {
                 category = NodeCategory.LOGIC,
                 iconResName = "ic_node_condition",
                 outputVariables = emptyList(),
+                defaultConfigJson = """{"variable":"status","operator":"EQUALS","value":"active"}""",
                 configSchema =
                     listOf(
                         ConfigFieldSpec.TextField(
@@ -274,6 +281,8 @@ object CoreEngineNodesModule : NodePluginModule {
                 category = NodeCategory.ACTION,
                 iconResName = "ic_node_http_action",
                 outputVariables = listOf("http_response", "http_status"),
+                supportsCredentials = true,
+                defaultConfigJson = """{"url":"https://example.com/health","method":"GET"}""",
                 configSchema =
                     listOf(
                         ConfigFieldSpec.TextField(
@@ -316,7 +325,14 @@ object CoreEngineNodesModule : NodePluginModule {
                 description = "Displays a system notification on device",
                 category = NodeCategory.ACTION,
                 iconResName = "ic_node_send_notification",
+                requiredPermissions =
+                    if (android.os.Build.VERSION.SDK_INT >= 33) {
+                        listOf(android.Manifest.permission.POST_NOTIFICATIONS)
+                    } else {
+                        emptyList()
+                    },
                 outputVariables = emptyList(),
+                defaultConfigJson = """{"title":"ZopHop Notification","body":"${'$'}{body}"}""",
                 configSchema =
                     listOf(
                         ConfigFieldSpec.CodeTemplateField(
@@ -342,6 +358,7 @@ object CoreEngineNodesModule : NodePluginModule {
                 category = NodeCategory.LOGIC,
                 iconResName = "ic_node_vpn",
                 outputVariables = listOf("vpn_connected", "vpn_interface", "vpn_type"),
+                defaultConfigJson = """{"requireConnected":"true"}""",
                 configSchema =
                     listOf(
                         ConfigFieldSpec.DropdownField(
@@ -374,6 +391,7 @@ object CoreEngineNodesModule : NodePluginModule {
                         android.Manifest.permission.ACCESS_COARSE_LOCATION,
                     ),
                 outputVariables = listOf("gps_enabled", "latitude", "longitude", "accuracy", "maps_url", "location_provider"),
+                defaultConfigJson = """{"requireGpsEnabled":"true","fetchCoordinates":"true","requireHighAccuracy":"true"}""",
                 configSchema =
                     listOf(
                         ConfigFieldSpec.DropdownField(
@@ -408,6 +426,7 @@ object CoreEngineNodesModule : NodePluginModule {
                         android.Manifest.permission.ACCESS_NETWORK_STATE,
                     ),
                 outputVariables = listOf("internet_connected", "network_type", "is_metered"),
+                defaultConfigJson = """{"requireInternet":"true","requireConnected":"true","requiredNetworkType":"ANY"}""",
                 configSchema =
                     listOf(
                         ConfigFieldSpec.DropdownField(
@@ -451,6 +470,7 @@ object CoreEngineNodesModule : NodePluginModule {
                         "connected_device_address",
                         "bonded_device_count",
                     ),
+                defaultConfigJson = """{"requireBluetoothEnabled":"true","requireConnected":"false"}""",
                 configSchema =
                     listOf(
                         ConfigFieldSpec.DropdownField(
@@ -491,6 +511,7 @@ object CoreEngineNodesModule : NodePluginModule {
                         android.Manifest.permission.READ_PHONE_STATE,
                     ),
                 outputVariables = listOf("sim_ready", "carrier_name", "sim_count", "is_roaming"),
+                defaultConfigJson = """{"requireSimReady":"true"}""",
                 configSchema =
                     listOf(
                         ConfigFieldSpec.DropdownField(
@@ -518,6 +539,7 @@ object CoreEngineNodesModule : NodePluginModule {
                 category = NodeCategory.LOGIC,
                 iconResName = "ic_node_battery",
                 outputVariables = listOf("battery_percent", "is_charging", "charging_status"),
+                defaultConfigJson = """{"minBatteryPercent":"15","requireCharging":"false"}""",
                 configSchema =
                     listOf(
                         ConfigFieldSpec.TextField(

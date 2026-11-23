@@ -94,7 +94,7 @@ class SmsReceiver : BroadcastReceiver() {
             workflowId = workflowId,
             status = when (result) {
                 is WorkflowExecutionResult.Success -> "SUCCESS"
-                is WorkflowExecutionResult.PreconditionFailed -> "PRECONDITION_FAILED"
+                is WorkflowExecutionResult.PreconditionFailed -> if (result.shouldQueue) "QUEUED" else "PRECONDITION_FAILED"
                 is WorkflowExecutionResult.Failed -> "FAILED"
                 is WorkflowExecutionResult.Cancelled -> "CANCELLED"
             },

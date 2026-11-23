@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
@@ -63,6 +64,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.zophop.core.ui.components.NoSwipeBottomSheet
+import dev.zophop.data.MessageEntity
 import dev.zophop.data.WorkflowExecutionLogEntity
 import dev.zophop.domain.engine.NodeExecutionStep
 import dev.zophop.domain.engine.NodeStepState
@@ -80,6 +82,7 @@ import java.util.UUID
 @Composable
 fun WorkflowsListScreen(
     workflows: List<Workflow> = emptyList(),
+    queuedMessages: List<MessageEntity> = emptyList(),
     onToggleWorkflow: ((String, Boolean) -> Unit)? = null,
     onRunManualWorkflow: ((Workflow) -> Unit)? = null,
     onDeleteWorkflow: ((String) -> Unit)? = null,
@@ -87,6 +90,8 @@ fun WorkflowsListScreen(
     onViewLogs: ((Workflow) -> Unit)? = null,
     onGetLogsForWorkflowFlow: ((String) -> Flow<List<WorkflowExecutionLogEntity>>)? = null,
     onClearLogsForWorkflow: ((String) -> Unit)? = null,
+    onViewPendingQueue: (() -> Unit)? = null,
+    onProcessQueueNow: (() -> Unit)? = null,
     onRetryWorkflowFromFailedNode: (
         (
             Workflow,
@@ -109,6 +114,16 @@ fun WorkflowsListScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             item { Spacer(modifier = Modifier.height(12.dp)) }
+
+            if (queuedMessages.isNotEmpty()) {
+                item {
+                    PendingQueueCard(
+                        queuedCount = queuedMessages.size,
+                        onViewQueue = onViewPendingQueue,
+                        onProcessNow = onProcessQueueNow,
+                    )
+                }
+            }
 
             if (workflows.isEmpty()) {
                 item {
@@ -577,6 +592,66 @@ fun TriggerSelectionCard(
     }
 }
 
+@Composable
+fun PendingQueueCard(
+    queuedCount: Int,
+    onViewQueue: (() -> Unit)?,
+    onProcessNow: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    OutlinedCard(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors =
+            CardDefaults.outlinedCardColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f),
+            ),
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.weight(1f),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.HourglassTop,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.size(22.dp),
+                )
+                Column {
+                    Text(
+                        text = "Pending Queue: $queuedCount waiting",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = "Executions waiting for preconditions to be satisfied",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Row {
+                if (onProcessNow != null) {
+                    TextButton(onClick = onProcessNow) {
+                        Text("Retry", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                }
+                if (onViewQueue != null) {
+                    TextButton(onClick = onViewQueue) {
+                        Text("View", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorkflowLogsBottomSheet(
@@ -705,8 +780,21 @@ fun WorkflowLogsBottomSheet(
                                             modifier = Modifier.size(20.dp).padding(end = 4.dp),
                                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
+                                        val isQueued = log.status == "QUEUED"
+                                        val chipContainerColor =
+                                            when {
+                                                isSuccess -> MaterialTheme.colorScheme.primaryContainer
+                                                isQueued -> MaterialTheme.colorScheme.tertiaryContainer
+                                                else -> MaterialTheme.colorScheme.errorContainer
+                                            }
+                                        val chipContentColor =
+                                            when {
+                                                isSuccess -> MaterialTheme.colorScheme.onPrimaryContainer
+                                                isQueued -> MaterialTheme.colorScheme.onTertiaryContainer
+                                                else -> MaterialTheme.colorScheme.onErrorContainer
+                                            }
                                         Surface(
-                                            color = if (isSuccess) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer,
+                                            color = chipContainerColor,
                                             shape = RoundedCornerShape(4.dp),
                                         ) {
                                             Text(
@@ -714,7 +802,7 @@ fun WorkflowLogsBottomSheet(
                                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                                 style = MaterialTheme.typography.labelSmall,
                                                 fontWeight = FontWeight.Bold,
-                                                color = if (isSuccess) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer,
+                                                color = chipContentColor,
                                             )
                                         }
                                     }

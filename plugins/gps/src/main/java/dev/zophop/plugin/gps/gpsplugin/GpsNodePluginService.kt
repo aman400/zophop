@@ -49,6 +49,7 @@ class GpsNodePluginService : Service() {
 
             override fun getManifests(): List<NodePluginManifest> = GpsPluginModule.getManifests()
 
+            @android.annotation.SuppressLint("MissingPermission")
             override fun executeNode(
                 nodeId: String,
                 configJson: String,
@@ -57,16 +58,25 @@ class GpsNodePluginService : Service() {
                 val hasLocationPerm =
                     checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
                         checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                val locationManager = getSystemService(LOCATION_SERVICE) as? LocationManager
 
-                if (!hasLocationPerm) {
-                    return fail("Location permissions (ACCESS_FINE_LOCATION or ACCESS_COARSE_LOCATION) not granted in GPS Plugin App")
+                if (!hasLocationPerm || locationManager == null) {
+                    val msg = if (!hasLocationPerm) {
+                        "Location permissions (ACCESS_FINE_LOCATION or ACCESS_COARSE_LOCATION) not granted in GPS Plugin App"
+                    } else {
+                        "LocationManager unavailable"
+                    }
+                    return fail(msg)
                 }
 
-                val locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
                 val location =
-                    locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-                        ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-                        ?: locationManager.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
+                    try {
+                        locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                            ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+                            ?: locationManager.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
+                    } catch (_: SecurityException) {
+                        null
+                    }
 
                 val lat = location?.latitude?.toString() ?: "0.0"
                 val lon = location?.longitude?.toString() ?: "0.0"

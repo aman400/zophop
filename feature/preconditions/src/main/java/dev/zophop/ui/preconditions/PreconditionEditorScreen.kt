@@ -110,6 +110,8 @@ fun PreconditionEditorScreen(
     var onFailureAction by remember { mutableStateOf(precondition?.onFailureAction ?: "FAIL_IMMEDIATELY") }
     var maxRetries by remember { mutableStateOf((precondition?.maxRetries ?: 3).toString()) }
     var retryIntervalSeconds by remember { mutableStateOf((precondition?.retryIntervalSeconds ?: 30).toString()) }
+    var retryStrategy by remember { mutableStateOf(precondition?.retryStrategy ?: "FIXED") }
+    var queueTimeoutMinutes by remember { mutableStateOf((precondition?.queueTimeoutMinutes ?: 10).toString()) }
     var showNotificationOnFailure by remember { mutableStateOf(precondition?.showNotificationOnFailure ?: false) }
 
     // Initial chain nodes & connections conversion (seamless legacy migration to chained pipeline)
@@ -135,6 +137,8 @@ fun PreconditionEditorScreen(
                 onFailureAction = it.onFailureAction
                 maxRetries = it.maxRetries.toString()
                 retryIntervalSeconds = it.retryIntervalSeconds.toString()
+                retryStrategy = it.retryStrategy
+                queueTimeoutMinutes = it.queueTimeoutMinutes.toString()
                 showNotificationOnFailure = it.showNotificationOnFailure
             },
             onShowAddNode = { showAddNodeDialog = true },
@@ -161,6 +165,8 @@ fun PreconditionEditorScreen(
             onFailureAction,
             maxRetries,
             retryIntervalSeconds,
+            retryStrategy,
+            queueTimeoutMinutes,
             showNotificationOnFailure,
         ) {
             hasPreconditionChanges(
@@ -171,6 +177,8 @@ fun PreconditionEditorScreen(
                 onFailureAction = onFailureAction,
                 maxRetries = maxRetries,
                 retryIntervalSeconds = retryIntervalSeconds,
+                retryStrategy = retryStrategy,
+                queueTimeoutMinutes = queueTimeoutMinutes,
                 showNotificationOnFailure = showNotificationOnFailure,
                 chainNodesCount = chainNodes.size,
             )
@@ -241,6 +249,8 @@ fun PreconditionEditorScreen(
                                 onFailureAction = onFailureAction,
                                 maxRetries = maxRetries,
                                 retryIntervalSeconds = retryIntervalSeconds,
+                                retryStrategy = retryStrategy,
+                                queueTimeoutMinutes = queueTimeoutMinutes,
                                 showNotificationOnFailure = showNotificationOnFailure,
                                 onTestPreconditionWithProgress = onTestPreconditionWithProgress,
                                 onStepsUpdate = { sheetTestSteps = it },
@@ -272,6 +282,10 @@ fun PreconditionEditorScreen(
             onMaxRetriesChanged = { maxRetries = it },
             retryIntervalSeconds = retryIntervalSeconds,
             onRetryIntervalSecondsChanged = { retryIntervalSeconds = it },
+            retryStrategy = retryStrategy,
+            onRetryStrategyChanged = { retryStrategy = it },
+            queueTimeoutMinutes = queueTimeoutMinutes,
+            onQueueTimeoutMinutesChanged = { queueTimeoutMinutes = it },
             showNotificationOnFailure = showNotificationOnFailure,
             onShowNotificationOnFailureChanged = { showNotificationOnFailure = it },
             onShowNotificationRationale = { showNotificationPermissionRationaleDialog = true },
@@ -297,6 +311,8 @@ fun PreconditionEditorScreen(
         onFailureAction = onFailureAction,
         maxRetries = maxRetries,
         retryIntervalSeconds = retryIntervalSeconds,
+        retryStrategy = retryStrategy,
+        queueTimeoutMinutes = queueTimeoutMinutes,
         showNotificationOnFailure = showNotificationOnFailure,
         chainNodes = chainNodes,
         linkedWorkflows = linkedWorkflows,
@@ -409,6 +425,8 @@ private fun startPreconditionTest(
     onFailureAction: String,
     maxRetries: String,
     retryIntervalSeconds: String,
+    retryStrategy: String,
+    queueTimeoutMinutes: String,
     showNotificationOnFailure: Boolean,
     onTestPreconditionWithProgress: ((PreconditionEntity, (List<NodeExecutionStep>) -> Unit, (PreconditionResult) -> Unit) -> Unit)?,
     onStepsUpdate: (List<NodeExecutionStep>) -> Unit,
@@ -423,6 +441,8 @@ private fun startPreconditionTest(
             onFailureAction = onFailureAction,
             maxRetries = maxRetries,
             retryIntervalSeconds = retryIntervalSeconds,
+            retryStrategy = retryStrategy,
+            queueTimeoutMinutes = queueTimeoutMinutes,
             showNotificationOnFailure = showNotificationOnFailure,
         )
     onTestPreconditionWithProgress?.invoke(tempEntity, onStepsUpdate, onResult)
@@ -476,6 +496,8 @@ private fun PreconditionEditorDialogHost(
     onFailureAction: String,
     maxRetries: String,
     retryIntervalSeconds: String,
+    retryStrategy: String,
+    queueTimeoutMinutes: String,
     showNotificationOnFailure: Boolean,
     chainNodes: List<WorkflowNode>,
     linkedWorkflows: List<Workflow>,
@@ -516,6 +538,8 @@ private fun PreconditionEditorDialogHost(
             onFailureAction = onFailureAction,
             maxRetries = maxRetries,
             retryIntervalSeconds = retryIntervalSeconds,
+            retryStrategy = retryStrategy,
+            queueTimeoutMinutes = queueTimeoutMinutes,
             showNotificationOnFailure = showNotificationOnFailure,
             chainNodes = chainNodes,
             linkedWorkflows = linkedWorkflows,
@@ -699,6 +723,10 @@ private fun PreconditionMetaFields(
     onMaxRetriesChanged: (String) -> Unit,
     retryIntervalSeconds: String,
     onRetryIntervalSecondsChanged: (String) -> Unit,
+    retryStrategy: String,
+    onRetryStrategyChanged: (String) -> Unit,
+    queueTimeoutMinutes: String,
+    onQueueTimeoutMinutesChanged: (String) -> Unit,
     showNotificationOnFailure: Boolean,
     onShowNotificationOnFailureChanged: (Boolean) -> Unit,
     onShowNotificationRationale: () -> Unit,
@@ -739,6 +767,10 @@ private fun PreconditionMetaFields(
         onMaxRetriesChanged = onMaxRetriesChanged,
         retryIntervalSeconds = retryIntervalSeconds,
         onRetryIntervalSecondsChanged = onRetryIntervalSecondsChanged,
+        retryStrategy = retryStrategy,
+        onRetryStrategyChanged = onRetryStrategyChanged,
+        queueTimeoutMinutes = queueTimeoutMinutes,
+        onQueueTimeoutMinutesChanged = onQueueTimeoutMinutesChanged,
         showNotificationOnFailure = showNotificationOnFailure,
         onShowNotificationOnFailureChanged = onShowNotificationOnFailureChanged,
         onShowNotificationRationale = onShowNotificationRationale,
@@ -1038,6 +1070,8 @@ private fun hasPreconditionChanges(
     onFailureAction: String,
     maxRetries: String,
     retryIntervalSeconds: String,
+    retryStrategy: String,
+    queueTimeoutMinutes: String,
     showNotificationOnFailure: Boolean,
     chainNodesCount: Int,
 ): Boolean {
@@ -1047,6 +1081,8 @@ private fun hasPreconditionChanges(
             onFailureAction != "FAIL_IMMEDIATELY" ||
             maxRetries != "3" ||
             retryIntervalSeconds != "30" ||
+            retryStrategy != "FIXED" ||
+            queueTimeoutMinutes != "10" ||
             showNotificationOnFailure ||
             chainNodesCount > 0
     }
@@ -1055,6 +1091,8 @@ private fun hasPreconditionChanges(
         onFailureAction != precondition.onFailureAction ||
         maxRetries != precondition.maxRetries.toString() ||
         retryIntervalSeconds != precondition.retryIntervalSeconds.toString() ||
+        retryStrategy != precondition.retryStrategy ||
+        queueTimeoutMinutes != precondition.queueTimeoutMinutes.toString() ||
         showNotificationOnFailure != precondition.showNotificationOnFailure ||
         pipelineJson != precondition.pipelineJson
 }
@@ -1075,6 +1113,10 @@ private fun PreconditionEditorBody(
     onMaxRetriesChanged: (String) -> Unit,
     retryIntervalSeconds: String,
     onRetryIntervalSecondsChanged: (String) -> Unit,
+    retryStrategy: String,
+    onRetryStrategyChanged: (String) -> Unit,
+    queueTimeoutMinutes: String,
+    onQueueTimeoutMinutesChanged: (String) -> Unit,
     showNotificationOnFailure: Boolean,
     onShowNotificationOnFailureChanged: (Boolean) -> Unit,
     onShowNotificationRationale: () -> Unit,
@@ -1154,6 +1196,10 @@ private fun PreconditionEditorBody(
             onMaxRetriesChanged = onMaxRetriesChanged,
             retryIntervalSeconds = retryIntervalSeconds,
             onRetryIntervalSecondsChanged = onRetryIntervalSecondsChanged,
+            retryStrategy = retryStrategy,
+            onRetryStrategyChanged = onRetryStrategyChanged,
+            queueTimeoutMinutes = queueTimeoutMinutes,
+            onQueueTimeoutMinutesChanged = onQueueTimeoutMinutesChanged,
             showNotificationOnFailure = showNotificationOnFailure,
             onShowNotificationOnFailureChanged = onShowNotificationOnFailureChanged,
             onShowNotificationRationale = onShowNotificationRationale,
@@ -1184,6 +1230,8 @@ private fun PreconditionSaveConfirmDialogWrapper(
     onFailureAction: String,
     maxRetries: String,
     retryIntervalSeconds: String,
+    retryStrategy: String,
+    queueTimeoutMinutes: String,
     showNotificationOnFailure: Boolean,
     chainNodes: List<WorkflowNode>,
     linkedWorkflows: List<Workflow>,
@@ -1197,6 +1245,8 @@ private fun PreconditionSaveConfirmDialogWrapper(
         onFailureAction = onFailureAction,
         maxRetries = maxRetries,
         retryIntervalSeconds = retryIntervalSeconds,
+        retryStrategy = retryStrategy,
+        queueTimeoutMinutes = queueTimeoutMinutes,
         showNotificationOnFailure = showNotificationOnFailure,
         chainNodes = chainNodes,
         linkedWorkflows = linkedWorkflows,
@@ -1216,6 +1266,8 @@ private fun PreconditionSaveConfirmDialogWrapper(
                     onFailureAction = onFailureAction,
                     maxRetries = maxRetries.toIntOrNull() ?: 3,
                     retryIntervalSeconds = retryIntervalSeconds.toIntOrNull() ?: 30,
+                    retryStrategy = retryStrategy,
+                    queueTimeoutMinutes = queueTimeoutMinutes.toIntOrNull() ?: 10,
                     showNotificationOnFailure = showNotificationOnFailure,
                     updatedAt = System.currentTimeMillis(),
                 )
@@ -1263,6 +1315,8 @@ private fun buildTestingEntity(
     onFailureAction: String,
     maxRetries: String,
     retryIntervalSeconds: String,
+    retryStrategy: String,
+    queueTimeoutMinutes: String,
     showNotificationOnFailure: Boolean,
 ): PreconditionEntity =
     PreconditionEntity(
@@ -1274,6 +1328,8 @@ private fun buildTestingEntity(
         onFailureAction = onFailureAction,
         maxRetries = maxRetries.toIntOrNull() ?: 3,
         retryIntervalSeconds = retryIntervalSeconds.toIntOrNull() ?: 30,
+        retryStrategy = retryStrategy,
+        queueTimeoutMinutes = queueTimeoutMinutes.toIntOrNull() ?: 10,
         showNotificationOnFailure = showNotificationOnFailure,
     )
 

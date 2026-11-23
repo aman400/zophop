@@ -78,6 +78,7 @@ class VpnCheckExecutor : NodeExecutor {
         }
     }
 
+    @SuppressLint("MissingPermission")
     private suspend fun detectVpnState(context: Context): VpnState = try {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
         val caps = cm?.getNetworkCapabilities(cm.activeNetwork)
@@ -211,6 +212,7 @@ class GpsCheckExecutor : NodeExecutor {
         }
     }
 
+    @SuppressLint("MissingPermission")
     private fun findBestLocation(lm: LocationManager): Location? =
         lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
             ?: lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
@@ -275,6 +277,7 @@ class InternetCheckExecutor : NodeExecutor {
         }
     }
 
+    @SuppressLint("MissingPermission")
     private fun detectInternetState(context: Context): InternetState = try {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
         val caps = cm?.getNetworkCapabilities(cm.activeNetwork)
@@ -385,6 +388,7 @@ class BluetoothCheckExecutor : NodeExecutor {
                 PackageManager.PERMISSION_GRANTED
         }
 
+    @SuppressLint("MissingPermission")
     private fun inspectConnectedDevices(
         bm: BluetoothManager,
         adapter: BluetoothAdapter,
@@ -417,6 +421,7 @@ class BluetoothCheckExecutor : NodeExecutor {
         }
     }
 
+    @SuppressLint("MissingPermission")
     private fun findMatchingOrFirstDevice(bondedDevices: Set<BluetoothDevice>, targetName: String): BluetoothDevice? =
         if (targetName.isNotEmpty()) {
             bondedDevices.firstOrNull { it.name?.contains(targetName, ignoreCase = true) == true } ?: bondedDevices.firstOrNull()
@@ -487,6 +492,7 @@ class SimCheckExecutor : NodeExecutor {
         }
     }
 
+    @SuppressLint("MissingPermission")
     private fun detectSimState(context: Context): SimState {
         val hasPhonePerm = ContextCompat.checkSelfPermission(
             context,

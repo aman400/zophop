@@ -67,6 +67,7 @@ import dev.zophop.data.hasNodeType
 import dev.zophop.data.toDomain
 import dev.zophop.domain.model.Credential
 import dev.zophop.domain.model.NodeType
+import dev.zophop.domain.model.PreconditionType
 import dev.zophop.domain.model.WorkflowNode
 import org.json.JSONArray
 import org.json.JSONObject
@@ -683,9 +684,10 @@ private fun findInitialAttachedVaultPrecIds(
 private fun isCredentialSupported(
     nodeType: String,
     manifest: dev.zophop.plugin.api.NodePluginManifest?,
-): Boolean =
-    manifest?.requiredCredentialType != null ||
-        listOf("HTTP_ACTION", "NTFY_ACTION", "GOTIFY_ACTION", "TELEGRAM_ACTION").any { nodeType.contains(it) }
+): Boolean {
+    val resolved = manifest ?: dev.zophop.domain.engine.plugin.BuiltInPluginRegistry.getBuiltInManifestByTypeId(nodeType)
+    return resolved?.isCredentialSupported() ?: false
+}
 
 @Composable
 private fun NodeConfigBottomBar(
@@ -767,7 +769,7 @@ private fun buildAndValidateNodeConfig(
             }
         }
     }
-    applyDefaultConfigValues(nodeType, configMapForValidation)
+    applyDefaultConfigValues(nodeType, configMapForValidation, pluginManifest)
     configMapForValidation["credentialId"] = credentialId
 
     val validationJson =
@@ -777,7 +779,7 @@ private fun buildAndValidateNodeConfig(
             }
         }.toString()
     val moduleError = unifiedRegistry.validateConfig(nodeType, validationJson)
-    val validationError = moduleError ?: NodeConfigValidator.validateNodeConfig(nodeType, configMapForValidation)
+    val validationError = moduleError ?: NodeConfigValidator.validateNodeConfig(nodeType, configMapForValidation, pluginManifest)
     if (validationError != null) {
         return validationError to ""
     }
@@ -785,9 +787,13 @@ private fun buildAndValidateNodeConfig(
     return null to validationJson
 }
 
-private fun applyDefaultConfigValues(nodeType: String, map: MutableMap<String, String>) {
+private fun applyDefaultConfigValues(
+    nodeType: String,
+    map: MutableMap<String, String>,
+    manifest: dev.zophop.plugin.api.NodePluginManifest? = null,
+) {
     try {
-        val defaults = JSONObject(WorkflowUiHelper.getDefaultConfigForType(nodeType))
+        val defaults = JSONObject(WorkflowUiHelper.getDefaultConfigForType(nodeType, manifest))
         val dKeys = defaults.keys()
         while (dKeys.hasNext()) {
             val dk = dKeys.next()
@@ -953,19 +959,19 @@ private fun NodeConfigPreconditionsSection(
     ) {
         val quickChecks =
             listOf(
-                Triple(dev.zophop.domain.model.PreconditionType.SIM_CHECK.name, "📱 SIM Check", "Active SIM Card Check"),
-                Triple(dev.zophop.domain.model.PreconditionType.GPS_CHECK.name, "📍 GPS Check", "Device GPS Enabled Check"),
+                Triple(PreconditionType.SIM_CHECK.name, "📱 SIM Check", "Active SIM Card Check"),
+                Triple(PreconditionType.GPS_CHECK.name, "📍 GPS Check", "Device GPS Enabled Check"),
                 Triple(
-                    dev.zophop.domain.model.PreconditionType.BATTERY_CHECK.name,
+                    PreconditionType.BATTERY_CHECK.name,
                     "🔋 Battery Check",
                     "Battery Level >= 15% Check",
                 ),
                 Triple(
-                    dev.zophop.domain.model.PreconditionType.INTERNET_CHECK.name,
+                    PreconditionType.INTERNET_CHECK.name,
                     "🌐 Internet Check",
                     "Network Connectivity Check",
                 ),
-                Triple(dev.zophop.domain.model.PreconditionType.VPN_CHECK.name, "🔐 VPN Check", "Active VPN Check"),
+                Triple(PreconditionType.VPN_CHECK.name, "🔐 VPN Check", "Active VPN Check"),
             )
 
         quickChecks.forEach { (typeStr, label, defaultName) ->
@@ -981,20 +987,20 @@ private fun NodeConfigPreconditionsSection(
                     } else {
                         val configJson =
                             when (typeStr) {
-                                dev.zophop.domain.model.PreconditionType.SIM_CHECK.name -> """{"requireSimReady":"true"}"""
-                                dev.zophop.domain.model.PreconditionType.GPS_CHECK.name -> """{"requireGpsEnabled":"true"}"""
-                                dev.zophop.domain.model.PreconditionType.BATTERY_CHECK.name -> """{"minBatteryPercent":"15","requireCharging":"false"}"""
-                                dev.zophop.domain.model.PreconditionType.VPN_CHECK.name -> """{"requireConnected":"true"}"""
+                                PreconditionType.SIM_CHECK.name -> """{"requireSimReady":"true"}"""
+                                PreconditionType.GPS_CHECK.name -> """{"requireGpsEnabled":"true"}"""
+                                PreconditionType.BATTERY_CHECK.name -> """{"minBatteryPercent":"15","requireCharging":"false"}"""
+                                PreconditionType.VPN_CHECK.name -> """{"requireConnected":"true"}"""
                                 else -> """{"requireConnected":"true"}"""
                             }
                         val nodeId = UUID.randomUUID().toString()
                         val nodeType =
                             when (typeStr) {
-                                dev.zophop.domain.model.PreconditionType.SIM_CHECK.name -> dev.zophop.domain.model.NodeType.SIM_CHECK
-                                dev.zophop.domain.model.PreconditionType.GPS_CHECK.name -> dev.zophop.domain.model.NodeType.GPS_CHECK
-                                dev.zophop.domain.model.PreconditionType.BATTERY_CHECK.name -> dev.zophop.domain.model.NodeType.BATTERY_CHECK
-                                dev.zophop.domain.model.PreconditionType.VPN_CHECK.name -> dev.zophop.domain.model.NodeType.VPN_CHECK
-                                else -> dev.zophop.domain.model.NodeType.INTERNET_CHECK
+                                PreconditionType.SIM_CHECK.name -> NodeType.SIM_CHECK
+                                PreconditionType.GPS_CHECK.name -> NodeType.GPS_CHECK
+                                PreconditionType.BATTERY_CHECK.name -> NodeType.BATTERY_CHECK
+                                PreconditionType.VPN_CHECK.name -> NodeType.VPN_CHECK
+                                else -> NodeType.INTERNET_CHECK
                             }
                         val pipeJson =
                             JSONObject().apply {

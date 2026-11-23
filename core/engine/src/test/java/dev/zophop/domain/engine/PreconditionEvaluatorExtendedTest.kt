@@ -2,8 +2,13 @@ package dev.zophop.domain.engine
 
 import dev.zophop.domain.model.NodeType
 import dev.zophop.domain.model.Precondition
+import dev.zophop.domain.model.PreconditionFailurePolicy
+import dev.zophop.domain.model.RetryStrategy
+import dev.zophop.domain.model.Workflow
 import dev.zophop.domain.model.WorkflowConnection
 import dev.zophop.domain.model.WorkflowNode
+import dev.zophop.domain.model.calculateRetryDelaySeconds
+import dev.zophop.plugin.api.ExecutionContext
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
@@ -361,5 +366,315 @@ class PreconditionEvaluatorExtendedTest {
             assertTrue(failed.reason.contains("Condition") || failed.reason.contains("FALSE"))
             val failedStep = receivedSteps.find { it.nodeId == condId }
             assertEquals(NodeStepState.FAILED, failedStep?.state)
+        }
+
+    @Test
+    fun testPreconditionQueuePolicyReturnsFailedWithShouldQueueTrue() =
+        runTest {
+            val failingClient =
+                OkHttpClient
+                    .Builder()
+                    .addInterceptor { chain ->
+                        Response
+                            .Builder()
+                            .request(chain.request())
+                            .protocol(Protocol.HTTP_1_1)
+                            .code(503)
+                            .message("Service Unavailable")
+                            .body("down".toResponseBody())
+                            .build()
+                    }.build()
+
+            val evaluator = PreconditionEvaluator(context = null, okHttpClient = failingClient)
+            val healthCheck =
+                Precondition.HealthCheck(
+                    id = "queue_health_check",
+                    isEnabled = true,
+                    targetUrl = "https://example.com/health",
+                    expectedStatus = 200,
+                    onFailureAction = PreconditionFailurePolicy.QUEUE,
+                )
+
+            var progressSteps = emptyList<NodeExecutionStep>()
+            val result =
+                evaluator.evaluate(healthCheck) { steps ->
+                    progressSteps = steps
+                }
+
+            assertTrue(result is PreconditionResult.Failed)
+            val failed = result as PreconditionResult.Failed
+            assertTrue("shouldQueue must be true", failed.shouldQueue)
+            assertTrue(progressSteps.any { it.nodeName.contains("Queued") && it.state == NodeStepState.EXECUTING })
+        }
+
+    @Test
+    fun testPreconditionQueuePolicyInWorkflowEngine() =
+        runTest {
+            val failingClient =
+                OkHttpClient
+                    .Builder()
+                    .addInterceptor { chain ->
+                        Response
+                            .Builder()
+                            .request(chain.request())
+                            .protocol(Protocol.HTTP_1_1)
+                            .code(503)
+                            .message("Unavailable")
+                            .body("down".toResponseBody())
+                            .build()
+                    }.build()
+
+            val evaluator = PreconditionEvaluator(context = null, okHttpClient = failingClient)
+            val engine = WorkflowEngine(preconditionEvaluator = evaluator, executorFactory = NodeExecutorFactory(failingClient))
+
+            val trigger = WorkflowNode("trig", "Trigger", NodeType.MANUAL_TRIGGER)
+            val queuedNode =
+                WorkflowNode(
+                    id = "queued_action",
+                    name = "Queued Action",
+                    type = NodeType.NTFY_ACTION,
+                    configJson = """{"serverUrl":"https://ntfy.sh","topic":"test"}""",
+                    preconditions =
+                        listOf(
+                            Precondition.HealthCheck(
+                                isEnabled = true,
+                                targetUrl = "https://health.example.com/check",
+                                expectedStatus = 200,
+                                onFailureAction = "QUEUE",
+                            ),
+                        ),
+                )
+
+            val workflow =
+                Workflow(
+                    id = "wf_queue_test",
+                    name = "Queue Test Workflow",
+                    isEnabled = true,
+                    nodes = listOf(trigger, queuedNode),
+                    connections = listOf(WorkflowConnection("trig", "queued_action")),
+                )
+
+            val ctx = ExecutionContext(mapOf("body" to "payload"))
+            val result = engine.executeWorkflow(workflow, ctx, null)
+
+            assertTrue(result is WorkflowExecutionResult.PreconditionFailed)
+            val pf = result as WorkflowExecutionResult.PreconditionFailed
+            assertEquals("queued_action", pf.nodeId)
+            assertTrue("pf.shouldQueue must be true", pf.shouldQueue)
+        }
+
+    @Test
+    fun testCalculateRetryDelayFixedStrategy() {
+        val base = 10
+        assertEquals(10, calculateRetryDelaySeconds(RetryStrategy.FIXED, base, attempt = 1))
+        assertEquals(10, calculateRetryDelaySeconds(RetryStrategy.FIXED, base, attempt = 2))
+        assertEquals(10, calculateRetryDelaySeconds(RetryStrategy.FIXED, base, attempt = 5))
+        assertEquals(10, calculateRetryDelaySeconds("unknown_strategy", base, attempt = 3))
+    }
+
+    @Test
+    fun testCalculateRetryDelayExponentialStrategy() {
+        val base = 5
+        assertEquals(5, calculateRetryDelaySeconds(RetryStrategy.EXPONENTIAL, base, attempt = 1))
+        assertEquals(10, calculateRetryDelaySeconds(RetryStrategy.EXPONENTIAL, base, attempt = 2))
+        assertEquals(20, calculateRetryDelaySeconds(RetryStrategy.EXPONENTIAL, base, attempt = 3))
+        assertEquals(40, calculateRetryDelaySeconds(RetryStrategy.EXPONENTIAL, base, attempt = 4))
+        assertEquals(80, calculateRetryDelaySeconds(RetryStrategy.EXPONENTIAL, base, attempt = 5))
+
+        // Clamped to max cap
+        assertEquals(3600, calculateRetryDelaySeconds(RetryStrategy.EXPONENTIAL, 500, attempt = 10, maxCapSeconds = 3600))
+    }
+
+    @Test
+    fun testCalculateRetryDelayRandomizedStrategy() {
+        val base = 10
+        val fixedMockRand = { min: Int, max: Int -> (min + max) / 2 }
+        val delay1 = calculateRetryDelaySeconds(RetryStrategy.RANDOMIZED, base, attempt = 1, randomGenerator = fixedMockRand)
+        assertEquals((1 + 10) / 2, delay1)
+
+        val delay2 = calculateRetryDelaySeconds(RetryStrategy.RANDOMIZED, base, attempt = 2, randomGenerator = fixedMockRand)
+        assertEquals((1 + 20) / 2, delay2)
+
+        // With default random generator, assert bounds
+        for (attempt in 1..4) {
+            val ceiling = base * (1 shl (attempt - 1))
+            val delay = calculateRetryDelaySeconds(RetryStrategy.RANDOMIZED, base, attempt)
+            assertTrue("Delay $delay must be >= 1", delay >= 1)
+            assertTrue("Delay $delay must be <= ceiling $ceiling", delay <= ceiling)
+        }
+    }
+
+    @Test
+    fun testPreconditionRetryWithExponentialBackoffRecovers() =
+        runTest {
+            var attempts = 0
+            val recordedTicks = mutableListOf<String>()
+            val client =
+                OkHttpClient
+                    .Builder()
+                    .addInterceptor { chain ->
+                        attempts++
+                        if (attempts < 3) {
+                            Response
+                                .Builder()
+                                .request(chain.request())
+                                .protocol(Protocol.HTTP_1_1)
+                                .code(503)
+                                .message("Unavailable")
+                                .body("error".toResponseBody())
+                                .build()
+                        } else {
+                            Response
+                                .Builder()
+                                .request(chain.request())
+                                .protocol(Protocol.HTTP_1_1)
+                                .code(200)
+                                .message("OK")
+                                .body("success".toResponseBody())
+                                .build()
+                        }
+                    }.build()
+
+            val evaluator =
+                PreconditionEvaluator(
+                    context = null,
+                    okHttpClient = client,
+                    delayDuration = { /* skip delay in test */ },
+                )
+
+            val healthCheck =
+                Precondition.HealthCheck(
+                    isEnabled = true,
+                    targetUrl = "https://example.com/health",
+                    expectedStatus = 200,
+                    onFailureAction = PreconditionFailurePolicy.RETRY,
+                    maxRetries = 3,
+                    retryIntervalSeconds = 2,
+                    retryStrategy = RetryStrategy.EXPONENTIAL,
+                )
+
+            val result =
+                evaluator.evaluate(healthCheck) { steps ->
+                    steps.lastOrNull()?.let { recordedTicks.add(it.logMessage) }
+                }
+
+            assertTrue(result is PreconditionResult.Passed)
+            assertEquals(3, attempts)
+            assertTrue(recordedTicks.any { it.contains("EXPONENTIAL backoff") })
+        }
+
+    @Test
+    fun testPreconditionRetryWithRandomizedBackoffRecovers() =
+        runTest {
+            var attempts = 0
+            val client =
+                OkHttpClient
+                    .Builder()
+                    .addInterceptor { chain ->
+                        attempts++
+                        if (attempts == 1) {
+                            Response
+                                .Builder()
+                                .request(chain.request())
+                                .protocol(Protocol.HTTP_1_1)
+                                .code(500)
+                                .message("Server Error")
+                                .body("error".toResponseBody())
+                                .build()
+                        } else {
+                            Response
+                                .Builder()
+                                .request(chain.request())
+                                .protocol(Protocol.HTTP_1_1)
+                                .code(200)
+                                .message("OK")
+                                .body("ok".toResponseBody())
+                                .build()
+                        }
+                    }.build()
+
+            val evaluator =
+                PreconditionEvaluator(
+                    context = null,
+                    okHttpClient = client,
+                    delayDuration = { /* skip delay in test */ },
+                    randomGenerator = { min, _ -> min },
+                )
+
+            val healthCheck =
+                Precondition.HealthCheck(
+                    isEnabled = true,
+                    targetUrl = "https://example.com/health",
+                    expectedStatus = 200,
+                    onFailureAction = PreconditionFailurePolicy.RETRY,
+                    maxRetries = 2,
+                    retryIntervalSeconds = 3,
+                    retryStrategy = RetryStrategy.RANDOMIZED,
+                )
+
+            val result = evaluator.evaluate(healthCheck)
+            assertTrue(result is PreconditionResult.Passed)
+            assertEquals(2, attempts)
+        }
+
+    @Test
+    fun testQueueModeWhenPreconditionPassesDoesNotQueue() =
+        runTest {
+            val passingClient =
+                OkHttpClient
+                    .Builder()
+                    .addInterceptor { chain ->
+                        Response
+                            .Builder()
+                            .request(chain.request())
+                            .protocol(Protocol.HTTP_1_1)
+                            .code(200)
+                            .message("OK")
+                            .body("ok".toResponseBody())
+                            .build()
+                    }.build()
+
+            val evaluator = PreconditionEvaluator(context = null, okHttpClient = passingClient)
+            val healthCheck =
+                Precondition.HealthCheck(
+                    isEnabled = true,
+                    targetUrl = "https://example.com/health",
+                    expectedStatus = 200,
+                    onFailureAction = PreconditionFailurePolicy.QUEUE,
+                    queueTimeoutMinutes = 15,
+                )
+
+            val result = evaluator.evaluate(healthCheck)
+            assertTrue(result is PreconditionResult.Passed)
+            val passed = result as PreconditionResult.Passed
+            assertTrue(passed.steps.none { it.nodeName.contains("Queued") })
+        }
+
+    @Test
+    fun testQueueModeChainedPreconditionHalt() =
+        runTest {
+            val trigger = WorkflowNode("trig", "Trigger", NodeType.MANUAL_TRIGGER, configJson = """{"val":"fail"}""")
+            val cond = WorkflowNode("cond", "Check", NodeType.CONDITION, configJson = """{"variable":"val","operator":"EQUALS","value":"pass"}""")
+            val chain =
+                Precondition.ChainCheck(
+                    id = "queue_chain_test",
+                    isEnabled = true,
+                    nodes = listOf(trigger, cond),
+                    connections = listOf(WorkflowConnection("trig", "cond")),
+                    onFailureAction = PreconditionFailurePolicy.QUEUE,
+                    queueTimeoutMinutes = 20,
+                )
+
+            val evaluator = PreconditionEvaluator(context = null)
+            var recordedSteps = emptyList<NodeExecutionStep>()
+            val result =
+                evaluator.evaluate(chain) { steps ->
+                    recordedSteps = steps
+                }
+
+            assertTrue(result is PreconditionResult.Failed)
+            val failed = result as PreconditionResult.Failed
+            assertTrue("shouldQueue must be true for failing chain in QUEUE mode", failed.shouldQueue)
+            assertTrue(recordedSteps.any { it.nodeName.contains("Queued") && it.state == NodeStepState.EXECUTING })
         }
 }

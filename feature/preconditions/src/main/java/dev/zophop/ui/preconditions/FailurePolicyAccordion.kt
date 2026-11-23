@@ -38,6 +38,10 @@ fun FailurePolicyAccordion(
     onMaxRetriesChanged: (String) -> Unit,
     retryIntervalSeconds: String,
     onRetryIntervalSecondsChanged: (String) -> Unit,
+    retryStrategy: String = "FIXED",
+    onRetryStrategyChanged: (String) -> Unit = {},
+    queueTimeoutMinutes: String = "10",
+    onQueueTimeoutMinutesChanged: (String) -> Unit = {},
     showNotificationOnFailure: Boolean,
     onShowNotificationOnFailureChanged: (Boolean) -> Unit,
     onShowNotificationRationale: () -> Unit = {},
@@ -78,7 +82,13 @@ fun FailurePolicyAccordion(
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                         )
-                        val actionDesc = if (onFailureAction == "RETRY") "Wait & Retry ($maxRetries attempts)" else "Fail Immediately"
+                        val strategyLabel = retryStrategy.lowercase().replaceFirstChar { it.titlecase() }
+                        val actionDesc =
+                            when (onFailureAction) {
+                                "QUEUE" -> "Queue until satisfied (${queueTimeoutMinutes}m timeout)"
+                                "RETRY" -> "Wait & Retry ($maxRetries attempts, $strategyLabel)"
+                                else -> "Fail Immediately"
+                            }
                         Text(
                             text = if (expanded) "Configure retry attempts and failure response" else actionDesc,
                             style = MaterialTheme.typography.bodySmall,
@@ -103,6 +113,10 @@ fun FailurePolicyAccordion(
                     onMaxRetriesChanged = onMaxRetriesChanged,
                     retryIntervalSeconds = retryIntervalSeconds,
                     onRetryIntervalSecondsChanged = onRetryIntervalSecondsChanged,
+                    retryStrategy = retryStrategy,
+                    onRetryStrategyChanged = onRetryStrategyChanged,
+                    queueTimeoutMinutes = queueTimeoutMinutes,
+                    onQueueTimeoutMinutesChanged = onQueueTimeoutMinutesChanged,
                     showNotificationOnFailure = showNotificationOnFailure,
                     onShowNotificationOnFailureChanged = onShowNotificationOnFailureChanged,
                     onShowNotificationRationale = onShowNotificationRationale,

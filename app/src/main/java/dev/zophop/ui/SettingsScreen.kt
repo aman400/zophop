@@ -83,77 +83,7 @@ fun SettingsScreen(
     var pendingToggleState by remember { mutableStateOf<Boolean?>(null) }
     var showNotificationPermissionRationaleDialog by remember { mutableStateOf(false) }
 
-    var hasLocationPermission by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-                ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED,
-        )
-    }
-
-    var hasPhoneStatePermission by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED,
-        )
-    }
-
-    var hasSendSmsPermission by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED,
-        )
-    }
-
-    var hasBluetoothPermission by remember {
-        mutableStateOf(
-            if (Build.VERSION.SDK_INT >= 31) {
-                ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
-            } else {
-                true
-            },
-        )
-    }
-
-    fun refreshLocalPermissions() {
-        hasLocationPermission =
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        hasPhoneStatePermission =
-            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
-        hasSendSmsPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED
-        hasBluetoothPermission =
-            if (Build.VERSION.SDK_INT >= 31) {
-                ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
-            } else {
-                true
-            }
-    }
-
-    val locationPermissionLauncher =
-        rememberLauncherForActivityResult(
-            contract = ActivityResultContracts.RequestMultiplePermissions(),
-        ) {
-            refreshLocalPermissions()
-        }
-
-    val phoneStatePermissionLauncher =
-        rememberLauncherForActivityResult(
-            contract = ActivityResultContracts.RequestPermission(),
-        ) {
-            refreshLocalPermissions()
-        }
-
-    val sendSmsPermissionLauncher =
-        rememberLauncherForActivityResult(
-            contract = ActivityResultContracts.RequestPermission(),
-        ) {
-            refreshLocalPermissions()
-        }
-
-    val bluetoothPermissionLauncher =
-        rememberLauncherForActivityResult(
-            contract = ActivityResultContracts.RequestPermission(),
-        ) {
-            refreshLocalPermissions()
-        }
+    val permissionsState = rememberSettingsPermissions(context)
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -161,7 +91,7 @@ fun SettingsScreen(
             LifecycleEventObserver { _, event ->
                 if (event == Lifecycle.Event.ON_RESUME) {
                     viewModel.checkPermissionsAndStatus()
-                    refreshLocalPermissions()
+                    permissionsState.refresh()
                 }
             }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -284,6 +214,8 @@ fun SettingsScreen(
                     onMaxParallelChange = { viewModel.updateMaxParallelExecutions(it) },
                     maxQueue = uiState.maxExecutionQueueSize,
                     onMaxQueueChange = { viewModel.updateMaxExecutionQueueSize(it) },
+                    queueTimeoutMinutes = uiState.expiryMinutes.toIntOrNull() ?: 10,
+                    onQueueTimeoutMinutesChange = { viewModel.updateExpiryMinutes(it.toString()) },
                 )
             }
 
@@ -292,29 +224,14 @@ fun SettingsScreen(
                 SettingsPermissionsSection(
                     hasSmsPermission = hasSmsPermission,
                     onRequestSmsPermission = onRequestSmsPermission,
-                    hasSendSmsPermission = hasSendSmsPermission,
-                    onRequestSendSmsPermission = {
-                        sendSmsPermissionLauncher.launch(Manifest.permission.SEND_SMS)
-                    },
-                    hasLocationPermission = hasLocationPermission,
-                    onRequestLocationPermission = {
-                        locationPermissionLauncher.launch(
-                            arrayOf(
-                                Manifest.permission.ACCESS_FINE_LOCATION,
-                                Manifest.permission.ACCESS_COARSE_LOCATION,
-                            ),
-                        )
-                    },
-                    hasPhoneStatePermission = hasPhoneStatePermission,
-                    onRequestPhoneStatePermission = {
-                        phoneStatePermissionLauncher.launch(Manifest.permission.READ_PHONE_STATE)
-                    },
-                    hasBluetoothPermission = hasBluetoothPermission,
-                    onRequestBluetoothPermission = {
-                        if (Build.VERSION.SDK_INT >= 31) {
-                            bluetoothPermissionLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT)
-                        }
-                    },
+                    hasSendSmsPermission = permissionsState.hasSendSmsPermission,
+                    onRequestSendSmsPermission = permissionsState.onRequestSendSmsPermission,
+                    hasLocationPermission = permissionsState.hasLocationPermission,
+                    onRequestLocationPermission = permissionsState.onRequestLocationPermission,
+                    hasPhoneStatePermission = permissionsState.hasPhoneStatePermission,
+                    onRequestPhoneStatePermission = permissionsState.onRequestPhoneStatePermission,
+                    hasBluetoothPermission = permissionsState.hasBluetoothPermission,
+                    onRequestBluetoothPermission = permissionsState.onRequestBluetoothPermission,
                     hasNotificationPermission = hasNotificationPermission,
                     onRequestNotificationPermission = onRequestNotificationPermission,
                     hasNotificationListenerPermission = uiState.hasNotificationListenerPermission,
@@ -488,7 +405,7 @@ private fun WorkflowExecutionAlertsCard(
                 Switch(
                     checked = checked,
                     onCheckedChange = { enable ->
-                        val notifGranted = if (Build.VERSION.SDK_INT >= 33) hasNotificationPermission else true
+                        val notifGranted = Build.VERSION.SDK_INT < 33 || hasNotificationPermission
                         if (enable && !notifGranted) {
                             onRequestRationale()
                         } else {
@@ -562,6 +479,8 @@ private fun ConcurrencyAndQueueCard(
     onMaxParallelChange: (Int) -> Unit,
     maxQueue: Int,
     onMaxQueueChange: (Int) -> Unit,
+    queueTimeoutMinutes: Int,
+    onQueueTimeoutMinutesChange: (Int) -> Unit,
 ) {
     OutlinedCard(
         modifier = Modifier.fillMaxWidth(),
@@ -646,6 +565,37 @@ private fun ConcurrencyAndQueueCard(
                     onValueChange = { onMaxQueueChange(it.toInt()) },
                     valueRange = 5f..100f,
                     steps = 18,
+                )
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Queue Expiry Timeout",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = "Duration queued executions wait for preconditions before expiring",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    SuggestionChip(
+                        onClick = {},
+                        label = { Text("${queueTimeoutMinutes}m Timeout", fontWeight = FontWeight.Bold) },
+                    )
+                }
+                Slider(
+                    value = queueTimeoutMinutes.toFloat(),
+                    onValueChange = { onQueueTimeoutMinutesChange(it.toInt()) },
+                    valueRange = 1f..60f,
+                    steps = 58,
                 )
             }
         }
@@ -874,4 +824,125 @@ private fun NotificationPermissionRationaleDialog(
             }
         },
     )
+}
+
+private class SettingsPermissionsState(
+    val hasLocationPermission: Boolean,
+    val hasPhoneStatePermission: Boolean,
+    val hasSendSmsPermission: Boolean,
+    val hasBluetoothPermission: Boolean,
+    val onRequestLocationPermission: () -> Unit,
+    val onRequestPhoneStatePermission: () -> Unit,
+    val onRequestSendSmsPermission: () -> Unit,
+    val onRequestBluetoothPermission: () -> Unit,
+    val refresh: () -> Unit,
+)
+
+@Composable
+private fun rememberSettingsPermissions(context: Context): SettingsPermissionsState {
+    var hasLocationPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED,
+        )
+    }
+
+    var hasPhoneStatePermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED,
+        )
+    }
+
+    var hasSendSmsPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED,
+        )
+    }
+
+    var hasBluetoothPermission by remember {
+        mutableStateOf(
+            if (Build.VERSION.SDK_INT >= 31) {
+                ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+            } else {
+                true
+            },
+        )
+    }
+
+    fun refreshLocalPermissions() {
+        hasLocationPermission =
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        hasPhoneStatePermission =
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
+        hasSendSmsPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED
+        hasBluetoothPermission =
+            if (Build.VERSION.SDK_INT >= 31) {
+                ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+            } else {
+                true
+            }
+    }
+
+    val locationPermissionLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.RequestMultiplePermissions(),
+        ) {
+            refreshLocalPermissions()
+        }
+
+    val phoneStatePermissionLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.RequestPermission(),
+        ) {
+            refreshLocalPermissions()
+        }
+
+    val sendSmsPermissionLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.RequestPermission(),
+        ) {
+            refreshLocalPermissions()
+        }
+
+    val bluetoothPermissionLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.RequestPermission(),
+        ) {
+            refreshLocalPermissions()
+        }
+
+    return remember(
+        hasLocationPermission,
+        hasPhoneStatePermission,
+        hasSendSmsPermission,
+        hasBluetoothPermission,
+    ) {
+        SettingsPermissionsState(
+            hasLocationPermission = hasLocationPermission,
+            hasPhoneStatePermission = hasPhoneStatePermission,
+            hasSendSmsPermission = hasSendSmsPermission,
+            hasBluetoothPermission = hasBluetoothPermission,
+            onRequestLocationPermission = {
+                locationPermissionLauncher.launch(
+                    arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION,
+                    ),
+                )
+            },
+            onRequestPhoneStatePermission = {
+                phoneStatePermissionLauncher.launch(Manifest.permission.READ_PHONE_STATE)
+            },
+            onRequestSendSmsPermission = {
+                sendSmsPermissionLauncher.launch(Manifest.permission.SEND_SMS)
+            },
+            onRequestBluetoothPermission = {
+                if (Build.VERSION.SDK_INT >= 31) {
+                    bluetoothPermissionLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT)
+                }
+            },
+            refresh = ::refreshLocalPermissions,
+        )
+    }
 }

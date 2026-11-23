@@ -27,7 +27,7 @@ class NotificationNodePluginServiceTest {
         val notifTrigger = manifests.first()
 
         assertEquals("dev.zophop.plugin.notification.NOTIFICATION_TRIGGER", notifTrigger.typeId)
-        assertTrue(notifTrigger.requiredPermissions.isEmpty())
+        assertTrue(notifTrigger.requiredPermissions.contains("NOTIFICATION_LISTENER"))
         assertEquals(5, notifTrigger.configSchema.size)
     }
 

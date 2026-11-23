@@ -76,6 +76,8 @@ data class WorkflowEntity(
                 put("onFailureAction", prec.onFailureAction)
                 put("maxRetries", prec.maxRetries)
                 put("retryIntervalSeconds", prec.retryIntervalSeconds)
+                put("retryStrategy", prec.retryStrategy)
+                put("queueTimeoutMinutes", prec.queueTimeoutMinutes)
                 put("showNotificationOnFailure", prec.showNotificationOnFailure)
                 when (prec) {
                     is Precondition.InternetCheck -> put("isEnabled", prec.isEnabled)
@@ -209,6 +211,8 @@ private fun parsePrecondition(pObj: JSONObject): Precondition {
     val pFailureAction = pObj.optString("onFailureAction", "FAIL_IMMEDIATELY")
     val pMaxRetries = pObj.optInt("maxRetries", 3)
     val pRetryInterval = pObj.optInt("retryIntervalSeconds", 30)
+    val pRetryStrategy = pObj.optString("retryStrategy", "FIXED")
+    val pQueueTimeout = pObj.optInt("queueTimeoutMinutes", 10)
     val pShowNotif = pObj.optBoolean("showNotificationOnFailure", false)
 
     return when (PreconditionType.valueOf(pTypeStr)) {
@@ -219,6 +223,8 @@ private fun parsePrecondition(pObj: JSONObject): Precondition {
                 onFailureAction = pFailureAction,
                 maxRetries = pMaxRetries,
                 retryIntervalSeconds = pRetryInterval,
+                retryStrategy = pRetryStrategy,
+                queueTimeoutMinutes = pQueueTimeout,
                 showNotificationOnFailure = pShowNotif,
             )
         PreconditionType.VPN_CHECK ->
@@ -228,6 +234,8 @@ private fun parsePrecondition(pObj: JSONObject): Precondition {
                 onFailureAction = pFailureAction,
                 maxRetries = pMaxRetries,
                 retryIntervalSeconds = pRetryInterval,
+                retryStrategy = pRetryStrategy,
+                queueTimeoutMinutes = pQueueTimeout,
                 showNotificationOnFailure = pShowNotif,
             )
         PreconditionType.HEALTH_CHECK ->
@@ -241,6 +249,8 @@ private fun parsePrecondition(pObj: JSONObject): Precondition {
                 onFailureAction = pFailureAction,
                 maxRetries = pMaxRetries,
                 retryIntervalSeconds = pRetryInterval,
+                retryStrategy = pRetryStrategy,
+                queueTimeoutMinutes = pQueueTimeout,
                 showNotificationOnFailure = pShowNotif,
             )
         PreconditionType.SIM_CHECK ->
@@ -252,6 +262,8 @@ private fun parsePrecondition(pObj: JSONObject): Precondition {
                 onFailureAction = pFailureAction,
                 maxRetries = pMaxRetries,
                 retryIntervalSeconds = pRetryInterval,
+                retryStrategy = pRetryStrategy,
+                queueTimeoutMinutes = pQueueTimeout,
                 showNotificationOnFailure = pShowNotif,
             )
         PreconditionType.GPS_CHECK ->
@@ -262,6 +274,8 @@ private fun parsePrecondition(pObj: JSONObject): Precondition {
                 onFailureAction = pFailureAction,
                 maxRetries = pMaxRetries,
                 retryIntervalSeconds = pRetryInterval,
+                retryStrategy = pRetryStrategy,
+                queueTimeoutMinutes = pQueueTimeout,
                 showNotificationOnFailure = pShowNotif,
             )
         PreconditionType.BATTERY_CHECK ->
@@ -273,6 +287,8 @@ private fun parsePrecondition(pObj: JSONObject): Precondition {
                 onFailureAction = pFailureAction,
                 maxRetries = pMaxRetries,
                 retryIntervalSeconds = pRetryInterval,
+                retryStrategy = pRetryStrategy,
+                queueTimeoutMinutes = pQueueTimeout,
                 showNotificationOnFailure = pShowNotif,
             )
         PreconditionType.CHAINED_CHECK ->
@@ -283,6 +299,8 @@ private fun parsePrecondition(pObj: JSONObject): Precondition {
                 pFailureAction = pFailureAction,
                 pMaxRetries = pMaxRetries,
                 pRetryInterval = pRetryInterval,
+                pRetryStrategy = pRetryStrategy,
+                pQueueTimeout = pQueueTimeout,
                 pShowNotif = pShowNotif,
             )
     }
@@ -295,6 +313,8 @@ private fun parseChainedPrecondition(
     pFailureAction: String,
     pMaxRetries: Int,
     pRetryInterval: Int,
+    pRetryStrategy: String = "FIXED",
+    pQueueTimeout: Int = 10,
     pShowNotif: Boolean,
 ): Precondition.ChainCheck {
     val chainNodesList = mutableListOf<WorkflowNode>()
@@ -338,6 +358,8 @@ private fun parseChainedPrecondition(
         onFailureAction = pFailureAction,
         maxRetries = pMaxRetries,
         retryIntervalSeconds = pRetryInterval,
+        retryStrategy = pRetryStrategy,
+        queueTimeoutMinutes = pQueueTimeout,
         showNotificationOnFailure = pShowNotif,
     )
 }

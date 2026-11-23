@@ -312,4 +312,61 @@ class WorkflowValidationAndUiTest {
         assertEquals("5", gotifyJson.optString("priority"))
         assertEquals("https://gotify.example.com", gotifyJson.optString("serverUrl"))
     }
+
+    @Test
+    fun testDecoupledManifestDrivenProperties() {
+        val customManifestWithCredentials =
+            dev.zophop.plugin.api.NodePluginManifest(
+                typeId = "com.custom.plugin.WEBHOOK",
+                displayName = "Custom Webhook",
+                description = "Sends webhook payloads",
+                category = dev.zophop.plugin.api.NodeCategory.ACTION,
+                supportsCredentials = true,
+                defaultConfigJson = """{"endpoint":"https://api.custom.com"}""",
+                requiredPermissions = listOf("android.permission.INTERNET"),
+            )
+
+        // 1. Credential support is driven by manifest property
+        assertTrue(customManifestWithCredentials.isCredentialSupported())
+        val builtInHttp = dev.zophop.domain.engine.plugin.BuiltInPluginRegistry.getBuiltInManifestByTypeId(NodeType.HTTP_ACTION)
+        assertNotNull(builtInHttp)
+        assertTrue(builtInHttp!!.isCredentialSupported())
+
+        val unauthenticatedManifest =
+            dev.zophop.plugin.api.NodePluginManifest(
+                typeId = "com.custom.plugin.LOG",
+                displayName = "Custom Logger",
+                description = "Logs data",
+                category = dev.zophop.plugin.api.NodeCategory.ACTION,
+                supportsCredentials = false,
+            )
+        assertFalse(unauthenticatedManifest.isCredentialSupported())
+
+        // 2. Default config is driven by manifest
+        assertEquals(
+            """{"endpoint":"https://api.custom.com"}""",
+            WorkflowUiHelper.getDefaultConfigForType("com.custom.plugin.WEBHOOK", customManifestWithCredentials),
+        )
+
+        // 3. Title and description are driven by manifest
+        assertEquals("Custom Webhook", WorkflowUiHelper.getNodeTitle("com.custom.plugin.WEBHOOK", customManifestWithCredentials))
+        assertEquals("Sends webhook payloads", WorkflowUiHelper.getNodeDescription("com.custom.plugin.WEBHOOK", customManifestWithCredentials))
+
+        // 4. Permissions are driven by manifest
+        assertEquals(
+            listOf("android.permission.INTERNET"),
+            WorkflowUiHelper.getRequiredPermissions("com.custom.plugin.WEBHOOK", customManifestWithCredentials),
+        )
+
+        // 5. Logic category drives conditional node check
+        val logicManifest =
+            dev.zophop.plugin.api.NodePluginManifest(
+                typeId = "com.custom.plugin.EVAL",
+                displayName = "Custom Evaluator",
+                description = "Evaluates boolean logic",
+                category = dev.zophop.plugin.api.NodeCategory.LOGIC,
+            )
+        assertTrue(WorkflowUiHelper.isConditionalNode("com.custom.plugin.EVAL", logicManifest))
+        assertFalse(WorkflowUiHelper.isConditionalNode("com.custom.plugin.WEBHOOK", customManifestWithCredentials))
+    }
 }

@@ -190,4 +190,99 @@ class EntityMappingAndSerializationTest {
         assertEquals(35, batteryDomain.minBatteryPercent)
         assertEquals(true, batteryDomain.requireCharging)
     }
+
+    @Test
+    fun testWorkflowEntityPreconditionQueueTimeoutRoundtrip() {
+        val triggerId = UUID.randomUUID().toString()
+        val actionId = UUID.randomUUID().toString()
+        val precId = "prec_queue_test"
+
+        val triggerNode =
+            WorkflowNode(
+                id = triggerId,
+                name = "Trigger",
+                type = NodeType.MANUAL_TRIGGER,
+            )
+
+        val actionNode =
+            WorkflowNode(
+                id = actionId,
+                name = "Action",
+                type = NodeType.HTTP_ACTION,
+                preconditions =
+                    listOf(
+                        Precondition.InternetCheck(
+                            id = precId,
+                            isEnabled = true,
+                            onFailureAction = "QUEUE",
+                            queueTimeoutMinutes = 15,
+                        ),
+                    ),
+            )
+
+        val workflow =
+            Workflow(
+                id = "wf_queue_test",
+                name = "Queue Test Workflow",
+                nodes = listOf(triggerNode, actionNode),
+                connections = listOf(WorkflowConnection(fromNodeId = triggerId, toNodeId = actionId)),
+            )
+
+        val entity = WorkflowEntity.fromDomain(workflow)
+        val deserialized = entity.toDomain()
+
+        val deserializedAction = deserialized.nodes.first { it.id == actionId }
+        val prec = deserializedAction.preconditions[0] as Precondition.InternetCheck
+        assertEquals("QUEUE", prec.onFailureAction)
+        assertEquals(15, prec.queueTimeoutMinutes)
+    }
+
+    @Test
+    fun testWorkflowEntityPreconditionRetryStrategyRoundtrip() {
+        val triggerId = UUID.randomUUID().toString()
+        val actionId = UUID.randomUUID().toString()
+
+        val triggerNode =
+            WorkflowNode(
+                id = triggerId,
+                name = "Trigger",
+                type = NodeType.MANUAL_TRIGGER,
+            )
+
+        val actionNode =
+            WorkflowNode(
+                id = actionId,
+                name = "Action",
+                type = NodeType.HTTP_ACTION,
+                preconditions =
+                    listOf(
+                        Precondition.HealthCheck(
+                            id = "prec_retry_strategy",
+                            isEnabled = true,
+                            onFailureAction = "RETRY",
+                            maxRetries = 5,
+                            retryIntervalSeconds = 12,
+                            retryStrategy = "EXPONENTIAL",
+                        ),
+                    ),
+            )
+
+        val workflow =
+            Workflow(
+                id = "wf_retry_strategy_test",
+                name = "Retry Strategy Test",
+                nodes = listOf(triggerNode, actionNode),
+                connections = listOf(WorkflowConnection(fromNodeId = triggerId, toNodeId = actionId)),
+            )
+
+        val entity = WorkflowEntity.fromDomain(workflow)
+        val deserialized = entity.toDomain()
+
+        val deserializedAction = deserialized.nodes.first { it.id == actionId }
+        val prec = deserializedAction.preconditions[0] as Precondition.HealthCheck
+        assertEquals("RETRY", prec.onFailureAction)
+        assertEquals(5, prec.maxRetries)
+        assertEquals(12, prec.retryIntervalSeconds)
+        assertEquals("EXPONENTIAL", prec.retryStrategy)
+    }
 }

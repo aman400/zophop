@@ -37,6 +37,9 @@ class FakeMessageDao : MessageDao {
             it.status == MessageStatus.QUEUED || it.status == MessageStatus.FAILED
         }
 
+    override fun getQueuedMessagesFlow(): Flow<List<MessageEntity>> =
+        flowOf(messages.values.filter { it.status == MessageStatus.QUEUED }.sortedBy { it.receivedAt })
+
     override fun getRecentEventsFlow(limit: Int): Flow<List<MessageEntity>> =
         flowOf(
             messages.values
@@ -352,5 +355,61 @@ class QueueAndRetryTest {
 
             manager.clearAllEvents()
             assertTrue(messageDao.messages.isEmpty())
+        }
+
+    @Test
+    fun testQueuedMessagesFlowEmitsOnlyQueuedMessagesSortedByReceivedAt() =
+        runTest {
+            val now = System.currentTimeMillis()
+            val msg1 = MessageEntity("id1", "BankA", "Body 1", now + 1000, status = MessageStatus.QUEUED)
+            val msg2 = MessageEntity("id2", "BankB", "Body 2", now, status = MessageStatus.QUEUED)
+            val msg3 = MessageEntity("id3", "BankC", "Body 3", now + 500, status = MessageStatus.DELIVERED)
+            val msg4 = MessageEntity("id4", "BankD", "Body 4", now + 200, status = MessageStatus.FAILED)
+
+            messageDao.insertMessage(msg1)
+            messageDao.insertMessage(msg2)
+            messageDao.insertMessage(msg3)
+            messageDao.insertMessage(msg4)
+
+            var emittedList = emptyList<MessageEntity>()
+            messageDao.getQueuedMessagesFlow().collect {
+                emittedList = it
+            }
+
+            assertEquals(2, emittedList.size)
+            assertEquals("id2", emittedList[0].id) // Earlier receivedAt first
+            assertEquals("id1", emittedList[1].id)
+        }
+
+    @Test
+    fun testQueueModeTimeoutExpirationClearsBodyAndMarksExpired() =
+        runTest {
+            val fakeClient = FakeNtfyClient(failCount = 0)
+            val manager =
+                ForwardingManager(
+                    messageDao = messageDao,
+                    settingsRepository = settingsRepo,
+                    ntfyClient = fakeClient,
+                    delayProvider = {},
+                )
+
+            val twentyMinAgo = System.currentTimeMillis() - (20 * 60 * 1000L)
+            val queuedTimeoutMsg =
+                MessageEntity(
+                    id = "msg-queue-timeout",
+                    sender = "TEST_BANK",
+                    body = "Sensitive Secret 123",
+                    receivedAt = twentyMinAgo,
+                    status = MessageStatus.QUEUED,
+                    errorMessage = "⏳ Waiting for Pre-Conditions: GPS required",
+                )
+            messageDao.insertMessage(queuedTimeoutMsg)
+
+            manager.processPendingQueue()
+
+            val updated = messageDao.getMessageById("msg-queue-timeout")
+            assertEquals(MessageStatus.EXPIRED, updated?.status)
+            assertNull(updated?.body)
+            assertEquals(0, fakeClient.callCount)
         }
 }

@@ -10,13 +10,58 @@ enum class PreconditionType {
     CHAINED_CHECK,
 }
 
+object PreconditionFailurePolicy {
+    const val FAIL_IMMEDIATELY = "FAIL_IMMEDIATELY"
+    const val RETRY = "RETRY"
+    const val QUEUE = "QUEUE"
+}
+
+object RetryStrategy {
+    const val FIXED = "FIXED"
+    const val EXPONENTIAL = "EXPONENTIAL"
+    const val RANDOMIZED = "RANDOMIZED"
+}
+
+/**
+ * Calculates the retry delay in seconds based on the selected backoff strategy.
+ *
+ * - FIXED: Constant delay of baseIntervalSeconds on every attempt.
+ * - EXPONENTIAL: baseIntervalSeconds * 2^(attempt - 1), capped at maxCapSeconds.
+ * - RANDOMIZED: Full-jitter delay randomly chosen between 1 and the exponential ceiling for that attempt.
+ */
+fun calculateRetryDelaySeconds(
+    strategy: String,
+    baseIntervalSeconds: Int,
+    attempt: Int,
+    maxCapSeconds: Int = 3600,
+    randomGenerator: (min: Int, max: Int) -> Int = { min, max ->
+        if (min >= max) min else kotlin.random.Random.nextInt(min, max + 1)
+    },
+): Int {
+    val base = baseIntervalSeconds.coerceAtLeast(1)
+    return when (strategy.uppercase().trim()) {
+        RetryStrategy.EXPONENTIAL -> {
+            val shift = (attempt - 1).coerceIn(0, 10)
+            (base * (1 shl shift)).coerceIn(1, maxCapSeconds)
+        }
+        RetryStrategy.RANDOMIZED -> {
+            val shift = (attempt - 1).coerceIn(0, 10)
+            val ceiling = (base * (1 shl shift)).coerceIn(1, maxCapSeconds)
+            randomGenerator(1, ceiling)
+        }
+        else -> base.coerceIn(1, maxCapSeconds) // FIXED
+    }
+}
+
 sealed class Precondition(
     val type: PreconditionType,
     open val id: String = "",
     open val isEnabled: Boolean = true,
-    open val onFailureAction: String = "FAIL_IMMEDIATELY", // "FAIL_IMMEDIATELY" or "RETRY"
+    open val onFailureAction: String = PreconditionFailurePolicy.FAIL_IMMEDIATELY, // "FAIL_IMMEDIATELY", "RETRY", or "QUEUE"
     open val maxRetries: Int = 3,
     open val retryIntervalSeconds: Int = 30,
+    open val retryStrategy: String = RetryStrategy.FIXED, // "FIXED", "EXPONENTIAL", or "RANDOMIZED"
+    open val queueTimeoutMinutes: Int = 10,
     open val showNotificationOnFailure: Boolean = false,
 ) {
     data class InternetCheck(
@@ -25,6 +70,8 @@ sealed class Precondition(
         override val onFailureAction: String = "FAIL_IMMEDIATELY",
         override val maxRetries: Int = 3,
         override val retryIntervalSeconds: Int = 30,
+        override val retryStrategy: String = RetryStrategy.FIXED,
+        override val queueTimeoutMinutes: Int = 10,
         override val showNotificationOnFailure: Boolean = false,
     ) : Precondition(
             PreconditionType.INTERNET_CHECK,
@@ -33,6 +80,8 @@ sealed class Precondition(
             onFailureAction,
             maxRetries,
             retryIntervalSeconds,
+            retryStrategy,
+            queueTimeoutMinutes,
             showNotificationOnFailure,
         )
 
@@ -42,6 +91,8 @@ sealed class Precondition(
         override val onFailureAction: String = "FAIL_IMMEDIATELY",
         override val maxRetries: Int = 3,
         override val retryIntervalSeconds: Int = 30,
+        override val retryStrategy: String = RetryStrategy.FIXED,
+        override val queueTimeoutMinutes: Int = 10,
         override val showNotificationOnFailure: Boolean = false,
     ) : Precondition(
             PreconditionType.VPN_CHECK,
@@ -50,6 +101,8 @@ sealed class Precondition(
             onFailureAction,
             maxRetries,
             retryIntervalSeconds,
+            retryStrategy,
+            queueTimeoutMinutes,
             showNotificationOnFailure,
         )
 
@@ -63,6 +116,8 @@ sealed class Precondition(
         override val onFailureAction: String = "FAIL_IMMEDIATELY",
         override val maxRetries: Int = 3,
         override val retryIntervalSeconds: Int = 30,
+        override val retryStrategy: String = RetryStrategy.FIXED,
+        override val queueTimeoutMinutes: Int = 10,
         override val showNotificationOnFailure: Boolean = false,
     ) : Precondition(
             PreconditionType.HEALTH_CHECK,
@@ -71,6 +126,8 @@ sealed class Precondition(
             onFailureAction,
             maxRetries,
             retryIntervalSeconds,
+            retryStrategy,
+            queueTimeoutMinutes,
             showNotificationOnFailure,
         )
 
@@ -82,6 +139,8 @@ sealed class Precondition(
         override val onFailureAction: String = "FAIL_IMMEDIATELY",
         override val maxRetries: Int = 3,
         override val retryIntervalSeconds: Int = 30,
+        override val retryStrategy: String = RetryStrategy.FIXED,
+        override val queueTimeoutMinutes: Int = 10,
         override val showNotificationOnFailure: Boolean = false,
     ) : Precondition(
             PreconditionType.SIM_CHECK,
@@ -90,6 +149,8 @@ sealed class Precondition(
             onFailureAction,
             maxRetries,
             retryIntervalSeconds,
+            retryStrategy,
+            queueTimeoutMinutes,
             showNotificationOnFailure,
         )
 
@@ -100,6 +161,8 @@ sealed class Precondition(
         override val onFailureAction: String = "FAIL_IMMEDIATELY",
         override val maxRetries: Int = 3,
         override val retryIntervalSeconds: Int = 30,
+        override val retryStrategy: String = RetryStrategy.FIXED,
+        override val queueTimeoutMinutes: Int = 10,
         override val showNotificationOnFailure: Boolean = false,
     ) : Precondition(
             PreconditionType.GPS_CHECK,
@@ -108,6 +171,8 @@ sealed class Precondition(
             onFailureAction,
             maxRetries,
             retryIntervalSeconds,
+            retryStrategy,
+            queueTimeoutMinutes,
             showNotificationOnFailure,
         )
 
@@ -119,6 +184,8 @@ sealed class Precondition(
         override val onFailureAction: String = "FAIL_IMMEDIATELY",
         override val maxRetries: Int = 3,
         override val retryIntervalSeconds: Int = 30,
+        override val retryStrategy: String = RetryStrategy.FIXED,
+        override val queueTimeoutMinutes: Int = 10,
         override val showNotificationOnFailure: Boolean = false,
     ) : Precondition(
             PreconditionType.BATTERY_CHECK,
@@ -127,6 +194,8 @@ sealed class Precondition(
             onFailureAction,
             maxRetries,
             retryIntervalSeconds,
+            retryStrategy,
+            queueTimeoutMinutes,
             showNotificationOnFailure,
         )
 
@@ -138,6 +207,8 @@ sealed class Precondition(
         override val onFailureAction: String = "FAIL_IMMEDIATELY",
         override val maxRetries: Int = 3,
         override val retryIntervalSeconds: Int = 30,
+        override val retryStrategy: String = RetryStrategy.FIXED,
+        override val queueTimeoutMinutes: Int = 10,
         override val showNotificationOnFailure: Boolean = false,
     ) : Precondition(
             PreconditionType.CHAINED_CHECK,
@@ -146,6 +217,8 @@ sealed class Precondition(
             onFailureAction,
             maxRetries,
             retryIntervalSeconds,
+            retryStrategy,
+            queueTimeoutMinutes,
             showNotificationOnFailure,
         )
 }

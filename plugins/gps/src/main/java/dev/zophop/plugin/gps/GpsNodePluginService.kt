@@ -83,15 +83,21 @@ private fun checkLocationPrerequisites(appContext: Context): String? =
         else -> null
     }
 
+@android.annotation.SuppressLint("MissingPermission")
 private fun populateLocation(
     context: ExecutionContext,
     appContext: Context,
 ): NodeExecutionResult {
-    val lm = appContext.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+    val lm = appContext.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+        ?: return NodeExecutionResult.Failed("LocationManager unavailable")
     val location =
-        lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-            ?: lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-            ?: lm.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
+        try {
+            lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                ?: lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+                ?: lm.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
+        } catch (_: SecurityException) {
+            null
+        }
 
     val lat = location?.latitude?.toString() ?: "0.0"
     val lon = location?.longitude?.toString() ?: "0.0"
@@ -157,9 +163,11 @@ object GpsPluginModule : NodePluginModule {
                 displayName = "Get Current Location",
                 description = "Fetches current device GPS coordinates (latitude, longitude, accuracy) and Google Maps link",
                 category = NodeCategory.ACTION,
+                iconResName = "ic_node_gps",
                 requiredPermissions = listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
                 setupActivity = "dev.zophop.plugin.gps.SetupActivity",
                 outputVariables = listOf("latitude", "longitude", "accuracy", "maps_url"),
+                defaultConfigJson = """{"requireHighAccuracy":"true"}""",
                 configSchema =
                     listOf(
                         ConfigFieldSpec.DropdownField(

@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -257,7 +258,28 @@ fun PreconditionCardItem(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     val isRetry = precondition.onFailureAction.equals("RETRY", ignoreCase = true)
-                    if (isRetry) {
+                    val isQueue = precondition.onFailureAction.equals("QUEUE", ignoreCase = true)
+                    if (isQueue) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f),
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            shape = RoundedCornerShape(4.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                            ) {
+                                Icon(Icons.Default.HourglassTop, contentDescription = null, modifier = Modifier.size(11.dp))
+                                Text(
+                                    text = "Queue Mode (${precondition.queueTimeoutMinutes}m)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                        }
+                    } else if (isRetry) {
                         Surface(
                             color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.8f),
                             contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
@@ -269,8 +291,14 @@ fun PreconditionCardItem(
                                 horizontalArrangement = Arrangement.spacedBy(3.dp),
                             ) {
                                 Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(11.dp))
+                                val strategySuffix =
+                                    when (precondition.retryStrategy.uppercase()) {
+                                        "EXPONENTIAL" -> ", Exp"
+                                        "RANDOMIZED" -> ", Rand"
+                                        else -> ""
+                                    }
                                 Text(
-                                    text = "Retry ${precondition.maxRetries}x (${precondition.retryIntervalSeconds}s)",
+                                    text = "Retry ${precondition.maxRetries}x (${precondition.retryIntervalSeconds}s$strategySuffix)",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.SemiBold,

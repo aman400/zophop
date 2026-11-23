@@ -26,9 +26,11 @@ data class PreconditionEntity(
     val pipelineJson: String = "",
     val minBatteryPercent: Int = 15,
     val requireCharging: Boolean = false,
-    val onFailureAction: String = "FAIL_IMMEDIATELY", // "FAIL_IMMEDIATELY" or "RETRY"
+    val onFailureAction: String = "FAIL_IMMEDIATELY", // "FAIL_IMMEDIATELY", "RETRY", or "QUEUE"
     val maxRetries: Int = 3,
     val retryIntervalSeconds: Int = 30,
+    val retryStrategy: String = "FIXED", // "FIXED", "EXPONENTIAL", or "RANDOMIZED"
+    val queueTimeoutMinutes: Int = 10,
     val showNotificationOnFailure: Boolean = false,
     val updatedAt: Long = System.currentTimeMillis(),
 )
@@ -42,6 +44,8 @@ fun PreconditionEntity.toDomain(): Precondition =
                 onFailureAction = onFailureAction,
                 maxRetries = maxRetries,
                 retryIntervalSeconds = retryIntervalSeconds,
+                retryStrategy = retryStrategy,
+                queueTimeoutMinutes = queueTimeoutMinutes,
                 showNotificationOnFailure = showNotificationOnFailure,
             )
         PreconditionType.VPN_CHECK.name ->
@@ -51,6 +55,8 @@ fun PreconditionEntity.toDomain(): Precondition =
                 onFailureAction = onFailureAction,
                 maxRetries = maxRetries,
                 retryIntervalSeconds = retryIntervalSeconds,
+                retryStrategy = retryStrategy,
+                queueTimeoutMinutes = queueTimeoutMinutes,
                 showNotificationOnFailure = showNotificationOnFailure,
             )
         PreconditionType.HEALTH_CHECK.name ->
@@ -64,6 +70,8 @@ fun PreconditionEntity.toDomain(): Precondition =
                 onFailureAction = onFailureAction,
                 maxRetries = maxRetries,
                 retryIntervalSeconds = retryIntervalSeconds,
+                retryStrategy = retryStrategy,
+                queueTimeoutMinutes = queueTimeoutMinutes,
                 showNotificationOnFailure = showNotificationOnFailure,
             )
         PreconditionType.SIM_CHECK.name ->
@@ -74,6 +82,8 @@ fun PreconditionEntity.toDomain(): Precondition =
                 onFailureAction = onFailureAction,
                 maxRetries = maxRetries,
                 retryIntervalSeconds = retryIntervalSeconds,
+                retryStrategy = retryStrategy,
+                queueTimeoutMinutes = queueTimeoutMinutes,
                 showNotificationOnFailure = showNotificationOnFailure,
             )
         PreconditionType.GPS_CHECK.name ->
@@ -84,6 +94,8 @@ fun PreconditionEntity.toDomain(): Precondition =
                 onFailureAction = onFailureAction,
                 maxRetries = maxRetries,
                 retryIntervalSeconds = retryIntervalSeconds,
+                retryStrategy = retryStrategy,
+                queueTimeoutMinutes = queueTimeoutMinutes,
                 showNotificationOnFailure = showNotificationOnFailure,
             )
         PreconditionType.BATTERY_CHECK.name ->
@@ -95,6 +107,8 @@ fun PreconditionEntity.toDomain(): Precondition =
                 onFailureAction = onFailureAction,
                 maxRetries = maxRetries,
                 retryIntervalSeconds = retryIntervalSeconds,
+                retryStrategy = retryStrategy,
+                queueTimeoutMinutes = queueTimeoutMinutes,
                 showNotificationOnFailure = showNotificationOnFailure,
             )
         PreconditionType.CHAINED_CHECK.name -> {
@@ -136,6 +150,8 @@ fun PreconditionEntity.toDomain(): Precondition =
                 onFailureAction = onFailureAction,
                 maxRetries = maxRetries,
                 retryIntervalSeconds = retryIntervalSeconds,
+                retryStrategy = retryStrategy,
+                queueTimeoutMinutes = queueTimeoutMinutes,
                 showNotificationOnFailure = showNotificationOnFailure,
             )
         }
@@ -146,6 +162,8 @@ fun PreconditionEntity.toDomain(): Precondition =
                 onFailureAction = onFailureAction,
                 maxRetries = maxRetries,
                 retryIntervalSeconds = retryIntervalSeconds,
+                retryStrategy = retryStrategy,
+                queueTimeoutMinutes = queueTimeoutMinutes,
                 showNotificationOnFailure = showNotificationOnFailure,
             )
     }
