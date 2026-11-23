@@ -8,6 +8,7 @@ object NodeType {
     const val NOTIFICATION_TRIGGER = "NOTIFICATION_TRIGGER"
     const val MANUAL_TRIGGER = "MANUAL_TRIGGER"
     const val CRON_TRIGGER = "CRON_TRIGGER"
+    const val CALL_TRIGGER = "CALL_TRIGGER"
 
     // Parsers & Logic
     const val PARSE_NOTIFICATION = "PARSE_NOTIFICATION"
@@ -16,12 +17,22 @@ object NodeType {
     const val TEMPLATE_FORMATTER = "TEMPLATE_FORMATTER"
     const val CONDITION = "CONDITION"
 
+    // Condition Checks (Hardware, Network & Sensors)
+    const val VPN_CHECK = "VPN_CHECK"
+    const val GPS_CHECK = "GPS_CHECK"
+    const val INTERNET_CHECK = "INTERNET_CHECK"
+    const val BLUETOOTH_CHECK = "BLUETOOTH_CHECK"
+    const val SIM_CHECK = "SIM_CHECK"
+    const val BATTERY_CHECK = "BATTERY_CHECK"
+
     // Actions
     const val NTFY_ACTION = "NTFY_ACTION"
     const val GOTIFY_ACTION = "GOTIFY_ACTION"
     const val HTTP_ACTION = "HTTP_ACTION"
     const val SEND_NOTIFICATION_ACTION = "SEND_NOTIFICATION_ACTION"
     const val SEND_SMS_ACTION = "SEND_SMS_ACTION"
+    const val DISCONNECT_CALL_ACTION = "DISCONNECT_CALL_ACTION"
+    const val ANSWER_CALL_ACTION = "ANSWER_CALL_ACTION"
 }
 
 data class WorkflowNode(
@@ -30,14 +41,14 @@ data class WorkflowNode(
     val type: String,
     val isEnabled: Boolean = true,
     val configJson: String = "{}",
-    val preconditions: List<Precondition> = emptyList()
+    val preconditions: List<Precondition> = emptyList(),
 )
 
 data class WorkflowConnection(
     val fromNodeId: String,
     val toNodeId: String,
     val outputPort: String = "main", // "main", "true", "false"
-    val inputPort: String = "main"
+    val inputPort: String = "main",
 )
 
 data class Workflow(
@@ -48,5 +59,5 @@ data class Workflow(
     val nodes: List<WorkflowNode> = emptyList(),
     val connections: List<WorkflowConnection> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),
-    val updatedAt: Long = System.currentTimeMillis()
+    val updatedAt: Long = System.currentTimeMillis(),
 )

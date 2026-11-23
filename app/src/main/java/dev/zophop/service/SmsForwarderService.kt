@@ -16,18 +16,22 @@ import dev.zophop.network.ConnectivityMonitor
 import dev.zophop.ui.MainActivity
 
 class SmsForwarderService : Service() {
-
     private var connectivityMonitor: ConnectivityMonitor? = null
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        connectivityMonitor = ConnectivityMonitor(applicationContext).apply {
-            register()
-        }
+        connectivityMonitor =
+            ConnectivityMonitor(applicationContext).apply {
+                register()
+            }
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    override fun onStartCommand(
+        intent: Intent?,
+        flags: Int,
+        startId: Int,
+    ): Int {
         val title = intent?.getStringExtra(EXTRA_TITLE) ?: "ZopHop Active"
         val text = intent?.getStringExtra(EXTRA_TEXT) ?: "Monitoring incoming SMS and forwarding OTPs"
         val notification = createNotification(title, text)
@@ -36,7 +40,7 @@ class SmsForwarderService : Service() {
             startForeground(
                 NOTIFICATION_ID,
                 notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
             )
         } else {
             startForeground(NOTIFICATION_ID, notification)
@@ -52,18 +56,24 @@ class SmsForwarderService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private fun createNotification(title: String, text: String): Notification {
-        val openAppIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            0,
-            openAppIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+    private fun createNotification(
+        title: String,
+        text: String,
+    ): Notification {
+        val openAppIntent =
+            Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+        val pendingIntent =
+            PendingIntent.getActivity(
+                this,
+                0,
+                openAppIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        return NotificationCompat
+            .Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(text)
             .setSmallIcon(R.drawable.ic_notification)
@@ -74,13 +84,14 @@ class SmsForwarderService : Service() {
     }
 
     private fun createNotificationChannel() {
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            "SMS Forwarder Service",
-            NotificationManager.IMPORTANCE_LOW
-        ).apply {
-            description = "Shows status while SMS OTP forwarding is enabled"
-        }
+        val channel =
+            NotificationChannel(
+                CHANNEL_ID,
+                "SMS Forwarder Service",
+                NotificationManager.IMPORTANCE_LOW,
+            ).apply {
+                description = "Shows status while SMS OTP forwarding is enabled"
+            }
         val manager = getSystemService(NotificationManager::class.java)
         manager?.createNotificationChannel(channel)
     }
@@ -96,28 +107,37 @@ class SmsForwarderService : Service() {
             context.startForegroundService(intent)
         }
 
-        fun updateNotificationStatus(context: Context, title: String, text: String) {
-            val manager = context.getSystemService(NotificationManager::class.java)
-                ?: return
+        fun updateNotificationStatus(
+            context: Context,
+            title: String,
+            text: String,
+        ) {
+            val manager =
+                context.getSystemService(NotificationManager::class.java)
+                    ?: return
 
-            val openAppIntent = Intent(context, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            }
-            val pendingIntent = PendingIntent.getActivity(
-                context,
-                0,
-                openAppIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
+            val openAppIntent =
+                Intent(context, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                }
+            val pendingIntent =
+                PendingIntent.getActivity(
+                    context,
+                    0,
+                    openAppIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                )
 
-            val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-                .setContentTitle(title)
-                .setContentText(text)
-                .setSmallIcon(R.drawable.ic_notification)
-                .setContentIntent(pendingIntent)
-                .setPriority(NotificationCompat.PRIORITY_LOW)
-                .setOngoing(true)
-                .build()
+            val notification =
+                NotificationCompat
+                    .Builder(context, CHANNEL_ID)
+                    .setContentTitle(title)
+                    .setContentText(text)
+                    .setSmallIcon(R.drawable.ic_notification)
+                    .setContentIntent(pendingIntent)
+                    .setPriority(NotificationCompat.PRIORITY_LOW)
+                    .setOngoing(true)
+                    .build()
 
             manager.notify(NOTIFICATION_ID, notification)
         }
@@ -126,7 +146,7 @@ class SmsForwarderService : Service() {
             updateNotificationStatus(
                 context,
                 "ZopHop Active",
-                "Monitoring incoming SMS and forwarding OTPs"
+                "Monitoring incoming SMS and forwarding OTPs",
             )
         }
 

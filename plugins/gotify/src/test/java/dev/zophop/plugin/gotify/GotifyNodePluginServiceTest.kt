@@ -1,10 +1,8 @@
 package dev.zophop.plugin.gotify
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import dev.zophop.plugin.api.NodePluginManifest
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -14,7 +12,6 @@ import org.robolectric.annotation.Config
 @RunWith(AndroidJUnit4::class)
 @Config(manifest = Config.NONE)
 class GotifyNodePluginServiceTest {
-
     @Test
     fun testGotifyPluginManifestStructure() {
         val serviceController = Robolectric.buildService(GotifyNodePluginService::class.java).create()

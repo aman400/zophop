@@ -5,7 +5,7 @@ data class PluginExecutionResult(
     val outputPort: String = "main",
     val logMessage: String = "",
     val outputDataMap: Map<String, String> = emptyMap(),
-    val errorReason: String? = null
+    val errorReason: String? = null,
 )
 
 interface NodePluginExecutor {
@@ -14,6 +14,6 @@ interface NodePluginExecutor {
     suspend fun execute(
         nodeId: String,
         configJson: String,
-        inputDataMap: Map<String, String>
+        inputDataMap: Map<String, String>,
     ): PluginExecutionResult
 }

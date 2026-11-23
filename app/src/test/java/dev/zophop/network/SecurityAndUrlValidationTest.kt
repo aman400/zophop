@@ -5,7 +5,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SecurityAndUrlValidationTest {
-
     @Test
     fun testValidPublicHttpsUrlsAllowed() {
         assertTrue(UrlValidator.isValidUrl("https://ntfy.sh/my-topic"))

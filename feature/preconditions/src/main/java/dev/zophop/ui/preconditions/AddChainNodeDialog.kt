@@ -17,58 +17,98 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.zophop.core.ui.components.NoSwipeBottomSheet
-import dev.zophop.domain.model.NodeType
+import dev.zophop.domain.engine.plugin.BuiltInPluginRegistry
+import dev.zophop.domain.engine.plugin.UnifiedPluginRegistry
+import dev.zophop.plugin.api.NodeCategory
+import dev.zophop.plugin.api.NodePluginManifest
 import dev.zophop.ui.workflows.WorkflowUiHelper
 
 @Composable
 fun AddChainNodeDialog(
+    title: String = "Select Pipeline Step Node",
+    isInitialPrecondition: Boolean = false,
     onDismiss: () -> Unit,
-    onSelectType: (String) -> Unit
+    onSelectType: (String) -> Unit,
 ) {
-    val extractionNodes = listOf(
-        NodeType.JSON_PARSER,
-        NodeType.REGEX_PARSER,
-        NodeType.TEMPLATE_FORMATTER,
-        NodeType.PARSE_NOTIFICATION
-    )
+    val context = LocalContext.current
+    val unifiedRegistry = remember { UnifiedPluginRegistry(context) }
+    var manifests by remember { mutableStateOf(BuiltInPluginRegistry.getBuiltInManifests()) }
 
-    val logicNodes = listOf(
-        NodeType.CONDITION
-    )
+    LaunchedEffect(Unit) {
+        val all = unifiedRegistry.getAllManifests()
+        if (all.isNotEmpty()) {
+            manifests = all
+        }
+    }
 
-    val actionNodes = listOf(
-        NodeType.HTTP_ACTION,
-        NodeType.NTFY_ACTION,
-        NodeType.GOTIFY_ACTION,
-        NodeType.SEND_NOTIFICATION_ACTION,
-        NodeType.SEND_SMS_ACTION
-    )
+    val conditionCheckNodes =
+        remember(manifests) {
+            manifests.filter {
+                it.category == NodeCategory.LOGIC &&
+                    (it.typeId.contains("CHECK", ignoreCase = true) || it.displayName.contains("Check", ignoreCase = true))
+            }
+        }
+
+    val httpNodes =
+        remember(manifests) {
+            manifests.filter {
+                it.typeId.contains("HTTP_ACTION", ignoreCase = true) ||
+                    it.typeId.equals("HTTP", ignoreCase = true)
+            }
+        }
+
+    val logicNodes =
+        remember(manifests) {
+            manifests.filter {
+                it.category == NodeCategory.LOGIC &&
+                    !it.typeId.contains("CHECK", ignoreCase = true) &&
+                    !it.displayName.contains("Check", ignoreCase = true)
+            }
+        }
+
+    val actionNodes =
+        remember(manifests) {
+            manifests.filter { it.category == NodeCategory.ACTION }
+        }
+
+    val extractionNodes =
+        remember(manifests) {
+            manifests.filter { it.category == NodeCategory.EXTRACTION }
+        }
 
     NoSwipeBottomSheet(
-        onDismissRequest = onDismiss
+        onDismissRequest = onDismiss,
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 16.dp)
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 16.dp),
         ) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 16.dp, bottom = 12.dp),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp, bottom = 12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "Select Pipeline Step Node",
+                    text = title,
                     style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
                 )
                 IconButton(onClick = onDismiss) {
                     Icon(Icons.Default.Close, contentDescription = "Close")
@@ -76,39 +116,84 @@ fun AddChainNodeDialog(
             }
 
             Column(
-                modifier = Modifier
-                    .weight(1f, fill = false)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                modifier =
+                    Modifier
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(
-                    text = "Extraction & Parsing",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                extractionNodes.forEach { type ->
-                    NodeSelectionCard(type = type, onClick = { onSelectType(type) })
-                }
+                if (isInitialPrecondition) {
+                    if (conditionCheckNodes.isNotEmpty()) {
+                        Text(
+                            text = "System & Hardware Checks",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        conditionCheckNodes.forEach { manifest ->
+                            NodeSelectionCard(manifest = manifest, onClick = { onSelectType(manifest.typeId) })
+                        }
+                    }
 
-                Text(
-                    text = "Logic & Filtering",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                logicNodes.forEach { type ->
-                    NodeSelectionCard(type = type, onClick = { onSelectType(type) })
-                }
+                    if (httpNodes.isNotEmpty()) {
+                        Text(
+                            text = "Network & HTTP/HTTPS Checks",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        httpNodes.forEach { manifest ->
+                            NodeSelectionCard(manifest = manifest, onClick = { onSelectType(manifest.typeId) })
+                        }
+                    }
+                } else {
+                    if (conditionCheckNodes.isNotEmpty()) {
+                        Text(
+                            text = "System & Hardware Checks",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        conditionCheckNodes.forEach { manifest ->
+                            NodeSelectionCard(manifest = manifest, onClick = { onSelectType(manifest.typeId) })
+                        }
+                    }
 
-                Text(
-                    text = "Actions & Delivery",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                actionNodes.forEach { type ->
-                    NodeSelectionCard(type = type, onClick = { onSelectType(type) })
+                    if (logicNodes.isNotEmpty()) {
+                        Text(
+                            text = "Logic & Filtering",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        logicNodes.forEach { manifest ->
+                            NodeSelectionCard(manifest = manifest, onClick = { onSelectType(manifest.typeId) })
+                        }
+                    }
+
+                    if (actionNodes.isNotEmpty()) {
+                        Text(
+                            text = "Actions & Delivery",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        actionNodes.forEach { manifest ->
+                            NodeSelectionCard(manifest = manifest, onClick = { onSelectType(manifest.typeId) })
+                        }
+                    }
+
+                    if (extractionNodes.isNotEmpty()) {
+                        Text(
+                            text = "Extraction & Parsing",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        extractionNodes.forEach { manifest ->
+                            NodeSelectionCard(manifest = manifest, onClick = { onSelectType(manifest.typeId) })
+                        }
+                    }
                 }
             }
         }
@@ -117,38 +202,86 @@ fun AddChainNodeDialog(
 
 @Composable
 fun NodeSelectionCard(
-    type: String,
-    onClick: () -> Unit
+    manifest: NodePluginManifest,
+    onClick: () -> Unit,
 ) {
     OutlinedCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        colors = CardDefaults.outlinedCardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        )
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick),
+        colors =
+            CardDefaults.outlinedCardColors(
+                containerColor = MaterialTheme.colorScheme.surface,
+            ),
     ) {
         Row(
             modifier = Modifier.padding(14.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Icon(
-                imageVector = WorkflowUiHelper.getNodeIcon(type),
+                imageVector = WorkflowUiHelper.getNodeIcon(manifest.typeId),
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary
+                tint = MaterialTheme.colorScheme.primary,
             )
             Column {
                 Text(
-                    text = WorkflowUiHelper.getNodeTitle(type),
+                    text = manifest.displayName,
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    text = WorkflowUiHelper.getNodeDescription(type),
+                    text = manifest.description,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+        }
+    }
+}
+
+@Composable
+fun NodeSelectionCard(
+    type: String,
+    onClick: () -> Unit,
+) {
+    val manifest = BuiltInPluginRegistry.getBuiltInManifestByTypeId(type)
+    if (manifest != null) {
+        NodeSelectionCard(manifest = manifest, onClick = onClick)
+    } else {
+        OutlinedCard(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onClick),
+            colors =
+                CardDefaults.outlinedCardColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                ),
+        ) {
+            Row(
+                modifier = Modifier.padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Icon(
+                    imageVector = WorkflowUiHelper.getNodeIcon(type),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Column {
+                    Text(
+                        text = WorkflowUiHelper.getNodeTitle(type),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = WorkflowUiHelper.getNodeDescription(type),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }

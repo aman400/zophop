@@ -24,61 +24,79 @@ data class PreconditionEntity(
     val requiredPermission: String = "",
     val credentialId: String = "",
     val pipelineJson: String = "",
+    val minBatteryPercent: Int = 15,
+    val requireCharging: Boolean = false,
     val onFailureAction: String = "FAIL_IMMEDIATELY", // "FAIL_IMMEDIATELY" or "RETRY"
     val maxRetries: Int = 3,
     val retryIntervalSeconds: Int = 30,
     val showNotificationOnFailure: Boolean = false,
-    val updatedAt: Long = System.currentTimeMillis()
+    val updatedAt: Long = System.currentTimeMillis(),
 )
 
-fun PreconditionEntity.toDomain(): Precondition {
-    return when (type) {
-        PreconditionType.INTERNET_CHECK.name -> Precondition.InternetCheck(
-            id = id,
-            isEnabled = isEnabled,
-            onFailureAction = onFailureAction,
-            maxRetries = maxRetries,
-            retryIntervalSeconds = retryIntervalSeconds,
-            showNotificationOnFailure = showNotificationOnFailure
-        )
-        PreconditionType.VPN_CHECK.name -> Precondition.VpnCheck(
-            id = id,
-            isEnabled = isEnabled,
-            onFailureAction = onFailureAction,
-            maxRetries = maxRetries,
-            retryIntervalSeconds = retryIntervalSeconds,
-            showNotificationOnFailure = showNotificationOnFailure
-        )
-        PreconditionType.HEALTH_CHECK.name -> Precondition.HealthCheck(
-            id = id,
-            isEnabled = isEnabled,
-            targetUrl = targetUrl,
-            method = method,
-            headers = headers,
-            expectedStatus = expectedStatus,
-            onFailureAction = onFailureAction,
-            maxRetries = maxRetries,
-            retryIntervalSeconds = retryIntervalSeconds,
-            showNotificationOnFailure = showNotificationOnFailure
-        )
-        PreconditionType.SIM_CHECK.name -> Precondition.SimCheck(
-            id = id,
-            isEnabled = isEnabled,
-            requiredCarrier = requiredCarrier,
-            onFailureAction = onFailureAction,
-            maxRetries = maxRetries,
-            retryIntervalSeconds = retryIntervalSeconds,
-            showNotificationOnFailure = showNotificationOnFailure
-        )
-        PreconditionType.GPS_CHECK.name -> Precondition.GpsCheck(
-            id = id,
-            isEnabled = isEnabled,
-            requireGpsEnabled = true,
-            onFailureAction = onFailureAction,
-            maxRetries = maxRetries,
-            retryIntervalSeconds = retryIntervalSeconds,
-            showNotificationOnFailure = showNotificationOnFailure
-        )
+fun PreconditionEntity.toDomain(): Precondition =
+    when (type) {
+        PreconditionType.INTERNET_CHECK.name ->
+            Precondition.InternetCheck(
+                id = id,
+                isEnabled = isEnabled,
+                onFailureAction = onFailureAction,
+                maxRetries = maxRetries,
+                retryIntervalSeconds = retryIntervalSeconds,
+                showNotificationOnFailure = showNotificationOnFailure,
+            )
+        PreconditionType.VPN_CHECK.name ->
+            Precondition.VpnCheck(
+                id = id,
+                isEnabled = isEnabled,
+                onFailureAction = onFailureAction,
+                maxRetries = maxRetries,
+                retryIntervalSeconds = retryIntervalSeconds,
+                showNotificationOnFailure = showNotificationOnFailure,
+            )
+        PreconditionType.HEALTH_CHECK.name ->
+            Precondition.HealthCheck(
+                id = id,
+                isEnabled = isEnabled,
+                targetUrl = targetUrl,
+                method = method,
+                headers = headers,
+                expectedStatus = expectedStatus,
+                onFailureAction = onFailureAction,
+                maxRetries = maxRetries,
+                retryIntervalSeconds = retryIntervalSeconds,
+                showNotificationOnFailure = showNotificationOnFailure,
+            )
+        PreconditionType.SIM_CHECK.name ->
+            Precondition.SimCheck(
+                id = id,
+                isEnabled = isEnabled,
+                requiredCarrier = requiredCarrier,
+                onFailureAction = onFailureAction,
+                maxRetries = maxRetries,
+                retryIntervalSeconds = retryIntervalSeconds,
+                showNotificationOnFailure = showNotificationOnFailure,
+            )
+        PreconditionType.GPS_CHECK.name ->
+            Precondition.GpsCheck(
+                id = id,
+                isEnabled = isEnabled,
+                requireGpsEnabled = true,
+                onFailureAction = onFailureAction,
+                maxRetries = maxRetries,
+                retryIntervalSeconds = retryIntervalSeconds,
+                showNotificationOnFailure = showNotificationOnFailure,
+            )
+        PreconditionType.BATTERY_CHECK.name ->
+            Precondition.BatteryCheck(
+                id = id,
+                isEnabled = isEnabled,
+                minBatteryPercent = minBatteryPercent,
+                requireCharging = requireCharging,
+                onFailureAction = onFailureAction,
+                maxRetries = maxRetries,
+                retryIntervalSeconds = retryIntervalSeconds,
+                showNotificationOnFailure = showNotificationOnFailure,
+            )
         PreconditionType.CHAINED_CHECK.name -> {
             val nodesList = mutableListOf<WorkflowNode>()
             val connectionsList = mutableListOf<WorkflowConnection>()
@@ -93,8 +111,8 @@ fun PreconditionEntity.toDomain(): Precondition {
                             name = nodeObj.getString("name"),
                             type = nodeObj.getString("type"),
                             isEnabled = nodeObj.optBoolean("isEnabled", true),
-                            configJson = nodeObj.optString("configJson", "{}")
-                        )
+                            configJson = nodeObj.optString("configJson", "{}"),
+                        ),
                     )
                 }
                 val connArr = json.optJSONArray("connections") ?: JSONArray()
@@ -104,11 +122,12 @@ fun PreconditionEntity.toDomain(): Precondition {
                         WorkflowConnection(
                             fromNodeId = connObj.getString("fromNodeId"),
                             toNodeId = connObj.getString("toNodeId"),
-                            outputPort = connObj.optString("outputPort", "main")
-                        )
+                            outputPort = connObj.optString("outputPort", "main"),
+                        ),
                     )
                 }
-            } catch (_: Exception) {}
+            } catch (_: Exception) {
+            }
             Precondition.ChainCheck(
                 id = id,
                 isEnabled = isEnabled,
@@ -117,16 +136,43 @@ fun PreconditionEntity.toDomain(): Precondition {
                 onFailureAction = onFailureAction,
                 maxRetries = maxRetries,
                 retryIntervalSeconds = retryIntervalSeconds,
-                showNotificationOnFailure = showNotificationOnFailure
+                showNotificationOnFailure = showNotificationOnFailure,
             )
         }
-        else -> Precondition.InternetCheck(
-            id = id,
-            isEnabled = isEnabled,
-            onFailureAction = onFailureAction,
-            maxRetries = maxRetries,
-            retryIntervalSeconds = retryIntervalSeconds,
-            showNotificationOnFailure = showNotificationOnFailure
-        )
+        else ->
+            Precondition.InternetCheck(
+                id = id,
+                isEnabled = isEnabled,
+                onFailureAction = onFailureAction,
+                maxRetries = maxRetries,
+                retryIntervalSeconds = retryIntervalSeconds,
+                showNotificationOnFailure = showNotificationOnFailure,
+            )
+    }
+
+fun PreconditionEntity.hasNodeType(vararg targetTypes: String): Boolean {
+    if (targetTypes.any { it.equals(type, ignoreCase = true) }) return true
+    if (pipelineJson.isBlank()) return false
+    return try {
+        val json = JSONObject(pipelineJson)
+        val arr = json.optJSONArray("nodes") ?: JSONArray()
+        for (i in 0 until arr.length()) {
+            val t = arr.getJSONObject(i).optString("type", "")
+            if (targetTypes.any { it.equals(t, ignoreCase = true) }) return true
+        }
+        false
+    } catch (_: Exception) {
+        false
+    }
+}
+
+fun PreconditionEntity.getStepCount(): Int {
+    if (pipelineJson.isBlank()) return 1
+    return try {
+        val json = JSONObject(pipelineJson)
+        val arr = json.optJSONArray("nodes") ?: JSONArray()
+        arr.length().coerceAtLeast(1)
+    } catch (_: Exception) {
+        1
     }
 }

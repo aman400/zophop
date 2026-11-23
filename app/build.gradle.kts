@@ -6,7 +6,12 @@ plugins {
 
 android {
     namespace = "dev.zophop"
-    compileSdk = 37
+    compileSdk {
+        version =
+            release(37) {
+                minorApiLevel = 1
+            }
+    }
 
     defaultConfig {
         applicationId = "dev.zophop"
@@ -42,7 +47,7 @@ android {
             isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
+                "proguard-rules.pro",
             )
             val releaseSigning = signingConfigs.getByName("release")
             signingConfig = if (releaseSigning.storeFile?.exists() == true) releaseSigning else signingConfigs.getByName("debug")
@@ -73,7 +78,7 @@ androidComponents {
         val suffix = if (variant.buildType == "debug") "-Debug" else ""
         val verName = android.defaultConfig.versionName ?: "2.0.0"
         variant.outputs.forEach { output ->
-            output.outputFileName.set("ZopHop${suffix}-v${verName}.apk")
+            output.outputFileName.set("ZopHop$suffix-v$verName.apk")
         }
     }
 }

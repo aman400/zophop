@@ -10,7 +10,9 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONException
 import org.json.JSONObject
+import java.io.IOException
 
 /**
  * Preset action executor for [NodeType.GOTIFY_ACTION].
@@ -18,27 +20,96 @@ import org.json.JSONObject
  */
 class GotifyActionExecutor(
     private val okHttpClient: OkHttpClient,
-    private val credentialRepository: Any? = null
+    private val credentialRepository: Any? = null,
 ) : NodeExecutor {
+    override suspend fun execute(
+        node: WorkflowNode,
+        context: ExecutionContext,
+        appContext: Context?,
+    ): NodeExecutionResult {
+        val params = resolveGotifyParams(node, context, credentialRepository)
+        if (params.serverUrl.isBlank()) {
+            return NodeExecutionResult.Failed("Gotify serverUrl is empty")
+        }
+        return sendGotifyMessage(params)
+    }
 
-    override suspend fun execute(node: WorkflowNode, context: ExecutionContext, appContext: Context?): NodeExecutionResult {
-        val credRepo = credentialRepository as? CredentialRepository
-        val config = try { JSONObject(node.configJson) } catch (_: Exception) { JSONObject() }
-        val credentialId = config.optString("credentialId", "")
-        val resolvedCred = if (credentialId.isNotBlank() && credRepo != null) {
+    private fun sendGotifyMessage(params: GotifyParams): NodeExecutionResult {
+        val targetUrl = "${params.serverUrl}/message" + (if (params.appToken.isNotBlank()) "?token=${params.appToken}" else "")
+        val jsonBody =
+            JSONObject()
+                .apply {
+                    put("title", params.title)
+                    put("message", params.payload)
+                    put("priority", params.priority)
+                }.toString()
+
+        return try {
+            val requestBuilder =
+                Request
+                    .Builder()
+                    .url(targetUrl)
+                    .post(jsonBody.toRequestBody("application/json; charset=utf-8".toMediaType()))
+            if (params.appToken.isNotBlank()) requestBuilder.addHeader("X-Gotify-Key", params.appToken)
+
+            val response = okHttpClient.newCall(requestBuilder.build()).execute()
+            response.use { resp ->
+                val respBody = resp.body?.string() ?: ""
+                if (resp.isSuccessful) {
+                    val detailedLog =
+                        "Delivered to Gotify server (HTTP ${resp.code})\nURL: $targetUrl\nTitle: ${params.title}\nBody: ${params.payload}"
+                    NodeExecutionResult.Success(outputPort = "main", logMessage = detailedLog)
+                } else {
+                    NodeExecutionResult.Failed("Gotify request failed: HTTP ${resp.code} - $respBody")
+                }
+            }
+        } catch (e: IOException) {
+            NodeExecutionResult.Failed("Gotify dispatch failed: ${e.message}")
+        } catch (e: IllegalArgumentException) {
+            NodeExecutionResult.Failed("Gotify dispatch failed: ${e.message}")
+        }
+    }
+}
+
+private data class GotifyParams(
+    val serverUrl: String,
+    val appToken: String,
+    val title: String,
+    val priority: Int,
+    val payload: String,
+)
+
+private suspend fun resolveGotifyParams(
+    node: WorkflowNode,
+    context: ExecutionContext,
+    credentialRepository: Any?,
+): GotifyParams {
+    val credRepo = credentialRepository as? CredentialRepository
+    val config =
+        try {
+            JSONObject(node.configJson)
+        } catch (_: JSONException) {
+            JSONObject()
+        }
+    val credentialId = config.optString("credentialId", "")
+    val resolvedCred =
+        if (credentialId.isNotBlank() && credRepo != null) {
             credRepo.getCredentialById(credentialId)
-        } else null
+        } else {
+            null
+        }
 
-        val credServerUrl = resolvedCred?.dataMap?.get("serverUrl") ?: ""
-        val credAppToken = resolvedCred?.dataMap?.get("appToken") ?: ""
+    val credServerUrl = resolvedCred?.dataMap?.get("serverUrl") ?: ""
+    val credAppToken = resolvedCred?.dataMap?.get("appToken") ?: ""
 
-        val serverUrl = context.interpolate(config.optString("serverUrl", "").ifBlank { credServerUrl }).trim().trimEnd('/')
-        val appToken = context.interpolate(config.optString("appToken", "").ifBlank { credAppToken }).trim()
-        val title = context.interpolate(config.optString("title", "ZopHop Notification")).trim()
-        val priority = config.optInt("priority", 5)
-        val customTemplate = config.optString("template", "")
+    val serverUrl = context.interpolate(config.optString("serverUrl", "").ifBlank { credServerUrl }).trim().trimEnd('/')
+    val appToken = context.interpolate(config.optString("appToken", "").ifBlank { credAppToken }).trim()
+    val title = context.interpolate(config.optString("title", "ZopHop Notification")).trim()
+    val priority = config.optInt("priority", 5)
+    val customTemplate = config.optString("template", "")
 
-        val payload = if (customTemplate.isNotBlank()) {
+    val payload =
+        if (customTemplate.isNotBlank()) {
             context.interpolate(customTemplate)
         } else {
             context.getString("formatted_payload", "").ifEmpty {
@@ -48,35 +119,5 @@ class GotifyActionExecutor(
             }
         }
 
-        if (serverUrl.isBlank()) {
-            return NodeExecutionResult.Failed("Gotify serverUrl is empty")
-        }
-
-        val targetUrl = "$serverUrl/message" + (if (appToken.isNotBlank()) "?token=$appToken" else "")
-        val jsonBody = JSONObject().apply {
-            put("title", title)
-            put("message", payload)
-            put("priority", priority)
-        }.toString()
-
-        try {
-            val requestBuilder = Request.Builder()
-                .url(targetUrl)
-                .post(jsonBody.toRequestBody("application/json; charset=utf-8".toMediaType()))
-            if (appToken.isNotBlank()) requestBuilder.addHeader("X-Gotify-Key", appToken)
-
-            val response = okHttpClient.newCall(requestBuilder.build()).execute()
-            response.use { resp ->
-                val respBody = resp.body?.string() ?: ""
-                if (resp.isSuccessful) {
-                    val detailedLog = "Delivered to Gotify server (HTTP ${resp.code})\nURL: $targetUrl\nTitle: $title\nBody: $payload"
-                    return NodeExecutionResult.Success(outputPort = "main", logMessage = detailedLog)
-                } else {
-                    return NodeExecutionResult.Failed("Gotify request failed: HTTP ${resp.code} - $respBody")
-                }
-            }
-        } catch (e: Exception) {
-            return NodeExecutionResult.Failed("Gotify dispatch failed: ${e.message}")
-        }
-    }
+    return GotifyParams(serverUrl, appToken, title, priority, payload)
 }

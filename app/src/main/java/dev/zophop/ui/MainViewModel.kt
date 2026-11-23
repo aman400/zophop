@@ -21,33 +21,34 @@ import dev.zophop.data.PreconditionRepository
 import dev.zophop.data.RoomCredentialRepository
 import dev.zophop.data.RoomPreconditionRepository
 import dev.zophop.data.RoomWorkflowRepository
-import dev.zophop.data.toDomain
 import dev.zophop.data.WorkflowExecutionLogEntity
 import dev.zophop.data.WorkflowRepository
-import dev.zophop.plugin.api.ExecutionContext
+import dev.zophop.data.toDomain
 import dev.zophop.domain.engine.ExecutionJobRegistry
 import dev.zophop.domain.engine.NodeExecutionStep
 import dev.zophop.domain.engine.PreconditionEvaluator
-import org.json.JSONObject
+import dev.zophop.domain.engine.PreconditionResult
 import dev.zophop.domain.engine.WorkflowEngine
 import dev.zophop.domain.engine.WorkflowExecutionResult
 import dev.zophop.domain.engine.toJsonString
 import dev.zophop.domain.model.Credential
 import dev.zophop.domain.model.NodeType
 import dev.zophop.domain.model.Workflow
+import dev.zophop.domain.model.WorkflowNode
 import dev.zophop.filter.SmsFilter
+import dev.zophop.plugin.api.ExecutionContext
 import dev.zophop.service.SmsForwarderService
 import dev.zophop.worker.ForwardingManager
-import dev.zophop.domain.engine.PreconditionResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.util.UUID
 
 data class ActiveExecutionState(
@@ -55,7 +56,7 @@ data class ActiveExecutionState(
     val workflowName: String,
     val steps: List<NodeExecutionStep>,
     val isExecuting: Boolean,
-    val result: WorkflowExecutionResult? = null
+    val result: WorkflowExecutionResult? = null,
 )
 
 data class MainUiState(
@@ -84,14 +85,15 @@ data class MainUiState(
     val testResultMessage: String? = null,
     val isBatteryOptimized: Boolean = true,
     val hasNotificationListenerPermission: Boolean = false,
-    val selectedWorkflowForLogs: Workflow? = null
+    val selectedWorkflowForLogs: Workflow? = null,
 ) {
     val activeNodes: List<DeliveryNode>
         get() = nodes.filter { it.isEnabled && it.serverUrl.isNotBlank() }
 }
 
-class MainViewModel(application: Application) : AndroidViewModel(application) {
-
+class MainViewModel(
+    application: Application,
+) : AndroidViewModel(application) {
     private val settingsRepo = EncryptedSettingsRepository(application)
     private val db = AppDatabase.getInstance(application)
     private val forwardingManager = ForwardingManager.getInstance(application)
@@ -100,7 +102,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val preconditionRepository: PreconditionRepository = RoomPreconditionRepository(db.preconditionDao())
     private val workflowInitializer = DefaultWorkflowInitializer(workflowRepository)
 
-    private val externalPluginRegistry = dev.zophop.domain.engine.plugin.ExternalPluginRegistry(application)
+    private val externalPluginRegistry =
+        dev.zophop.domain.engine.plugin
+            .ExternalPluginRegistry(application)
     private val _discoveredPlugins = MutableStateFlow<List<dev.zophop.domain.engine.plugin.ExternalPluginServiceInfo>>(emptyList())
     val discoveredPlugins: StateFlow<List<dev.zophop.domain.engine.plugin.ExternalPluginServiceInfo>> = _discoveredPlugins.asStateFlow()
 
@@ -113,7 +117,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val plugins = externalPluginRegistry.discoverPlugins()
                 _discoveredPlugins.value = plugins
-            } catch (_: Exception) {}
+            } catch (_: Exception) {
+            }
         }
     }
 
@@ -123,66 +128,83 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _activeExecutionState = MutableStateFlow<ActiveExecutionState?>(null)
     val activeExecutionState: StateFlow<ActiveExecutionState?> = _activeExecutionState.asStateFlow()
 
-    val workflows: StateFlow<List<Workflow>> = kotlinx.coroutines.flow.combine(
-        workflowRepository.getAllWorkflowsFlow(),
-        preconditionRepository.getAllPreconditionsFlow()
-    ) { workflowList, preconditionEntities ->
-        val precMap = preconditionEntities.associateBy { it.id }
-        workflowList.map { workflow ->
-            workflow.copy(
-                nodes = workflow.nodes.map { node ->
-                    if (node.preconditions.isEmpty()) node
-                    else node.copy(
-                        preconditions = node.preconditions.map { prec ->
-                            val latestEntity = precMap[prec.id] ?: precMap.values.find { it.type == prec.type.name }
-                            latestEntity?.toDomain() ?: prec
-                        }
+    val workflows: StateFlow<List<Workflow>> =
+        kotlinx.coroutines.flow
+            .combine(
+                workflowRepository.getAllWorkflowsFlow(),
+                preconditionRepository.getAllPreconditionsFlow(),
+            ) { workflowList, preconditionEntities ->
+                val precMap = preconditionEntities.associateBy { it.id }
+                workflowList.map { workflow ->
+                    workflow.copy(
+                        nodes =
+                            workflow.nodes.map { node ->
+                                if (node.preconditions.isEmpty()) {
+                                    node
+                                } else {
+                                    node.copy(
+                                        preconditions =
+                                            node.preconditions.map { prec ->
+                                                val latestEntity = precMap[prec.id] ?: precMap.values.find { it.type == prec.type.name }
+                                                latestEntity?.toDomain() ?: prec
+                                            },
+                                    )
+                                }
+                            },
                     )
                 }
+            }.stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000),
+                initialValue = emptyList(),
             )
-        }
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyList()
-    )
 
-    val credentials: StateFlow<List<Credential>> = credentialRepository.getAllCredentialsFlow()
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
+    val credentials: StateFlow<List<Credential>> =
+        credentialRepository
+            .getAllCredentialsFlow()
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000),
+                initialValue = emptyList(),
+            )
 
-    val preconditions: StateFlow<List<PreconditionEntity>> = preconditionRepository.getAllPreconditionsFlow()
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
+    val preconditions: StateFlow<List<PreconditionEntity>> =
+        preconditionRepository
+            .getAllPreconditionsFlow()
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000),
+                initialValue = emptyList(),
+            )
 
-    val executionLogs: StateFlow<List<WorkflowExecutionLogEntity>> = workflowRepository.getRecentExecutionLogsFlow(50)
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
+    val executionLogs: StateFlow<List<WorkflowExecutionLogEntity>> =
+        workflowRepository
+            .getRecentExecutionLogsFlow(50)
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000),
+                initialValue = emptyList(),
+            )
 
-    val recentEvents: StateFlow<List<MessageEntity>> = db.messageDao()
-        .getRecentEventsFlow(20)
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
+    val recentEvents: StateFlow<List<MessageEntity>> =
+        db
+            .messageDao()
+            .getRecentEventsFlow(20)
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000),
+                initialValue = emptyList(),
+            )
 
-    val allEvents: StateFlow<List<MessageEntity>> = db.messageDao()
-        .getAllEventsFlow()
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
+    val allEvents: StateFlow<List<MessageEntity>> =
+        db
+            .messageDao()
+            .getAllEventsFlow()
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000),
+                initialValue = emptyList(),
+            )
 
     init {
         loadSettings()
@@ -194,30 +216,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loadSettings() {
         val s = settingsRepo.getSettings()
-        _uiState.value = _uiState.value.copy(
-            nodes = s.nodes,
-            allowlist = s.allowlist,
-            keywordRegex = s.keywordRegex,
-            senderRegex = s.senderRegex,
-            bodyParseRegex = s.bodyParseRegex,
-            customMessageTemplate = s.customMessageTemplate,
-            expiryMinutes = s.expiryMinutes.toString(),
-            isEnabled = s.isEnabled,
-            allowInsecureHttp = s.allowInsecureHttp,
-            forwardNotifications = s.forwardNotifications,
-            showWorkflowNotifications = s.showWorkflowNotifications,
-            maxParallelExecutions = s.maxParallelExecutions,
-            maxExecutionQueueSize = s.maxExecutionQueueSize,
-            autoClearEnabled = s.autoClearEnabled,
-            autoClearMinutes = s.autoClearMinutes.toString(),
-            lockCredentialsWithBiometric = s.lockCredentialsWithBiometric,
-            globalWorkflowsEnabled = s.globalWorkflowsEnabled,
-            dismissedBiometricBanner = s.dismissedBiometricBanner,
-            isRegexValid = SmsFilter.isValidRegex(s.keywordRegex),
-            isUrlValid = true,
-            isBatteryOptimized = checkBatteryOptimizedInternal(),
-            hasNotificationListenerPermission = checkNotificationListenerPermissionInternal()
-        )
+        _uiState.value =
+            _uiState.value.copy(
+                nodes = s.nodes,
+                allowlist = s.allowlist,
+                keywordRegex = s.keywordRegex,
+                senderRegex = s.senderRegex,
+                bodyParseRegex = s.bodyParseRegex,
+                customMessageTemplate = s.customMessageTemplate,
+                expiryMinutes = s.expiryMinutes.toString(),
+                isEnabled = s.isEnabled,
+                allowInsecureHttp = s.allowInsecureHttp,
+                forwardNotifications = s.forwardNotifications,
+                showWorkflowNotifications = s.showWorkflowNotifications,
+                maxParallelExecutions = s.maxParallelExecutions,
+                maxExecutionQueueSize = s.maxExecutionQueueSize,
+                autoClearEnabled = s.autoClearEnabled,
+                autoClearMinutes = s.autoClearMinutes.toString(),
+                lockCredentialsWithBiometric = s.lockCredentialsWithBiometric,
+                globalWorkflowsEnabled = s.globalWorkflowsEnabled,
+                dismissedBiometricBanner = s.dismissedBiometricBanner,
+                isRegexValid = SmsFilter.isValidRegex(s.keywordRegex),
+                isUrlValid = true,
+                isBatteryOptimized = checkBatteryOptimizedInternal(),
+                hasNotificationListenerPermission = checkNotificationListenerPermissionInternal(),
+            )
     }
 
     fun addNode(node: DeliveryNode) {
@@ -251,7 +274,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = _uiState.value.copy(selectedWorkflowForLogs = null)
     }
 
-    fun toggleNode(nodeId: String, enabled: Boolean) {
+    fun toggleNode(
+        nodeId: String,
+        enabled: Boolean,
+    ) {
         val updated = _uiState.value.nodes.map { if (it.id == nodeId) it.copy(isEnabled = enabled) else it }
         _uiState.value = _uiState.value.copy(nodes = updated)
         saveCurrentSettings()
@@ -264,10 +290,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateKeywordRegex(regex: String) {
         val isValid = SmsFilter.isValidRegex(regex)
-        _uiState.value = _uiState.value.copy(
-            keywordRegex = regex,
-            isRegexValid = isValid
-        )
+        _uiState.value =
+            _uiState.value.copy(
+                keywordRegex = regex,
+                isRegexValid = isValid,
+            )
         if (isValid) {
             saveCurrentSettings()
         }
@@ -309,10 +336,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleForwardNotifications(enable: Boolean) {
-        _uiState.value = _uiState.value.copy(
-            forwardNotifications = enable,
-            hasNotificationListenerPermission = checkNotificationListenerPermissionInternal()
-        )
+        _uiState.value =
+            _uiState.value.copy(
+                forwardNotifications = enable,
+                hasNotificationListenerPermission = checkNotificationListenerPermissionInternal(),
+            )
         saveCurrentSettings()
     }
 
@@ -361,14 +389,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isSendingTest = true, testResultMessage = null)
             val result = forwardingManager.sendTestMessage()
-            _uiState.value = _uiState.value.copy(
-                isSendingTest = false,
-                testResultMessage = if (result.isSuccess) "Test ping sent to active delivery nodes!" else "Failed: ${result.exceptionOrNull()?.message}"
-            )
+            _uiState.value =
+                _uiState.value.copy(
+                    isSendingTest = false,
+                    testResultMessage = if (result.isSuccess) "Test ping sent to active delivery nodes!" else "Failed: ${result.exceptionOrNull()?.message}",
+                )
         }
     }
 
-    fun retryMessage(messageId: String, onResult: (Boolean, String?) -> Unit) {
+    fun retryMessage(
+        messageId: String,
+        onResult: (Boolean, String?) -> Unit,
+    ) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(retryingMessageId = messageId)
             val result = forwardingManager.retryMessage(messageId)
@@ -393,7 +425,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun setWorkflowEnabled(id: String, enabled: Boolean) {
+    fun setWorkflowEnabled(
+        id: String,
+        enabled: Boolean,
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
             val workflow = workflowRepository.getWorkflowById(id)
             if (workflow != null && enabled) {
@@ -414,9 +449,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun getLogsForWorkflow(workflowId: String): Flow<List<WorkflowExecutionLogEntity>> {
-        return workflowRepository.getLogsForWorkflowFlow(workflowId)
-    }
+    fun getLogsForWorkflow(workflowId: String): Flow<List<WorkflowExecutionLogEntity>> =
+        workflowRepository.getLogsForWorkflowFlow(workflowId)
 
     fun clearLogsForWorkflow(workflowId: String) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -459,31 +493,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun testPreconditionWithProgress(
         entity: PreconditionEntity,
         onStepUpdate: (List<NodeExecutionStep>) -> Unit,
-        onResult: (PreconditionResult) -> Unit
+        onResult: (PreconditionResult) -> Unit,
     ) {
         viewModelScope.launch(Dispatchers.IO) {
             val context = getApplication<Application>()
             val evaluator = PreconditionEvaluator(context)
             val domainPrecondition = entity.toDomain()
-            val result = evaluator.evaluate(domainPrecondition) { steps ->
-                viewModelScope.launch(Dispatchers.Main) {
-                    onStepUpdate(steps)
+            val result =
+                evaluator.evaluate(domainPrecondition) { steps ->
+                    viewModelScope.launch(Dispatchers.Main) {
+                        onStepUpdate(steps)
+                    }
                 }
-            }
             withContext(Dispatchers.Main) {
                 onResult(result)
             }
         }
     }
 
-    fun testPrecondition(entity: PreconditionEntity, onResult: (PreconditionResult) -> Unit) {
+    fun testPrecondition(
+        entity: PreconditionEntity,
+        onResult: (PreconditionResult) -> Unit,
+    ) {
         testPreconditionWithProgress(entity, {}, onResult)
     }
 
     fun testRunWorkflowWithProgress(
         workflow: Workflow,
         onProgressUpdate: (List<NodeExecutionStep>) -> Unit,
-        onResult: (WorkflowExecutionResult) -> Unit
+        onResult: (WorkflowExecutionResult) -> Unit,
     ) {
         retryWorkflowFromFailedNode(workflow, null, onProgressUpdate, onResult)
     }
@@ -492,163 +530,276 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         workflow: Workflow,
         failedNodeId: String?,
         onProgressUpdate: (List<NodeExecutionStep>) -> Unit,
-        onResult: (WorkflowExecutionResult) -> Unit
+        onResult: (WorkflowExecutionResult) -> Unit,
     ) {
-        val job = viewModelScope.launch(Dispatchers.IO) {
-            _activeExecutionState.value = ActiveExecutionState(
-                workflowId = workflow.id,
-                workflowName = workflow.name,
-                steps = emptyList(),
-                isExecuting = true
-            )
-
-            val context = getApplication<Application>()
-            val evaluator = PreconditionEvaluator(context)
-            val engine = WorkflowEngine(evaluator, credentialRepository)
-
-            val triggerNode = workflow.nodes.firstOrNull { node ->
-                val manifest = dev.zophop.domain.engine.plugin.BuiltInPluginRegistry.getBuiltInManifestByTypeId(node.type)
-                manifest?.category == dev.zophop.plugin.api.NodeCategory.TRIGGER || node.type.contains("TRIGGER", ignoreCase = true) || workflow.connections.none { it.toNodeId == node.id }
-            }
-            val triggerConfig = try { JSONObject(triggerNode?.configJson ?: "{}") } catch (_: Exception) { JSONObject() }
-
-            val testContextMap = mutableMapOf<String, Any>()
-            val keys = triggerConfig.keys()
-            while (keys.hasNext()) {
-                val key = keys.next()
-                if (key.startsWith("test", ignoreCase = true) && key.length > 4) {
-                    val contextKey = key.substring(4).replaceFirstChar { it.lowercase() }
-                    val valStr = triggerConfig.optString(key, "")
-                    if (valStr.isNotBlank()) {
-                        testContextMap[contextKey] = valStr
-                        if (contextKey == "body" || contextKey == "text") {
-                            testContextMap["body"] = valStr
-                            testContextMap["text"] = valStr
-                            testContextMap["message"] = valStr
-                            testContextMap["http_response"] = valStr
-                        }
-                        if (contextKey == "sender") {
-                            testContextMap["sender"] = valStr
-                            testContextMap["header"] = valStr
-                            testContextMap["address"] = valStr
-                        }
-                        if (contextKey == "packageName") {
-                            testContextMap["package_name"] = valStr
-                            testContextMap["package"] = valStr
-                        }
-                    }
-                }
-            }
-
-            if (!testContextMap.containsKey("body") && !testContextMap.containsKey("text")) {
-                val defaultBody = triggerConfig.optString("testBody", "Your OTP verification code for bank login is 849201")
-                testContextMap["body"] = defaultBody
-                testContextMap["text"] = defaultBody
-                testContextMap["message"] = defaultBody
-            }
-            if (!testContextMap.containsKey("sender")) {
-                testContextMap["sender"] = triggerConfig.optString("testSender", "+15551234567")
-            }
-            if (!testContextMap.containsKey("packageName") && !testContextMap.containsKey("package_name")) {
-                testContextMap["package_name"] = triggerConfig.optString("testPackageName", "com.example.bankapp")
-            }
-            if (!testContextMap.containsKey("title")) {
-                testContextMap["title"] = triggerConfig.optString("testTitle", "Bank Alert: OTP Code")
-            }
-
-            testContextMap["received_at"] = System.currentTimeMillis()
-            testContextMap["show_workflow_notifications"] = _uiState.value.showWorkflowNotifications
-
-            val execContext = ExecutionContext(testContextMap)
-
-            val result = engine.executeWorkflowWithProgress(
-                workflow = workflow,
-                context = execContext,
-                appContext = context,
-                startNodeId = failedNodeId,
-                onStepUpdate = { steps ->
-                    _activeExecutionState.value = ActiveExecutionState(
+        val job =
+            viewModelScope.launch(Dispatchers.IO) {
+                _activeExecutionState.value =
+                    ActiveExecutionState(
                         workflowId = workflow.id,
                         workflowName = workflow.name,
-                        steps = steps,
-                        isExecuting = true
+                        steps = emptyList(),
+                        isExecuting = true,
                     )
-                    viewModelScope.launch(Dispatchers.Main) {
-                        onProgressUpdate(steps)
+
+                val context = getApplication<Application>()
+                val evaluator = PreconditionEvaluator(context)
+                val engine = WorkflowEngine(evaluator, credentialRepository)
+
+                val triggerNode =
+                    workflow.nodes.firstOrNull { node ->
+                        val manifest =
+                            dev.zophop.domain.engine.plugin.BuiltInPluginRegistry
+                                .getBuiltInManifestByTypeId(node.type)
+                        manifest?.category == dev.zophop.plugin.api.NodeCategory.TRIGGER ||
+                            node.type.contains("TRIGGER", ignoreCase = true) ||
+                            workflow.connections.none { it.toNodeId == node.id }
+                    }
+                val triggerConfig =
+                    try {
+                        JSONObject(triggerNode?.configJson ?: "{}")
+                    } catch (_: Exception) {
+                        JSONObject()
+                    }
+
+                val testContextMap = mutableMapOf<String, Any>()
+                val keys = triggerConfig.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    if (key.startsWith("test", ignoreCase = true) && key.length > 4) {
+                        val contextKey = key.substring(4).replaceFirstChar { it.lowercase() }
+                        val valStr = triggerConfig.optString(key, "")
+                        if (valStr.isNotBlank()) {
+                            testContextMap[contextKey] = valStr
+                            if (contextKey == "body" || contextKey == "text") {
+                                testContextMap["body"] = valStr
+                                testContextMap["text"] = valStr
+                                testContextMap["message"] = valStr
+                                testContextMap["http_response"] = valStr
+                            }
+                            if (contextKey == "sender") {
+                                testContextMap["sender"] = valStr
+                                testContextMap["header"] = valStr
+                                testContextMap["address"] = valStr
+                            }
+                            if (contextKey == "packageName") {
+                                testContextMap["package_name"] = valStr
+                                testContextMap["package"] = valStr
+                            }
+                        }
                     }
                 }
-            )
 
-            val currentSteps = _activeExecutionState.value?.steps ?: emptyList()
-            _activeExecutionState.value = ActiveExecutionState(
-                workflowId = workflow.id,
-                workflowName = workflow.name,
-                steps = currentSteps,
-                isExecuting = false,
-                result = result
-            )
+                populateTriggerTestContext(triggerNode, triggerConfig, testContextMap)
 
-            val logEntity = WorkflowExecutionLogEntity(
-                id = UUID.randomUUID().toString(),
-                workflowId = workflow.id,
-                status = when (result) {
-                    is WorkflowExecutionResult.Success -> "SUCCESS"
-                    is WorkflowExecutionResult.PreconditionFailed -> "PRECONDITION_FAILED"
-                    is WorkflowExecutionResult.Failed -> "FAILED"
-                    is WorkflowExecutionResult.Cancelled -> "CANCELLED"
-                },
-                timestamp = System.currentTimeMillis(),
-                messageId = null,
-                logs = result.steps.toJsonString(),
-                errorReason = when (result) {
-                    is WorkflowExecutionResult.Success -> null
-                    is WorkflowExecutionResult.PreconditionFailed -> result.reason
-                    is WorkflowExecutionResult.Failed -> result.reason
-                    is WorkflowExecutionResult.Cancelled -> "Manually cancelled by user"
+                val execContext = ExecutionContext(testContextMap)
+
+                val result =
+                    engine.executeWorkflowWithProgress(
+                        workflow = workflow,
+                        context = execContext,
+                        appContext = context,
+                        startNodeId = failedNodeId,
+                        onStepUpdate = { steps ->
+                            _activeExecutionState.value =
+                                ActiveExecutionState(
+                                    workflowId = workflow.id,
+                                    workflowName = workflow.name,
+                                    steps = steps,
+                                    isExecuting = true,
+                                )
+                            viewModelScope.launch(Dispatchers.Main) {
+                                onProgressUpdate(steps)
+                            }
+                        },
+                    )
+
+                val currentSteps = _activeExecutionState.value?.steps ?: emptyList()
+                _activeExecutionState.value =
+                    ActiveExecutionState(
+                        workflowId = workflow.id,
+                        workflowName = workflow.name,
+                        steps = currentSteps,
+                        isExecuting = false,
+                        result = result,
+                    )
+
+                val logEntity =
+                    WorkflowExecutionLogEntity(
+                        id = UUID.randomUUID().toString(),
+                        workflowId = workflow.id,
+                        status =
+                            when (result) {
+                                is WorkflowExecutionResult.Success -> "SUCCESS"
+                                is WorkflowExecutionResult.PreconditionFailed -> "PRECONDITION_FAILED"
+                                is WorkflowExecutionResult.Failed -> "FAILED"
+                                is WorkflowExecutionResult.Cancelled -> "CANCELLED"
+                            },
+                        timestamp = System.currentTimeMillis(),
+                        messageId = null,
+                        logs = result.steps.toJsonString(),
+                        errorReason =
+                            when (result) {
+                                is WorkflowExecutionResult.Success -> null
+                                is WorkflowExecutionResult.PreconditionFailed -> result.reason
+                                is WorkflowExecutionResult.Failed -> result.reason
+                                is WorkflowExecutionResult.Cancelled -> "Manually cancelled by user"
+                            },
+                    )
+                workflowRepository.saveExecutionLog(logEntity)
+
+                withContext(Dispatchers.Main) {
+                    onResult(result)
                 }
-            )
-            workflowRepository.saveExecutionLog(logEntity)
-
-            withContext(Dispatchers.Main) {
-                onResult(result)
             }
-        }
 
         ExecutionJobRegistry.registerJob(workflow.id, job)
     }
 
-    fun testRunWorkflow(workflow: Workflow, onResult: (String) -> Unit) {
+    private fun populateTriggerTestContext(
+        triggerNode: WorkflowNode?,
+        triggerConfig: JSONObject,
+        testContextMap: MutableMap<String, Any>,
+    ) {
+        val triggerType = triggerNode?.type ?: ""
+        when {
+            triggerType.contains("MANUAL_TRIGGER", ignoreCase = true) ->
+                populateManualTestContext(triggerConfig, testContextMap)
+            triggerType.contains("SMS", ignoreCase = true) ->
+                populateSmsTestContext(triggerConfig, testContextMap)
+            triggerType.contains("NOTIFICATION", ignoreCase = true) ->
+                populateNotificationTestContext(triggerConfig, testContextMap)
+            triggerType.contains("CALL", ignoreCase = true) ->
+                populateCallTestContext(triggerConfig, testContextMap)
+            triggerType.contains("CRON", ignoreCase = true) ->
+                populateCronTestContext(triggerConfig, testContextMap)
+            else ->
+                populateGenericTestContext(triggerConfig, testContextMap)
+        }
+        val nowStr = System.currentTimeMillis().toString()
+        if (!testContextMap.containsKey("timestamp")) {
+            testContextMap["timestamp"] = nowStr
+        }
+        testContextMap["received_at"] = System.currentTimeMillis()
+        testContextMap["show_workflow_notifications"] = _uiState.value.showWorkflowNotifications
+    }
+
+    private fun populateManualTestContext(config: JSONObject, map: MutableMap<String, Any>) {
+        if (!map.containsKey("body") && !map.containsKey("text")) {
+            val defaultBody = config.optString("testBody", "Manual test execution").ifBlank { "Manual test execution" }
+            map["body"] = defaultBody
+            map["text"] = defaultBody
+        }
+    }
+
+    private fun populateSmsTestContext(config: JSONObject, map: MutableMap<String, Any>) {
+        if (!map.containsKey("body") && !map.containsKey("text")) {
+            val defaultBody = config.optString("testBody", "Your OTP verification code is 849201")
+                .ifBlank { "Your OTP verification code is 849201" }
+            map["body"] = defaultBody
+            map["text"] = defaultBody
+            map["message"] = defaultBody
+        }
+        if (!map.containsKey("sender")) {
+            map["sender"] = config.optString("testSender", "+15551234567").ifBlank { "+15551234567" }
+        }
+    }
+
+    private fun populateNotificationTestContext(config: JSONObject, map: MutableMap<String, Any>) {
+        if (!map.containsKey("body") && !map.containsKey("text")) {
+            val defaultBody = config.optString("testText", "Bank Alert: OTP Code 849201")
+                .ifBlank { "Bank Alert: OTP Code 849201" }
+            map["body"] = defaultBody
+            map["text"] = defaultBody
+        }
+        if (!map.containsKey("packageName") && !map.containsKey("package_name")) {
+            map["package_name"] = config.optString("testPackageName", "com.example.bankapp").ifBlank { "com.example.bankapp" }
+        }
+        if (!map.containsKey("title")) {
+            map["title"] = config.optString("testTitle", "Bank Alert: OTP Code").ifBlank { "Bank Alert: OTP Code" }
+        }
+        if (!map.containsKey("sender")) {
+            map["sender"] = config.optString("testSender", "NotificationService").ifBlank { "NotificationService" }
+        }
+    }
+
+    private fun populateCallTestContext(config: JSONObject, map: MutableMap<String, Any>) {
+        if (!map.containsKey("caller_number") && !map.containsKey("sender")) {
+            val caller = config.optString("testCaller", "+15559876543").ifBlank { "+15559876543" }
+            map["caller_number"] = caller
+            map["sender"] = caller
+            map["header"] = caller
+        }
+    }
+
+    private fun populateCronTestContext(config: JSONObject, map: MutableMap<String, Any>) {
+        if (!map.containsKey("body") && !map.containsKey("text")) {
+            val defaultBody = config.optString("testPayload", "Scheduled cron trigger executed")
+                .ifBlank { "Scheduled cron trigger executed" }
+            map["body"] = defaultBody
+            map["text"] = defaultBody
+        }
+        if (!map.containsKey("sender")) {
+            map["sender"] = "CronScheduler"
+        }
+    }
+
+    private fun populateGenericTestContext(config: JSONObject, map: MutableMap<String, Any>) {
+        if (!map.containsKey("body") && !map.containsKey("text")) {
+            val defaultBody = config.optString("testBody", "Test execution payload").ifBlank { "Test execution payload" }
+            map["body"] = defaultBody
+            map["text"] = defaultBody
+        }
+    }
+
+    fun testRunWorkflow(
+        workflow: Workflow,
+        onResult: (String) -> Unit,
+    ) {
         testRunWorkflowWithProgress(
             workflow = workflow,
             onProgressUpdate = {},
             onResult = { result ->
-                val logMsg = when (result) {
-                    is WorkflowExecutionResult.Success -> "✅ Success!\n" + result.logs.joinToString("\n")
-                    is WorkflowExecutionResult.PreconditionFailed -> "⏳ Precondition Failed: ${result.reason}\n" + result.logs.joinToString("\n")
-                    is WorkflowExecutionResult.Failed -> "❌ Failed: ${result.reason}\n" + result.logs.joinToString("\n")
-                    is WorkflowExecutionResult.Cancelled -> "🛑 Cancelled: Workflow manually cancelled by user\n" + result.logs.joinToString("\n")
-                }
+                val logMsg =
+                    when (result) {
+                        is WorkflowExecutionResult.Success -> "✅ Success!\n" + result.logs.joinToString("\n")
+                        is WorkflowExecutionResult.PreconditionFailed ->
+                            "⏳ Precondition Failed: ${result.reason}\n" +
+                                result.logs.joinToString("\n")
+                        is WorkflowExecutionResult.Failed -> "❌ Failed: ${result.reason}\n" + result.logs.joinToString("\n")
+                        is WorkflowExecutionResult.Cancelled ->
+                            "🛑 Cancelled: Workflow manually cancelled by user\n" +
+                                result.logs.joinToString("\n")
+                    }
                 onResult(logMsg)
-            }
+            },
         )
     }
 
     fun checkPermissionsAndStatus() {
         val context = getApplication<Application>()
         val hasNotifPerm = checkNotificationListenerPermissionInternal()
-        _uiState.value = _uiState.value.copy(
-            isBatteryOptimized = checkBatteryOptimizedInternal(),
-            hasNotificationListenerPermission = hasNotifPerm
-        )
+        _uiState.value =
+            _uiState.value.copy(
+                isBatteryOptimized = checkBatteryOptimizedInternal(),
+                hasNotificationListenerPermission = hasNotifPerm,
+            )
         discoverInstalledPlugins()
         viewModelScope.launch(Dispatchers.IO) {
             val currentWorkflows = workflowRepository.getActiveWorkflows()
             currentWorkflows.forEach { wf ->
                 val notifTrigger = wf.nodes.find { it.type == NodeType.NOTIFICATION_TRIGGER }
                 if (notifTrigger != null && wf.isEnabled) {
-                    val config = try { JSONObject(notifTrigger.configJson) } catch (_: Exception) { JSONObject() }
+                    val config =
+                        try {
+                            JSONObject(notifTrigger.configJson)
+                        } catch (_: Exception) {
+                            JSONObject()
+                        }
                     val pkgFilter = config.optString("packageFilter", ".*")
-                    val isInstalled = dev.zophop.ui.workflows.AppListHelper.isAppInstalled(context, pkgFilter)
+                    val isInstalled =
+                        dev.zophop.ui.workflows.AppListHelper
+                            .isAppInstalled(context, pkgFilter)
 
                     if (!hasNotifPerm || !isInstalled) {
                         workflowRepository.setWorkflowEnabled(wf.id, false)
@@ -661,7 +812,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun postUninstalledAppNotification(context: Context, workflowName: String, packageName: String) {
+    private fun postUninstalledAppNotification(
+        context: Context,
+        workflowName: String,
+        packageName: String,
+    ) {
         try {
             val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val channelId = "zophop_system_alerts"
@@ -670,18 +825,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 nm.createNotificationChannel(channel)
             }
 
-            val appLabel = dev.zophop.ui.workflows.AppListHelper.getAppNameForPackage(context, packageName)
-            val notification = androidx.core.app.NotificationCompat.Builder(context, channelId)
-                .setSmallIcon(dev.zophop.R.drawable.ic_notification)
-                .setContentTitle("⚠️ Workflow Disabled: App Uninstalled")
-                .setContentText("Target app '$appLabel' is uninstalled. Workflow '$workflowName' has been disabled.")
-                .setStyle(androidx.core.app.NotificationCompat.BigTextStyle().bigText("Target app '$appLabel' ($packageName) is not installed on this device. Workflow '$workflowName' was automatically disabled to prevent errors."))
-                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
-                .setAutoCancel(true)
-                .build()
+            val appLabel =
+                dev.zophop.ui.workflows.AppListHelper
+                    .getAppNameForPackage(context, packageName)
+            val notification =
+                androidx.core.app.NotificationCompat
+                    .Builder(context, channelId)
+                    .setSmallIcon(dev.zophop.R.drawable.ic_notification)
+                    .setContentTitle("⚠️ Workflow Disabled: App Uninstalled")
+                    .setContentText("Target app '$appLabel' is uninstalled. Workflow '$workflowName' has been disabled.")
+                    .setStyle(
+                        androidx.core.app.NotificationCompat.BigTextStyle().bigText(
+                            "Target app '$appLabel' ($packageName) is not installed on this device. Workflow '$workflowName' was automatically disabled to prevent errors.",
+                        ),
+                    ).setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+                    .setAutoCancel(true)
+                    .build()
 
             nm.notify(workflowName.hashCode(), notification)
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+        }
     }
 
     private fun checkBatteryOptimizedInternal(): Boolean {
@@ -699,27 +862,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun saveCurrentSettings() {
         val current = _uiState.value
-        val settings = AppSettings(
-            nodes = current.nodes,
-            allowlist = current.allowlist,
-            keywordRegex = current.keywordRegex,
-            senderRegex = current.senderRegex,
-            bodyParseRegex = current.bodyParseRegex,
-            customMessageTemplate = current.customMessageTemplate,
-            expiryMinutes = current.expiryMinutes.toIntOrNull() ?: 10,
-            maxRetries = 5,
-            isEnabled = current.isEnabled,
-            allowInsecureHttp = current.allowInsecureHttp,
-            forwardNotifications = current.forwardNotifications,
-            showWorkflowNotifications = current.showWorkflowNotifications,
-            maxParallelExecutions = current.maxParallelExecutions,
-            maxExecutionQueueSize = current.maxExecutionQueueSize,
-            autoClearEnabled = current.autoClearEnabled,
-            autoClearMinutes = current.autoClearMinutes.toIntOrNull() ?: 1440,
-            lockCredentialsWithBiometric = current.lockCredentialsWithBiometric,
-            globalWorkflowsEnabled = current.globalWorkflowsEnabled,
-            dismissedBiometricBanner = current.dismissedBiometricBanner
-        )
+        val settings =
+            AppSettings(
+                nodes = current.nodes,
+                allowlist = current.allowlist,
+                keywordRegex = current.keywordRegex,
+                senderRegex = current.senderRegex,
+                bodyParseRegex = current.bodyParseRegex,
+                customMessageTemplate = current.customMessageTemplate,
+                expiryMinutes = current.expiryMinutes.toIntOrNull() ?: 10,
+                maxRetries = 5,
+                isEnabled = current.isEnabled,
+                allowInsecureHttp = current.allowInsecureHttp,
+                forwardNotifications = current.forwardNotifications,
+                showWorkflowNotifications = current.showWorkflowNotifications,
+                maxParallelExecutions = current.maxParallelExecutions,
+                maxExecutionQueueSize = current.maxExecutionQueueSize,
+                autoClearEnabled = current.autoClearEnabled,
+                autoClearMinutes = current.autoClearMinutes.toIntOrNull() ?: 1440,
+                lockCredentialsWithBiometric = current.lockCredentialsWithBiometric,
+                globalWorkflowsEnabled = current.globalWorkflowsEnabled,
+                dismissedBiometricBanner = current.dismissedBiometricBanner,
+            )
         settingsRepo.saveSettings(settings)
     }
 }

@@ -16,7 +16,10 @@ import dev.zophop.plugin.api.NodeExecutor
 import dev.zophop.plugin.api.NodePluginManifest
 import dev.zophop.plugin.api.NodePluginModule
 import okhttp3.OkHttpClient
+import org.json.JSONException
 import org.json.JSONObject
+import java.util.regex.Pattern
+import java.util.regex.PatternSyntaxException
 
 object SmsPluginModule : NodePluginModule {
     override val moduleId: String = "sms-plugin-module"
@@ -24,47 +27,36 @@ object SmsPluginModule : NodePluginModule {
     override fun createExecutor(
         typeId: String,
         okHttpClient: OkHttpClient,
-        credentialRepository: Any?
-    ): NodeExecutor? {
-        return when {
+        credentialRepository: Any?,
+    ): NodeExecutor? =
+        when {
             typeId.contains("SMS_TRIGGER") -> SmsTriggerExecutor()
             typeId.contains("SEND_SMS_ACTION") -> SendSmsExecutor()
-            typeId.contains("SIM_CHECK_LOGIC") -> object : NodeExecutor {
-                override suspend fun execute(node: WorkflowNode, context: ExecutionContext, appContext: Context?): NodeExecutionResult {
-                    return NodeExecutionResult.Success(logMessage = "SIM card is ready")
+            typeId.contains("SIM_CHECK_LOGIC") ->
+                object : NodeExecutor {
+                    override suspend fun execute(
+                        node: WorkflowNode,
+                        context: ExecutionContext,
+                        appContext: Context?,
+                    ): NodeExecutionResult = NodeExecutionResult.Success(logMessage = "SIM card is ready")
                 }
-            }
             else -> null
         }
-    }
 
-    override fun validateConfig(typeId: String, configJson: String): String? {
-        val config = try { JSONObject(configJson) } catch (_: Exception) { JSONObject() }
+    override fun validateConfig(
+        typeId: String,
+        configJson: String,
+    ): String? {
+        val config = parseJsonConfig(configJson)
         return when {
-            typeId.contains("SMS_TRIGGER") -> {
-                val allowlist = config.optString("allowlist", ".*").trim()
-                val keywordRegex = config.optString("keywordRegex", ".*").trim()
-                if (allowlist.isNotBlank() && allowlist != ".*") {
-                    try { java.util.regex.Pattern.compile(allowlist.replace("*", ".*")) } catch (e: Exception) { return "Invalid sender allowlist regex: ${e.message}" }
-                }
-                if (keywordRegex.isNotBlank() && keywordRegex != ".*") {
-                    try { java.util.regex.Pattern.compile(keywordRegex) } catch (e: Exception) { return "Invalid keyword regex: ${e.message}" }
-                }
-                null
-            }
-            typeId.contains("SEND_SMS_ACTION") -> {
-                val recipient = config.optString("recipient", "").trim()
-                val body = config.optString("body", "").trim()
-                if (recipient.isBlank()) "Recipient number cannot be blank."
-                else if (body.isBlank()) "Message body cannot be blank."
-                else null
-            }
+            typeId.contains("SMS_TRIGGER") -> validateSmsTriggerConfig(config)
+            typeId.contains("SEND_SMS_ACTION") -> validateSendSmsConfig(config)
             else -> null
         }
     }
 
-    override fun getManifests(): List<NodePluginManifest> {
-        return listOf(
+    override fun getManifests(): List<NodePluginManifest> =
+        listOf(
             NodePluginManifest(
                 typeId = "dev.zophop.plugin.sms.SMS_TRIGGER",
                 displayName = "SMS Trigger",
@@ -72,32 +64,34 @@ object SmsPluginModule : NodePluginModule {
                 category = NodeCategory.TRIGGER,
                 requiredPermissions = listOf(Manifest.permission.RECEIVE_SMS),
                 triggerTestPayload = """{"sender":"VM-HDFCBK","header":"VM-HDFCBK","body":"HDFC Bank: OTP for transaction of Rs 1,250 is 482910."}""",
-                configSchema = listOf(
-                    ConfigFieldSpec.TextField(
-                        key = "allowlist",
-                        label = "Sender Allowlist Regex",
-                        placeholder = ".*HDFCBK.*|.*555.*",
-                        tooltip = "Regex pattern matching allowed SMS senders (e.g. .*HDFCBK.* for bank sender IDs, ^\\+1555.* for specific area codes, or .*BANK.*|.*OTP.* to match multiple senders)"
+                outputVariables = listOf("sender", "body", "header", "text"),
+                configSchema =
+                    listOf(
+                        ConfigFieldSpec.TextField(
+                            key = "allowlist",
+                            label = "Sender Allowlist Regex",
+                            placeholder = ".*HDFCBK.*|.*555.*",
+                            tooltip = "Regex pattern matching allowed SMS senders (e.g. .*HDFCBK.* for bank sender IDs, ^\\+1555.* for specific area codes, or .*BANK.*|.*OTP.* to match multiple senders)",
+                        ),
+                        ConfigFieldSpec.TextField(
+                            key = "keywordRegex",
+                            label = "Keyword Filter Regex",
+                            placeholder = ".*OTP.*|.*code.*",
+                            tooltip = "Regex pattern filtering SMS body text (e.g. .*OTP.* for one-time passwords, \\b\\d{4,8}\\b for numeric verification codes, or .*verify.*|.*login.* for security alerts)",
+                        ),
+                        ConfigFieldSpec.TextField(
+                            key = "testSender",
+                            label = "Simulated Sender Number",
+                            placeholder = "VM-HDFCBK",
+                            tooltip = "Mock sender address or number used during dry-run test execution.",
+                        ),
+                        ConfigFieldSpec.CodeTemplateField(
+                            key = "testBody",
+                            label = "Simulated SMS Body",
+                            minLines = 2,
+                            tooltip = "Mock message body text used during dry-run test execution.",
+                        ),
                     ),
-                    ConfigFieldSpec.TextField(
-                        key = "keywordRegex",
-                        label = "Keyword Filter Regex",
-                        placeholder = ".*OTP.*|.*code.*",
-                        tooltip = "Regex pattern filtering SMS body text (e.g. .*OTP.* for one-time passwords, \\b\\d{4,8}\\b for numeric verification codes, or .*verify.*|.*login.* for security alerts)"
-                    ),
-                    ConfigFieldSpec.TextField(
-                        key = "testSender",
-                        label = "Simulated Sender Number",
-                        placeholder = "VM-HDFCBK",
-                        tooltip = "Mock sender address or number used during dry-run test execution."
-                    ),
-                    ConfigFieldSpec.CodeTemplateField(
-                        key = "testBody",
-                        label = "Simulated SMS Body",
-                        minLines = 2,
-                        tooltip = "Mock message body text used during dry-run test execution."
-                    )
-                )
             ),
             NodePluginManifest(
                 typeId = "dev.zophop.plugin.sms.SEND_SMS_ACTION",
@@ -105,60 +99,107 @@ object SmsPluginModule : NodePluginModule {
                 description = "Sends an outbound SMS text message via mobile SIM",
                 category = NodeCategory.ACTION,
                 requiredPermissions = listOf(Manifest.permission.SEND_SMS),
-                configSchema = listOf(
-                    ConfigFieldSpec.TextField(
-                        key = "recipient",
-                        label = "Recipient Phone Number",
-                        placeholder = "+15551234567",
-                        singleLine = true,
-                        tooltip = "Target mobile phone number receiving the SMS."
+                configSchema =
+                    listOf(
+                        ConfigFieldSpec.TextField(
+                            key = "recipient",
+                            label = "Recipient Phone Number",
+                            placeholder = "+15551234567",
+                            singleLine = true,
+                            tooltip = "Target mobile phone number receiving the SMS.",
+                        ),
+                        ConfigFieldSpec.CodeTemplateField(
+                            key = "body",
+                            label = "Message Body",
+                            minLines = 3,
+                            tooltip = "Outbound SMS message content (supports \${body}, \${sender}, etc.)",
+                        ),
                     ),
-                    ConfigFieldSpec.CodeTemplateField(
-                        key = "body",
-                        label = "Message Body",
-                        minLines = 3,
-                        tooltip = "Outbound SMS message content (supports \${body}, \${sender}, etc.)"
-                    )
-                )
             ),
-            NodePluginManifest(
-                typeId = "dev.zophop.plugin.sms.SIM_CHECK_LOGIC",
-                displayName = "SIM Card Status Check",
-                description = "Verifies SIM card readiness and active subscription",
-                category = NodeCategory.LOGIC,
-                requiredPermissions = listOf(Manifest.permission.READ_PHONE_STATE)
-            )
         )
-    }
 }
 
 class SmsNodePluginService : Service() {
-    private val binder = object : INodePluginService.Stub() {
-        override fun getPluginApiVersion(): Int = 1
-        override fun getManifests(): List<NodePluginManifest> = SmsPluginModule.getManifests()
-        override fun executeNode(nodeId: String, configJson: String, inputContextJson: String): String {
-            val typeId = try { JSONObject(configJson).optString("typeId", "") } catch (_: Exception) { "" }
-            val permissionName = when {
-                typeId.contains("SMS_TRIGGER") -> Manifest.permission.RECEIVE_SMS
-                typeId.contains("SEND_SMS_ACTION") -> Manifest.permission.SEND_SMS
-                typeId.contains("SIM_CHECK_LOGIC") -> Manifest.permission.READ_PHONE_STATE
-                else -> ""
-            }
-            val hasPermission = permissionName.isEmpty() || checkSelfPermission(permissionName) == PackageManager.PERMISSION_GRANTED
+    private val binder =
+        object : INodePluginService.Stub() {
+            override fun getPluginApiVersion(): Int = 1
 
-            if (!hasPermission) {
-                return JSONObject().apply {
-                    put("isSuccess", false)
-                    put("errorReason", "Missing required permission '$permissionName' in SMS plugin app")
-                }.toString()
-            }
+            override fun getManifests(): List<NodePluginManifest> = SmsPluginModule.getManifests()
 
-            return JSONObject().apply {
-                put("isSuccess", true)
-                put("outputPort", "main")
-                put("logMessage", "SMS plugin executed successfully")
-            }.toString()
+            override fun executeNode(
+                nodeId: String,
+                configJson: String,
+                inputContextJson: String,
+            ): String {
+                val typeId =
+                    try {
+                        JSONObject(configJson).optString("typeId", "")
+                    } catch (_: Exception) {
+                        ""
+                    }
+                val permissionName =
+                    when {
+                        typeId.contains("SMS_TRIGGER") -> Manifest.permission.RECEIVE_SMS
+                        typeId.contains("SEND_SMS_ACTION") -> Manifest.permission.SEND_SMS
+                        typeId.contains("SIM_CHECK_LOGIC") -> Manifest.permission.READ_PHONE_STATE
+                        else -> ""
+                    }
+                val hasPermission = permissionName.isEmpty() || checkSelfPermission(permissionName) == PackageManager.PERMISSION_GRANTED
+
+                if (!hasPermission) {
+                    return JSONObject()
+                        .apply {
+                            put("isSuccess", false)
+                            put("errorReason", "Missing required permission '$permissionName' in SMS plugin app")
+                        }.toString()
+                }
+
+                return JSONObject()
+                    .apply {
+                        put("isSuccess", true)
+                        put("outputPort", "main")
+                        put("logMessage", "SMS plugin executed successfully")
+                    }.toString()
+            }
         }
-    }
+
     override fun onBind(intent: Intent?): IBinder = binder
+}
+
+private fun parseJsonConfig(configJson: String): JSONObject =
+    try {
+        JSONObject(configJson)
+    } catch (_: JSONException) {
+        JSONObject()
+    }
+
+private fun validateSmsTriggerConfig(config: JSONObject): String? {
+    val allowlist = config.optString("allowlist", ".*").trim()
+    val keywordRegex = config.optString("keywordRegex", ".*").trim()
+    val allowlistError = validateRegexPattern(allowlist.replace("*", ".*"), "sender allowlist")
+    if (allowlistError != null) return allowlistError
+    return validateRegexPattern(keywordRegex, "keyword")
+}
+
+private fun validateRegexPattern(
+    pattern: String,
+    name: String,
+): String? {
+    if (pattern.isBlank() || pattern == ".*") return null
+    return try {
+        Pattern.compile(pattern)
+        null
+    } catch (e: PatternSyntaxException) {
+        "Invalid $name regex: ${e.message}"
+    }
+}
+
+private fun validateSendSmsConfig(config: JSONObject): String? {
+    val recipient = config.optString("recipient", "").trim()
+    val body = config.optString("body", "").trim()
+    return when {
+        recipient.isBlank() -> "Recipient number cannot be blank."
+        body.isBlank() -> "Message body cannot be blank."
+        else -> null
+    }
 }

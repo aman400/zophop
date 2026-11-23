@@ -17,19 +17,22 @@ import androidx.core.graphics.drawable.toBitmap
 @Composable
 fun AppIconImage(
     drawable: Drawable?,
-    modifier: Modifier = Modifier.size(24.dp)
+    modifier: Modifier = Modifier.size(24.dp),
 ) {
     if (drawable != null) {
-        val bitmap = remember(drawable) {
-            try {
-                drawable.toBitmap(width = 48, height = 48).asImageBitmap()
-            } catch (_: Exception) { null }
-        }
+        val bitmap =
+            remember(drawable) {
+                try {
+                    drawable.toBitmap(width = 48, height = 48).asImageBitmap()
+                } catch (_: Exception) {
+                    null
+                }
+            }
         if (bitmap != null) {
             Image(
                 bitmap = bitmap,
                 contentDescription = null,
-                modifier = modifier
+                modifier = modifier,
             )
             return
         }
@@ -38,6 +41,6 @@ fun AppIconImage(
         imageVector = Icons.Default.Apps,
         contentDescription = null,
         tint = MaterialTheme.colorScheme.primary,
-        modifier = modifier
+        modifier = modifier,
     )
 }

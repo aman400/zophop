@@ -3,7 +3,6 @@ package dev.zophop.filter
 import java.util.regex.PatternSyntaxException
 
 object SmsFilter {
-
     /**
      * Converts a wildcard pattern (e.g. "*HDFC*", "ICICI-*", "BANK?")
      * into an anchored regular expression string.
@@ -27,26 +26,33 @@ object SmsFilter {
     /**
      * Checks if sender matches any entry in the user-editable allowlist.
      */
-    fun matchesAllowlist(sender: String, allowlist: List<String>): Boolean {
+    fun matchesAllowlist(
+        sender: String,
+        allowlist: List<String>,
+    ): Boolean {
         val trimmedSender = sender.trim()
         if (trimmedSender.isEmpty()) return false
 
         val activeList = allowlist.map { it.trim() }.filter { it.isNotEmpty() }
-        if (activeList.isEmpty()) return false
+        return if (activeList.isEmpty()) {
+            true
+        } else {
+            activeList.any { matchesPattern(trimmedSender, it) }
+        }
+    }
 
-        return activeList.any { patternStr ->
+    private fun matchesPattern(sender: String, patternStr: String): Boolean =
+        if (patternStr == ".*" || patternStr == "*") {
+            true
+        } else {
             try {
-                if (patternStr == ".*" || patternStr == "*") {
-                    true
-                } else {
-                    val regexPattern = wildcardToRegex(patternStr)
-                    Regex(regexPattern, RegexOption.IGNORE_CASE).matches(trimmedSender)
-                }
-            } catch (e: Exception) {
+                Regex(wildcardToRegex(patternStr), RegexOption.IGNORE_CASE).matches(sender)
+            } catch (_: PatternSyntaxException) {
+                false
+            } catch (_: IllegalArgumentException) {
                 false
             }
         }
-    }
 
     /**
      * Validates whether a keyword regex pattern string is syntactically valid.
@@ -56,9 +62,9 @@ object SmsFilter {
         return try {
             Regex(regexStr)
             true
-        } catch (e: PatternSyntaxException) {
+        } catch (_: PatternSyntaxException) {
             false
-        } catch (e: Exception) {
+        } catch (_: IllegalArgumentException) {
             false
         }
     }
@@ -66,11 +72,16 @@ object SmsFilter {
     /**
      * Checks if the message body matches the keyword regex.
      */
-    fun matchesKeyword(body: String, keywordRegexStr: String): Boolean {
+    fun matchesKeyword(
+        body: String,
+        keywordRegexStr: String,
+    ): Boolean {
         if (!isValidRegex(keywordRegexStr)) return false
         return try {
-            Regex(keywordRegexStr).containsMatchIn(body)
-        } catch (e: Exception) {
+            Regex(keywordRegexStr, setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)).containsMatchIn(body)
+        } catch (_: PatternSyntaxException) {
+            false
+        } catch (_: IllegalArgumentException) {
             false
         }
     }
@@ -83,8 +94,6 @@ object SmsFilter {
         sender: String,
         body: String,
         allowlist: List<String>,
-        keywordRegexStr: String
-    ): Boolean {
-        return matchesAllowlist(sender, allowlist) && matchesKeyword(body, keywordRegexStr)
-    }
+        keywordRegexStr: String,
+    ): Boolean = matchesAllowlist(sender, allowlist) && matchesKeyword(body, keywordRegexStr)
 }

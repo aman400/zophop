@@ -10,7 +10,6 @@ data class DeliveryNode(
     val topic: String = "",
     val token: String = "",
     val isEnabled: Boolean = true,
-
     // Node-level Pre-Checks
     val requireInternet: Boolean = true,
     val requireVpn: Boolean = false,
@@ -18,5 +17,5 @@ data class DeliveryNode(
     val customHealthcheckUrl: String = "",
     val healthcheckMethod: String = "GET",
     val healthcheckHeaders: String = "",
-    val healthcheckExpectedStatus: Int = 200
+    val healthcheckExpectedStatus: Int = 200,
 )

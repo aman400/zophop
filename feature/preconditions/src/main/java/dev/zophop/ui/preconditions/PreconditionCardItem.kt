@@ -1,7 +1,5 @@
 package dev.zophop.ui.preconditions
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
@@ -35,7 +33,6 @@ import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -48,6 +45,7 @@ import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxState
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -73,13 +71,6 @@ import dev.zophop.domain.model.PreconditionType
 import dev.zophop.ui.workflows.NodeExecutionStepper
 import dev.zophop.ui.workflows.WorkflowUiHelper
 
-private data class Quadruple<A, B, C, D>(
-    val first: A,
-    val second: B,
-    val third: C,
-    val fourth: D
-)
-
 /**
  * Compact Modernized Card Item for a Precondition Rule in the Vault list.
  */
@@ -92,103 +83,86 @@ fun PreconditionCardItem(
     onToggle: (Boolean) -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     var isTesting by remember { mutableStateOf(false) }
     var testResult by remember { mutableStateOf<PreconditionResult?>(null) }
     var testSteps by remember { mutableStateOf<List<NodeExecutionStep>>(emptyList()) }
     var showTestStepperSheet by remember { mutableStateOf(false) }
 
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { dismissValue ->
-            if (dismissValue == SwipeToDismissBoxValue.EndToStart) {
-                onDelete()
-                false
-            } else if (dismissValue == SwipeToDismissBoxValue.StartToEnd) {
-                onEdit()
-                false
-            } else false
-        }
-    )
+    val dismissState =
+        rememberSwipeToDismissBoxState(
+            confirmValueChange = { dismissValue ->
+                if (dismissValue == SwipeToDismissBoxValue.EndToStart) {
+                    onDelete()
+                    false
+                } else if (dismissValue == SwipeToDismissBoxValue.StartToEnd) {
+                    onEdit()
+                    false
+                } else {
+                    false
+                }
+            },
+        )
 
-    val iconVector = WorkflowUiHelper.getPreconditionIcon(precondition.type)
-    val typeTitle = WorkflowUiHelper.getPreconditionTitle(precondition.type)
+    val (iconVector, typeTitle) =
+        remember(precondition.type, precondition.pipelineJson) {
+            WorkflowUiHelper.getPreconditionPipelineSummary(precondition.type, precondition.pipelineJson)
+        }
 
     val containerColor by animateColorAsState(
         targetValue = if (precondition.isEnabled) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceContainerLow,
         animationSpec = tween(durationMillis = 220),
-        label = "PreconditionCardColor"
+        label = "PreconditionCardColor",
     )
 
     SwipeToDismissBox(
         state = dismissState,
         modifier = modifier,
         backgroundContent = {
-            val direction = dismissState.dismissDirection
-            val color = when (direction) {
-                SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.secondaryContainer
-                SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
-                else -> Color.Transparent
-            }
-            val alignment = if (direction == SwipeToDismissBoxValue.StartToEnd) Alignment.CenterStart else Alignment.CenterEnd
-            val icon = if (direction == SwipeToDismissBoxValue.StartToEnd) Icons.Default.Edit else Icons.Default.Delete
-            val text = if (direction == SwipeToDismissBoxValue.StartToEnd) "Edit" else "Delete"
-            val tint = if (direction == SwipeToDismissBoxValue.StartToEnd) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onErrorContainer
-
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(color, shape = RoundedCornerShape(14.dp))
-                    .padding(horizontal = 20.dp),
-                contentAlignment = alignment
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Icon(imageVector = icon, contentDescription = text, tint = tint, modifier = Modifier.size(16.dp))
-                    Text(text = text, color = tint, fontWeight = FontWeight.Bold, fontSize = 11.sp)
-                }
-            }
-        }
+            PreconditionDismissBackground(dismissState)
+        },
     ) {
         OutlinedCard(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onEdit),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onEdit),
             shape = RoundedCornerShape(14.dp),
-            colors = CardDefaults.outlinedCardColors(
-                containerColor = containerColor
-            )
+            colors =
+                CardDefaults.outlinedCardColors(
+                    containerColor = containerColor,
+                ),
         ) {
             Column(
-                modifier = Modifier
-                    .padding(12.dp)
-                    .animateContentSize(animationSpec = tween(220)),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                modifier =
+                    Modifier
+                        .padding(12.dp)
+                        .animateContentSize(animationSpec = tween(220)),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 // Header Row: Icon, Title, Status, Switch
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
                     ) {
                         Surface(
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(32.dp),
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = iconVector,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(16.dp)
+                                    modifier = Modifier.size(16.dp),
                                 )
                             }
                         }
@@ -196,7 +170,7 @@ fun PreconditionCardItem(
                         Column(modifier = Modifier.weight(1f)) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
                                 Text(
                                     text = precondition.name,
@@ -204,32 +178,37 @@ fun PreconditionCardItem(
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f, fill = false)
+                                    modifier = Modifier.weight(1f, fill = false),
                                 )
 
                                 testResult?.let { res ->
-                                    val (badgeText, badgeIcon, bg, fg) = when (res) {
-                                        is PreconditionResult.Passed -> Quadruple("Verified", Icons.Default.CheckCircle, MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
-                                        is PreconditionResult.Failed -> Quadruple("Failed", Icons.Default.Error, MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
-                                    }
+                                    val isPassed = res is PreconditionResult.Passed
+                                    val badgeText = if (isPassed) "Verified" else "Failed"
+                                    val badgeIcon = if (isPassed) Icons.Default.CheckCircle else Icons.Default.Error
+                                    val bg = if (isPassed) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer
+                                    val fg = if (isPassed) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer
                                     SuggestionChip(
                                         onClick = { showTestStepperSheet = true },
                                         label = {
-                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                            ) {
                                                 Icon(imageVector = badgeIcon, contentDescription = null, modifier = Modifier.size(10.dp))
                                                 Text(
                                                     text = badgeText,
                                                     style = MaterialTheme.typography.labelSmall,
                                                     fontSize = 9.sp,
-                                                    fontWeight = FontWeight.Bold
+                                                    fontWeight = FontWeight.Bold,
                                                 )
                                             }
                                         },
-                                        colors = SuggestionChipDefaults.suggestionChipColors(
-                                            containerColor = bg,
-                                            labelColor = fg
-                                        ),
-                                        modifier = Modifier.height(20.dp)
+                                        colors =
+                                            SuggestionChipDefaults.suggestionChipColors(
+                                                containerColor = bg,
+                                                labelColor = fg,
+                                            ),
+                                        modifier = Modifier.height(20.dp),
                                     )
                                 }
                             }
@@ -238,7 +217,7 @@ fun PreconditionCardItem(
                                 text = typeTitle,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 11.sp
+                                fontSize = 11.sp,
                             )
                         }
                     }
@@ -248,7 +227,7 @@ fun PreconditionCardItem(
                         onCheckedChange = { targetEnabled ->
                             onToggle(targetEnabled)
                         },
-                        modifier = Modifier.height(28.dp)
+                        modifier = Modifier.height(28.dp),
                     )
                 }
 
@@ -256,7 +235,7 @@ fun PreconditionCardItem(
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f),
                         shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text(
                             text = "${precondition.method} → ${precondition.targetUrl}",
@@ -266,7 +245,7 @@ fun PreconditionCardItem(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -275,26 +254,26 @@ fun PreconditionCardItem(
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
                     val isRetry = precondition.onFailureAction.equals("RETRY", ignoreCase = true)
                     if (isRetry) {
                         Surface(
                             color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.8f),
                             contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                            shape = RoundedCornerShape(4.dp)
+                            shape = RoundedCornerShape(4.dp),
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                horizontalArrangement = Arrangement.spacedBy(3.dp),
                             ) {
                                 Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(11.dp))
                                 Text(
                                     text = "Retry ${precondition.maxRetries}x (${precondition.retryIntervalSeconds}s)",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontSize = 10.sp,
-                                    fontWeight = FontWeight.SemiBold
+                                    fontWeight = FontWeight.SemiBold,
                                 )
                             }
                         }
@@ -304,35 +283,61 @@ fun PreconditionCardItem(
                         Surface(
                             color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.8f),
                             contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                            shape = RoundedCornerShape(4.dp)
+                            shape = RoundedCornerShape(4.dp),
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                horizontalArrangement = Arrangement.spacedBy(3.dp),
                             ) {
                                 Icon(Icons.Default.Notifications, contentDescription = null, modifier = Modifier.size(11.dp))
-                                Text("System Alert", style = MaterialTheme.typography.labelSmall, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    "System Alert",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
                             }
                         }
                     }
 
                     Surface(
-                        color = if (linkedWorkflowCount > 0) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.surfaceContainerLow,
-                        contentColor = if (linkedWorkflowCount > 0) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                        shape = RoundedCornerShape(4.dp)
+                        color =
+                            if (linkedWorkflowCount >
+                                0
+                            ) {
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f)
+                            } else {
+                                MaterialTheme.colorScheme.surfaceContainerLow
+                            },
+                        contentColor =
+                            if (linkedWorkflowCount >
+                                0
+                            ) {
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        shape = RoundedCornerShape(4.dp),
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                            horizontalArrangement = Arrangement.spacedBy(3.dp),
                         ) {
                             Icon(Icons.Default.AccountTree, contentDescription = null, modifier = Modifier.size(11.dp))
                             Text(
-                                text = if (linkedWorkflowCount > 0) "$linkedWorkflowCount Workflow${if (linkedWorkflowCount > 1) "s" else ""}" else "No Workflows",
+                                text =
+                                    if (linkedWorkflowCount >
+                                        0
+                                    ) {
+                                        "$linkedWorkflowCount Workflow${if (linkedWorkflowCount > 1) "s" else ""}"
+                                    } else {
+                                        "No Workflows"
+                                    },
                                 style = MaterialTheme.typography.labelSmall,
                                 fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.SemiBold,
                             )
                         }
                     }
@@ -342,7 +347,7 @@ fun PreconditionCardItem(
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     OutlinedButton(
                         onClick = {
@@ -359,17 +364,17 @@ fun PreconditionCardItem(
                                     { res ->
                                         isTesting = false
                                         testResult = res
-                                    }
+                                    },
                                 )
                             }
                         },
                         modifier = Modifier.height(26.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                     ) {
                         if (isTesting) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(12.dp),
-                                strokeWidth = 2.dp
+                                strokeWidth = 2.dp,
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("Verifying...", fontSize = 11.sp)
@@ -382,29 +387,29 @@ fun PreconditionCardItem(
 
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(0.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         IconButton(
                             onClick = onEdit,
-                            modifier = Modifier.size(28.dp)
+                            modifier = Modifier.size(28.dp),
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Edit,
                                 contentDescription = "Edit",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(16.dp),
                             )
                         }
 
                         IconButton(
                             onClick = onDelete,
-                            modifier = Modifier.size(28.dp)
+                            modifier = Modifier.size(28.dp),
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Delete,
                                 contentDescription = "Delete",
                                 tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(16.dp),
                             )
                         }
                     }
@@ -417,7 +422,7 @@ fun PreconditionCardItem(
                 preconditionName = precondition.name,
                 steps = testSteps,
                 isTesting = isTesting,
-                onDismiss = { showTestStepperSheet = false }
+                onDismiss = { showTestStepperSheet = false },
             )
         }
     }
@@ -430,7 +435,7 @@ fun PreconditionExecutionStepperBottomSheet(
     steps: List<NodeExecutionStep>,
     isTesting: Boolean,
     onCancelExecution: (() -> Unit)? = null,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
 
@@ -444,44 +449,47 @@ fun PreconditionExecutionStepperBottomSheet(
         onDismissRequest = onDismiss,
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 12.dp)
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 12.dp),
         ) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 24.dp, bottom = 16.dp),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 24.dp, bottom = 16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Precondition Execution Stepper",
                         style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
                     )
                     Text(
                         text = preconditionName,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (isTesting) {
                         CircularProgressIndicator(
-                            modifier = Modifier
-                                .padding(end = 8.dp)
-                                .size(20.dp),
-                            strokeWidth = 2.dp
+                            modifier =
+                                Modifier
+                                    .padding(end = 8.dp)
+                                    .size(20.dp),
+                            strokeWidth = 2.dp,
                         )
                         if (onCancelExecution != null) {
                             OutlinedButton(
                                 onClick = onCancelExecution,
                                 modifier = Modifier.padding(end = 8.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                             ) {
                                 Text("Cancel", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
                             }
@@ -491,24 +499,26 @@ fun PreconditionExecutionStepperBottomSheet(
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Close",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
             }
 
             Column(
-                modifier = Modifier
-                    .weight(1f, fill = false)
-                    .verticalScroll(scrollState),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                modifier =
+                    Modifier
+                        .weight(1f, fill = false)
+                        .verticalScroll(scrollState),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 if (steps.isEmpty()) {
                     Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(24.dp),
-                        contentAlignment = Alignment.Center
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp),
+                        contentAlignment = Alignment.Center,
                     ) {
                         Text("Verifying precondition rule...", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -516,6 +526,44 @@ fun PreconditionExecutionStepperBottomSheet(
                     NodeExecutionStepper(steps = steps)
                 }
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PreconditionDismissBackground(dismissState: SwipeToDismissBoxState) {
+    val direction = dismissState.dismissDirection
+    val color =
+        when (direction) {
+            SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.secondaryContainer
+            SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
+            else -> Color.Transparent
+        }
+    val alignment = if (direction == SwipeToDismissBoxValue.StartToEnd) Alignment.CenterStart else Alignment.CenterEnd
+    val icon = if (direction == SwipeToDismissBoxValue.StartToEnd) Icons.Default.Edit else Icons.Default.Delete
+    val text = if (direction == SwipeToDismissBoxValue.StartToEnd) "Edit" else "Delete"
+    val tint =
+        if (direction == SwipeToDismissBoxValue.StartToEnd) {
+            MaterialTheme.colorScheme.onSecondaryContainer
+        } else {
+            MaterialTheme.colorScheme.onErrorContainer
+        }
+
+    Box(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(color, shape = RoundedCornerShape(14.dp))
+                .padding(horizontal = 20.dp),
+        contentAlignment = alignment,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(imageVector = icon, contentDescription = text, tint = tint, modifier = Modifier.size(16.dp))
+            Text(text = text, color = tint, fontWeight = FontWeight.Bold, fontSize = 11.sp)
         }
     }
 }

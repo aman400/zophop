@@ -11,10 +11,10 @@ import java.util.ServiceLoader
 import java.util.concurrent.CopyOnWriteArrayList
 
 object BuiltInPluginRegistry {
-
-    private val registeredModules = CopyOnWriteArrayList<NodePluginModule>().apply {
-        add(CoreEngineNodesModule)
-    }
+    private val registeredModules =
+        CopyOnWriteArrayList<NodePluginModule>().apply {
+            add(CoreEngineNodesModule)
+        }
 
     init {
         discoverAndRegisterBundledModules()
@@ -38,32 +38,43 @@ object BuiltInPluginRegistry {
             for (module in loader) {
                 registerModule(module)
             }
-        } catch (_: Throwable) {
+        } catch (_: java.util.ServiceConfigurationError) {
+        } catch (_: LinkageError) {
         }
 
-        val pluginNames = listOf("sms", "ntfy", "gotify", "gps", "call", "notification")
+        val pluginNames = listOf("sms", "ntfy", "gotify", "gps", "call", "notification", "telegram")
         for (name in pluginNames) {
-            val capitalized = name.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
-            val className = "dev.zophop.plugin.$name.${capitalized}PluginModule"
-            try {
-                val clazz = Class.forName(className)
-                val instance = try {
-                    clazz.getField("INSTANCE").get(null)
-                } catch (_: Exception) {
-                    clazz.getDeclaredField("INSTANCE").apply { isAccessible = true }.get(null)
-                }
-                if (instance is NodePluginModule) {
-                    registerModule(instance)
-                }
-            } catch (_: Throwable) {
+            val module = loadBundledModule(name)
+            if (module != null) {
+                registerModule(module)
             }
         }
+    }
+
+    private fun loadBundledModule(name: String): NodePluginModule? {
+        val capitalized = name.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
+        val className = "dev.zophop.plugin.$name.${capitalized}PluginModule"
+        return try {
+            val clazz = Class.forName(className)
+            val instance = resolveSingletonInstance(clazz)
+            instance as? NodePluginModule
+        } catch (_: ClassNotFoundException) {
+            null
+        } catch (_: LinkageError) {
+            null
+        }
+    }
+
+    private fun resolveSingletonInstance(clazz: Class<*>): Any? = try {
+        clazz.getField("INSTANCE").get(null)
+    } catch (_: ReflectiveOperationException) {
+        clazz.getDeclaredField("INSTANCE").apply { isAccessible = true }.get(null)
     }
 
     fun createExecutor(
         typeId: String,
         okHttpClient: OkHttpClient,
-        credentialRepository: CredentialRepository?
+        credentialRepository: CredentialRepository?,
     ): NodeExecutor? {
         for (module in registeredModules) {
             val executor = module.createExecutor(typeId, okHttpClient, credentialRepository)
@@ -72,15 +83,14 @@ object BuiltInPluginRegistry {
         return null
     }
 
-    fun getBuiltInManifests(): List<NodePluginManifest> {
-        return registeredModules.flatMap { it.getManifests() }
-    }
+    fun getBuiltInManifests(): List<NodePluginManifest> = registeredModules.flatMap { it.getManifests() }
 
-    fun getBuiltInCredentialSpecs(): List<CredentialSpec> {
-        return registeredModules.flatMap { it.getCredentialSpecs() }
-    }
+    fun getBuiltInCredentialSpecs(): List<CredentialSpec> = registeredModules.flatMap { it.getCredentialSpecs() }
 
-    fun getBuiltInManifestByTypeId(typeId: String): NodePluginManifest? {
-        return getBuiltInManifests().find { it.typeId == typeId }
-    }
+    fun getBuiltInManifestByTypeId(typeId: String): NodePluginManifest? =
+        getBuiltInManifests().find {
+            it.typeId.equals(typeId, ignoreCase = true) ||
+                it.typeId.endsWith(".$typeId", ignoreCase = true) ||
+                typeId.endsWith(".${it.typeId}", ignoreCase = true)
+        }
 }

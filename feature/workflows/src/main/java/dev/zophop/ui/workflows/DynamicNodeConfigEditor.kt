@@ -4,9 +4,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenu
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -25,14 +26,50 @@ fun DynamicNodeConfigEditor(
     manifest: NodePluginManifest,
     configJson: String,
     onConfigChanged: (String) -> Unit,
-    modifier: Modifier = Modifier
+    availableVariables: List<String> = emptyList(),
+    modifier: Modifier = Modifier,
 ) {
-    val currentConfig = remember(configJson) {
-        try { JSONObject(configJson) } catch (_: Exception) { JSONObject() }
-    }
+    val currentConfig =
+        remember(configJson, manifest.typeId) {
+            val defaultConfig =
+                try {
+                    JSONObject(WorkflowUiHelper.getDefaultConfigForType(manifest.typeId))
+                } catch (_: Exception) {
+                    JSONObject()
+                }
+            val userConfig =
+                try {
+                    JSONObject(configJson)
+                } catch (_: Exception) {
+                    JSONObject()
+                }
+            val merged = JSONObject()
+            val defaultKeys = defaultConfig.keys()
+            while (defaultKeys.hasNext()) {
+                val k = defaultKeys.next()
+                merged.put(k, defaultConfig.opt(k))
+            }
+            val userKeys = userConfig.keys()
+            while (userKeys.hasNext()) {
+                val k = userKeys.next()
+                val v = userConfig.opt(k)
+                if (v != null && v.toString().isNotBlank()) {
+                    merged.put(k, v)
+                }
+            }
+            merged
+        }
 
-    fun updateConfigKey(key: String, value: Any) {
-        val newObj = try { JSONObject(configJson) } catch (_: Exception) { JSONObject() }
+    fun updateConfigKey(
+        key: String,
+        value: Any,
+    ) {
+        val newObj =
+            try {
+                JSONObject(currentConfig.toString())
+            } catch (_: Exception) {
+                JSONObject()
+            }
         newObj.put(key, value)
         onConfigChanged(newObj.toString())
     }
@@ -50,18 +87,26 @@ fun DynamicNodeConfigEditor(
                         placeholder = fieldSpec.placeholder,
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = fieldSpec.singleLine,
-                        minLines = fieldSpec.minLines
+                        minLines = fieldSpec.minLines,
                     )
                 }
                 is ConfigFieldSpec.DropdownField -> {
-                    val selectedVal = currentConfig.optString(fieldSpec.key, fieldSpec.options.firstOrNull()?.first ?: "")
+                    val defaultOption = fieldSpec.options.firstOrNull()?.first ?: ""
+                    val rawVal = currentConfig.optString(fieldSpec.key, "")
+                    val selectedVal = if (rawVal.isNotBlank()) rawVal else defaultOption
                     val selectedLabel = fieldSpec.options.find { it.first == selectedVal }?.second ?: selectedVal
                     var expanded by remember { mutableStateOf(false) }
+
+                    androidx.compose.runtime.LaunchedEffect(fieldSpec.key, rawVal) {
+                        if (rawVal.isBlank() && defaultOption.isNotBlank()) {
+                            updateConfigKey(fieldSpec.key, defaultOption)
+                        }
+                    }
 
                     ExposedDropdownMenuBox(
                         expanded = expanded,
                         onExpandedChange = { expanded = !expanded },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
                         InfoTooltipField(
                             value = selectedLabel,
@@ -69,18 +114,19 @@ fun DynamicNodeConfigEditor(
                             readOnly = true,
                             label = fieldSpec.label,
                             tooltipText = fieldSpec.tooltip ?: fieldSpec.label,
-                            modifier = Modifier
-                                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
-                                .fillMaxWidth(),
+                            modifier =
+                                Modifier
+                                    .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                                    .fillMaxWidth(),
                             singleLine = true,
                             additionalTrailingIcon = {
                                 ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
-                            }
+                            },
                         )
 
                         ExposedDropdownMenu(
                             expanded = expanded,
-                            onDismissRequest = { expanded = false }
+                            onDismissRequest = { expanded = false },
                         ) {
                             fieldSpec.options.forEach { (optionVal, optionLabel) ->
                                 DropdownMenuItem(
@@ -88,7 +134,7 @@ fun DynamicNodeConfigEditor(
                                     onClick = {
                                         updateConfigKey(fieldSpec.key, optionVal)
                                         expanded = false
-                                    }
+                                    },
                                 )
                             }
                         }
@@ -102,7 +148,8 @@ fun DynamicNodeConfigEditor(
                         label = fieldSpec.label,
                         tooltipText = fieldSpec.tooltip ?: fieldSpec.label,
                         modifier = Modifier.fillMaxWidth(),
-                        minLines = fieldSpec.minLines
+                        minLines = fieldSpec.minLines,
+                        availableVariables = availableVariables,
                     )
                 }
             }

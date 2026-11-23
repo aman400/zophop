@@ -9,14 +9,15 @@ import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
 open class NodeExecutorFactory(
-    private val okHttpClient: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
-        .build(),
+    private val okHttpClient: OkHttpClient =
+        OkHttpClient
+            .Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
+            .build(),
     private val credentialRepository: CredentialRepository? = null,
-    private val pluginRegistry: ExternalPluginRegistry? = null
+    private val pluginRegistry: ExternalPluginRegistry? = null,
 ) {
-
     open fun getExecutor(type: String): NodeExecutor {
         val moduleExecutor = BuiltInPluginRegistry.createExecutor(type, okHttpClient, credentialRepository)
         if (moduleExecutor != null) return moduleExecutor
@@ -29,6 +30,6 @@ open class NodeExecutorFactory(
 
     open fun getCustomExecutorByTypeId(typeId: String): NodeExecutor? {
         val pluginInfo = pluginRegistry?.getPluginByTypeId(typeId) ?: return null
-        return ExternalPluginExecutor(pluginInfo)
+        return ExternalPluginExecutor(pluginInfo, credentialRepository)
     }
 }

@@ -40,55 +40,56 @@ fun FailurePolicyAccordion(
     onRetryIntervalSecondsChanged: (String) -> Unit,
     showNotificationOnFailure: Boolean,
     onShowNotificationOnFailureChanged: (Boolean) -> Unit,
-    onShowNotificationRationale: () -> Unit = {}
+    onShowNotificationRationale: () -> Unit = {},
 ) {
     var expanded by remember { mutableStateOf(false) }
 
     OutlinedCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+        colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { expanded = !expanded },
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { expanded = !expanded },
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
                 ) {
                     Icon(
                         imageVector = Icons.Default.Refresh,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(20.dp),
                     )
                     Column {
                         Text(
                             text = "Failure & Retry Policy",
                             style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
                         )
                         val actionDesc = if (onFailureAction == "RETRY") "Wait & Retry ($maxRetries attempts)" else "Fail Immediately"
                         Text(
                             text = if (expanded) "Configure retry attempts and failure response" else actionDesc,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
                 IconButton(onClick = { expanded = !expanded }) {
                     Icon(
                         imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                        contentDescription = if (expanded) "Collapse" else "Expand"
+                        contentDescription = if (expanded) "Collapse" else "Expand",
                     )
                 }
             }
@@ -104,7 +105,7 @@ fun FailurePolicyAccordion(
                     onRetryIntervalSecondsChanged = onRetryIntervalSecondsChanged,
                     showNotificationOnFailure = showNotificationOnFailure,
                     onShowNotificationOnFailureChanged = onShowNotificationOnFailureChanged,
-                    onShowNotificationRationale = onShowNotificationRationale
+                    onShowNotificationRationale = onShowNotificationRationale,
                 )
             }
         }

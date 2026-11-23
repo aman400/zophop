@@ -8,7 +8,6 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface WorkflowDao {
-
     @Query("SELECT * FROM workflows ORDER BY updatedAt DESC")
     fun getAllWorkflowsFlow(): Flow<List<WorkflowEntity>>
 
@@ -35,7 +34,10 @@ interface WorkflowDao {
     fun getRecentExecutionLogsFlow(limit: Int = 50): Flow<List<WorkflowExecutionLogEntity>>
 
     @Query("SELECT * FROM workflow_execution_logs WHERE workflowId = :workflowId ORDER BY timestamp DESC LIMIT :limit")
-    fun getLogsForWorkflowFlow(workflowId: String, limit: Int = 50): Flow<List<WorkflowExecutionLogEntity>>
+    fun getLogsForWorkflowFlow(
+        workflowId: String,
+        limit: Int = 50,
+    ): Flow<List<WorkflowExecutionLogEntity>>
 
     @Query("DELETE FROM workflow_execution_logs WHERE workflowId = :workflowId")
     suspend fun clearLogsForWorkflow(workflowId: String)

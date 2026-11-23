@@ -9,24 +9,23 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PreconditionVaultMappingAndValidationTest {
-
     @Test
     fun testInternetCheckEntityMapping() {
-        val entity = PreconditionEntity(
-            id = "prec_net",
-            name = "Internet Connection Check",
-            type = PreconditionType.INTERNET_CHECK.name,
-            isEnabled = true,
-            onFailureAction = "RETRY",
-            maxRetries = 5,
-            retryIntervalSeconds = 10,
-            showNotificationOnFailure = true
-        )
+        val entity =
+            PreconditionEntity(
+                id = "prec_net",
+                name = "Internet Connection Check",
+                type = PreconditionType.INTERNET_CHECK.name,
+                isEnabled = true,
+                onFailureAction = "RETRY",
+                maxRetries = 5,
+                retryIntervalSeconds = 10,
+                showNotificationOnFailure = true,
+            )
 
         val domain = entity.toDomain()
         assertTrue(domain is Precondition.InternetCheck)
@@ -41,13 +40,14 @@ class PreconditionVaultMappingAndValidationTest {
 
     @Test
     fun testVpnCheckEntityMapping() {
-        val entity = PreconditionEntity(
-            id = "prec_vpn",
-            name = "Tailscale VPN Check",
-            type = PreconditionType.VPN_CHECK.name,
-            isEnabled = false,
-            onFailureAction = "FAIL_IMMEDIATELY"
-        )
+        val entity =
+            PreconditionEntity(
+                id = "prec_vpn",
+                name = "Tailscale VPN Check",
+                type = PreconditionType.VPN_CHECK.name,
+                isEnabled = false,
+                onFailureAction = "FAIL_IMMEDIATELY",
+            )
 
         val domain = entity.toDomain()
         assertTrue(domain is Precondition.VpnCheck)
@@ -59,20 +59,21 @@ class PreconditionVaultMappingAndValidationTest {
 
     @Test
     fun testHealthCheckEntityMapping() {
-        val entity = PreconditionEntity(
-            id = "prec_health_1",
-            name = "API Gateway Health Probe",
-            type = PreconditionType.HEALTH_CHECK.name,
-            isEnabled = true,
-            targetUrl = "https://api.internal/healthz",
-            method = "POST",
-            headers = "Authorization: Bearer secret_123",
-            expectedStatus = 204,
-            credentialId = "cred_bearer_1",
-            onFailureAction = "RETRY",
-            maxRetries = 3,
-            retryIntervalSeconds = 30
-        )
+        val entity =
+            PreconditionEntity(
+                id = "prec_health_1",
+                name = "API Gateway Health Probe",
+                type = PreconditionType.HEALTH_CHECK.name,
+                isEnabled = true,
+                targetUrl = "https://api.internal/healthz",
+                method = "POST",
+                headers = "Authorization: Bearer secret_123",
+                expectedStatus = 204,
+                credentialId = "cred_bearer_1",
+                onFailureAction = "RETRY",
+                maxRetries = 3,
+                retryIntervalSeconds = 30,
+            )
 
         val domain = entity.toDomain()
         assertTrue(domain is Precondition.HealthCheck)
@@ -86,13 +87,14 @@ class PreconditionVaultMappingAndValidationTest {
 
     @Test
     fun testSimCheckEntityMapping() {
-        val entity = PreconditionEntity(
-            id = "prec_sim_1",
-            name = "Jio Carrier Check",
-            type = PreconditionType.SIM_CHECK.name,
-            isEnabled = true,
-            requiredCarrier = "Jio"
-        )
+        val entity =
+            PreconditionEntity(
+                id = "prec_sim_1",
+                name = "Jio Carrier Check",
+                type = PreconditionType.SIM_CHECK.name,
+                isEnabled = true,
+                requiredCarrier = "Jio",
+            )
 
         val domain = entity.toDomain()
         assertTrue(domain is Precondition.SimCheck)
@@ -103,12 +105,13 @@ class PreconditionVaultMappingAndValidationTest {
 
     @Test
     fun testGpsCheckEntityMapping() {
-        val entity = PreconditionEntity(
-            id = "prec_gps_1",
-            name = "GPS Hardware Check",
-            type = PreconditionType.GPS_CHECK.name,
-            isEnabled = true
-        )
+        val entity =
+            PreconditionEntity(
+                id = "prec_gps_1",
+                name = "GPS Hardware Check",
+                type = PreconditionType.GPS_CHECK.name,
+                isEnabled = true,
+            )
 
         val domain = entity.toDomain()
         assertTrue(domain is Precondition.GpsCheck)
@@ -119,39 +122,53 @@ class PreconditionVaultMappingAndValidationTest {
 
     @Test
     fun testChainedCheckPipelineSerializationAndDeserialization() {
-        val pipelineObj = JSONObject().apply {
-            put("nodes", JSONArray().apply {
-                put(JSONObject().apply {
-                    put("id", "c_n1")
-                    put("name", "Manual Test Data")
-                    put("type", NodeType.MANUAL_TRIGGER)
-                    put("isEnabled", true)
-                    put("configJson", """{"testBody":"{\"status\":\"OK\"}"}""")
-                })
-                put(JSONObject().apply {
-                    put("id", "c_n2")
-                    put("name", "Status Extractor")
-                    put("type", NodeType.JSON_PARSER)
-                    put("isEnabled", true)
-                    put("configJson", """{"jsonKey":"status","outputKey":"state"}""")
-                })
-            })
-            put("connections", JSONArray().apply {
-                put(JSONObject().apply {
-                    put("fromNodeId", "c_n1")
-                    put("toNodeId", "c_n2")
-                    put("outputPort", "main")
-                })
-            })
-        }
+        val pipelineObj =
+            JSONObject().apply {
+                put(
+                    "nodes",
+                    JSONArray().apply {
+                        put(
+                            JSONObject().apply {
+                                put("id", "c_n1")
+                                put("name", "Manual Test Data")
+                                put("type", NodeType.MANUAL_TRIGGER)
+                                put("isEnabled", true)
+                                put("configJson", """{"testBody":"{\"status\":\"OK\"}"}""")
+                            },
+                        )
+                        put(
+                            JSONObject().apply {
+                                put("id", "c_n2")
+                                put("name", "Status Extractor")
+                                put("type", NodeType.JSON_PARSER)
+                                put("isEnabled", true)
+                                put("configJson", """{"jsonKey":"status","outputKey":"state"}""")
+                            },
+                        )
+                    },
+                )
+                put(
+                    "connections",
+                    JSONArray().apply {
+                        put(
+                            JSONObject().apply {
+                                put("fromNodeId", "c_n1")
+                                put("toNodeId", "c_n2")
+                                put("outputPort", "main")
+                            },
+                        )
+                    },
+                )
+            }
 
-        val entity = PreconditionEntity(
-            id = "prec_chain_1",
-            name = "Chained Pipeline Guard",
-            type = PreconditionType.CHAINED_CHECK.name,
-            isEnabled = true,
-            pipelineJson = pipelineObj.toString()
-        )
+        val entity =
+            PreconditionEntity(
+                id = "prec_chain_1",
+                name = "Chained Pipeline Guard",
+                type = PreconditionType.CHAINED_CHECK.name,
+                isEnabled = true,
+                pipelineJson = pipelineObj.toString(),
+            )
 
         val domain = entity.toDomain()
         assertTrue(domain is Precondition.ChainCheck)
@@ -169,12 +186,13 @@ class PreconditionVaultMappingAndValidationTest {
 
     @Test
     fun testUnknownPreconditionTypeFallback() {
-        val entity = PreconditionEntity(
-            id = "prec_unknown",
-            name = "Legacy Check",
-            type = "UNKNOWN_TYPE_XYZ",
-            isEnabled = true
-        )
+        val entity =
+            PreconditionEntity(
+                id = "prec_unknown",
+                name = "Legacy Check",
+                type = "UNKNOWN_TYPE_XYZ",
+                isEnabled = true,
+            )
 
         val domain = entity.toDomain()
         assertTrue(domain is Precondition.InternetCheck)
@@ -186,40 +204,104 @@ class PreconditionVaultMappingAndValidationTest {
         val precId = "prec_target"
         val precondition = Precondition.InternetCheck(id = precId, isEnabled = true)
 
-        val nodeWithPrecondition = WorkflowNode(
-            id = "node_1",
-            name = "Test Action",
-            type = NodeType.NTFY_ACTION,
-            preconditions = listOf(precondition)
-        )
+        val nodeWithPrecondition =
+            WorkflowNode(
+                id = "node_1",
+                name = "Test Action",
+                type = NodeType.NTFY_ACTION,
+                preconditions = listOf(precondition),
+            )
 
-        val nodeWithoutPrecondition = WorkflowNode(
-            id = "node_2",
-            name = "Other Action",
-            type = NodeType.NTFY_ACTION,
-            preconditions = emptyList()
-        )
+        val nodeWithoutPrecondition =
+            WorkflowNode(
+                id = "node_2",
+                name = "Other Action",
+                type = NodeType.NTFY_ACTION,
+                preconditions = emptyList(),
+            )
 
-        val workflowLinked = Workflow(
-            id = "wf_1",
-            name = "Linked Workflow",
-            nodes = listOf(nodeWithPrecondition)
-        )
+        val workflowLinked =
+            Workflow(
+                id = "wf_1",
+                name = "Linked Workflow",
+                nodes = listOf(nodeWithPrecondition),
+            )
 
-        val workflowUnlinked = Workflow(
-            id = "wf_2",
-            name = "Unlinked Workflow",
-            nodes = listOf(nodeWithoutPrecondition)
-        )
+        val workflowUnlinked =
+            Workflow(
+                id = "wf_2",
+                name = "Unlinked Workflow",
+                nodes = listOf(nodeWithoutPrecondition),
+            )
 
         val workflows = listOf(workflowLinked, workflowUnlinked)
 
-        val linkedWorkflows = workflows.filter { wf ->
-            wf.nodes.any { node -> node.preconditions.any { p -> p.id == precId } }
-        }
+        val linkedWorkflows =
+            workflows.filter { wf ->
+                wf.nodes.any { node -> node.preconditions.any { p -> p.id == precId } }
+            }
 
         assertEquals(1, linkedWorkflows.size)
         assertEquals("wf_1", linkedWorkflows[0].id)
         assertEquals("Linked Workflow", linkedWorkflows[0].name)
+    }
+
+    @Test
+    fun testBatteryCheckEntityMapping() {
+        val entity =
+            PreconditionEntity(
+                id = "prec_battery_1",
+                name = "Battery Safe Check",
+                type = PreconditionType.BATTERY_CHECK.name,
+                isEnabled = true,
+                minBatteryPercent = 25,
+                requireCharging = true,
+            )
+
+        val domain = entity.toDomain()
+        assertTrue(domain is Precondition.BatteryCheck)
+        val batteryCheck = domain as Precondition.BatteryCheck
+        assertEquals("prec_battery_1", batteryCheck.id)
+        assertEquals(25, batteryCheck.minBatteryPercent)
+        assertTrue(batteryCheck.requireCharging)
+        assertTrue(batteryCheck.isEnabled)
+    }
+
+    @Test
+    fun testWorkflowEntityWithBatteryCheckRoundTrip() {
+        val workflow =
+            Workflow(
+                id = "wf_battery",
+                name = "Battery Guarded Workflow",
+                nodes =
+                    listOf(
+                        WorkflowNode(
+                            id = "node_1",
+                            name = "Heavy Sync",
+                            type = NodeType.HTTP_ACTION,
+                            preconditions =
+                                listOf(
+                                    Precondition.BatteryCheck(
+                                        id = "prec_battery_guard",
+                                        isEnabled = true,
+                                        minBatteryPercent = 30,
+                                        requireCharging = true,
+                                    ),
+                                ),
+                        ),
+                    ),
+            )
+
+        val entity = WorkflowEntity.fromDomain(workflow)
+        val restored = entity.toDomain()
+
+        assertEquals(1, restored.nodes.size)
+        val precs = restored.nodes[0].preconditions
+        assertEquals(1, precs.size)
+        assertTrue(precs[0] is Precondition.BatteryCheck)
+        val batteryPrec = precs[0] as Precondition.BatteryCheck
+        assertEquals("prec_battery_guard", batteryPrec.id)
+        assertEquals(30, batteryPrec.minBatteryPercent)
+        assertTrue(batteryPrec.requireCharging)
     }
 }

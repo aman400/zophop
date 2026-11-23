@@ -12,7 +12,10 @@ object ExecutionJobRegistry {
     /**
      * Registers an active execution job for a workflow ID.
      */
-    fun registerJob(workflowId: String, job: Job) {
+    fun registerJob(
+        workflowId: String,
+        job: Job,
+    ) {
         activeJobs[workflowId] = job
         job.invokeOnCompletion {
             activeJobs.remove(workflowId)
@@ -27,15 +30,15 @@ object ExecutionJobRegistry {
         return if (job != null && job.isActive) {
             job.cancel()
             true
-        } else false
+        } else {
+            false
+        }
     }
 
     /**
      * Returns true if an execution job is currently active for a workflow ID.
      */
-    fun isJobRunning(workflowId: String): Boolean {
-        return activeJobs[workflowId]?.isActive == true
-    }
+    fun isJobRunning(workflowId: String): Boolean = activeJobs[workflowId]?.isActive == true
 
     /**
      * Cancels all active workflow execution jobs.

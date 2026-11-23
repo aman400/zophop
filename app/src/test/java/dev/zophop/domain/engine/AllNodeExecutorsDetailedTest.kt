@@ -6,7 +6,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class AllNodeExecutorsDetailedTest {
-
     @Test
     fun testNodeExecutorFactoryCreatesCorrectExecutors() {
         BuiltInPluginRegistry.registerModule(dev.zophop.plugin.sms.SmsPluginModule)
@@ -19,7 +18,10 @@ class AllNodeExecutorsDetailedTest {
         val factory = NodeExecutorFactory()
 
         assertEquals("SmsTriggerExecutor", factory.getExecutor("dev.zophop.plugin.sms.SMS_TRIGGER")::class.java.simpleName)
-        assertEquals("NotificationTriggerExecutor", factory.getExecutor("dev.zophop.plugin.notification.NOTIFICATION_TRIGGER")::class.java.simpleName)
+        assertEquals(
+            "NotificationTriggerExecutor",
+            factory.getExecutor("dev.zophop.plugin.notification.NOTIFICATION_TRIGGER")::class.java.simpleName,
+        )
         assertEquals("ManualTriggerExecutor", factory.getExecutor(NodeType.MANUAL_TRIGGER)::class.java.simpleName)
         assertEquals("RegexParserExecutor", factory.getExecutor(NodeType.REGEX_PARSER)::class.java.simpleName)
         assertEquals("JsonParserExecutor", factory.getExecutor(NodeType.JSON_PARSER)::class.java.simpleName)

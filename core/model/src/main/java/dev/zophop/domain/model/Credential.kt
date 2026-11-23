@@ -9,7 +9,10 @@ object CredentialType {
     const val NTFY_AUTH = "NTFY_AUTH"
     const val GOTIFY_AUTH = "GOTIFY_AUTH"
 
-    fun isCompatibleWith(credentialType: String, requiredCredentialType: String?): Boolean {
+    fun isCompatibleWith(
+        credentialType: String,
+        requiredCredentialType: String?,
+    ): Boolean {
         if (requiredCredentialType.isNullOrBlank()) return true
         return when (requiredCredentialType) {
             NTFY_AUTH -> credentialType == NTFY_AUTH || credentialType == BEARER_TOKEN || credentialType == HEADER_SET
@@ -28,5 +31,5 @@ data class Credential(
     val type: String,
     val dataMap: Map<String, String> = emptyMap(),
     val createdAt: Long = System.currentTimeMillis(),
-    val updatedAt: Long = System.currentTimeMillis()
+    val updatedAt: Long = System.currentTimeMillis(),
 )

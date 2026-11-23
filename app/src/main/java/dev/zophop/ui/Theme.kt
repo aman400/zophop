@@ -40,39 +40,41 @@ val EditorPrimaryEmeraldDark = Color(0xFF10B981)
 val EditorSecondaryAmber = Color(0xFFD97706)
 val EditorSecondaryAmberDark = Color(0xFFF59E0B)
 
-val EditorDarkColorScheme = darkColorScheme(
-    primary = EditorPrimaryEmeraldDark,
-    onPrimary = Color(0xFF022C22),
-    primaryContainer = Color(0xFF064E3B),
-    onPrimaryContainer = Color(0xFFD1FAE5),
-    secondary = EditorSecondaryAmberDark,
-    onSecondary = Color(0xFF451A03),
-    secondaryContainer = Color(0xFF78350F),
-    onSecondaryContainer = Color(0xFFFEF3C7),
-    background = Color(0xFF090D16),
-    onBackground = Color(0xFFF8FAFC),
-    surface = Color(0xFF111827),
-    onSurface = Color(0xFFF8FAFC),
-    surfaceVariant = Color(0xFF1F2937),
-    onSurfaceVariant = Color(0xFF9CA3AF)
-)
+val EditorDarkColorScheme =
+    darkColorScheme(
+        primary = EditorPrimaryEmeraldDark,
+        onPrimary = Color(0xFF022C22),
+        primaryContainer = Color(0xFF064E3B),
+        onPrimaryContainer = Color(0xFFD1FAE5),
+        secondary = EditorSecondaryAmberDark,
+        onSecondary = Color(0xFF451A03),
+        secondaryContainer = Color(0xFF78350F),
+        onSecondaryContainer = Color(0xFFFEF3C7),
+        background = Color(0xFF090D16),
+        onBackground = Color(0xFFF8FAFC),
+        surface = Color(0xFF111827),
+        onSurface = Color(0xFFF8FAFC),
+        surfaceVariant = Color(0xFF1F2937),
+        onSurfaceVariant = Color(0xFF9CA3AF),
+    )
 
-val EditorLightColorScheme = lightColorScheme(
-    primary = EditorPrimaryEmerald,
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFECFDF5),
-    onPrimaryContainer = Color(0xFF065F46),
-    secondary = EditorSecondaryAmber,
-    onSecondary = Color.White,
-    secondaryContainer = Color(0xFFFEF3C7),
-    onSecondaryContainer = Color(0xFF92400E),
-    background = Color(0xFFF0FDF4),
-    onBackground = Color(0xFF064E3B),
-    surface = Color.White,
-    onSurface = Color(0xFF064E3B),
-    surfaceVariant = Color(0xFFE6F4EA),
-    onSurfaceVariant = Color(0xFF047857)
-)
+val EditorLightColorScheme =
+    lightColorScheme(
+        primary = EditorPrimaryEmerald,
+        onPrimary = Color.White,
+        primaryContainer = Color(0xFFECFDF5),
+        onPrimaryContainer = Color(0xFF065F46),
+        secondary = EditorSecondaryAmber,
+        onSecondary = Color.White,
+        secondaryContainer = Color(0xFFFEF3C7),
+        onSecondaryContainer = Color(0xFF92400E),
+        background = Color(0xFFF0FDF4),
+        onBackground = Color(0xFF064E3B),
+        surface = Color.White,
+        onSurface = Color(0xFF064E3B),
+        surfaceVariant = Color(0xFFE6F4EA),
+        onSurfaceVariant = Color(0xFF047857),
+    )
 
 private val DarkColorScheme = EditorDarkColorScheme
 private val LightColorScheme = EditorLightColorScheme
@@ -80,13 +82,13 @@ private val LightColorScheme = EditorLightColorScheme
 @Composable
 fun ZopHopTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    content: @Composable () -> Unit
+    content: @Composable () -> Unit,
 ) {
     val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
 
     MaterialTheme(
         colorScheme = colorScheme,
-        content = content
+        content = content,
     )
 }
 

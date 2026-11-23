@@ -8,7 +8,6 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface CredentialDao {
-
     @Query("SELECT * FROM credentials ORDER BY name ASC")
     fun getAllCredentialsFlow(): Flow<List<CredentialEntity>>
 

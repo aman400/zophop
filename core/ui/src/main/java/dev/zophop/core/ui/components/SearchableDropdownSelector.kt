@@ -12,11 +12,11 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
@@ -53,7 +53,7 @@ fun <T> SearchableDropdownSelector(
     onCreateNewClick: (() -> Unit)? = null,
     createNewText: String = "➕ Create New...",
     tooltipText: String? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
@@ -61,13 +61,14 @@ fun <T> SearchableDropdownSelector(
     val focusManager = LocalFocusManager.current
     val focusRequester = remember { FocusRequester() }
 
-    val filteredItems = remember(items, searchQuery) {
-        if (searchQuery.isBlank()) {
-            items
-        } else {
-            items.filter { itemText(it).contains(searchQuery, ignoreCase = true) }
+    val filteredItems =
+        remember(items, searchQuery) {
+            if (searchQuery.isBlank()) {
+                items
+            } else {
+                items.filter { itemText(it).contains(searchQuery, ignoreCase = true) }
+            }
         }
-    }
 
     ExposedDropdownMenuBox(
         expanded = expanded,
@@ -79,7 +80,7 @@ fun <T> SearchableDropdownSelector(
                 searchQuery = ""
             }
         },
-        modifier = modifier
+        modifier = modifier,
     ) {
         InfoTooltipField(
             value = selectedItemText,
@@ -87,13 +88,14 @@ fun <T> SearchableDropdownSelector(
             readOnly = true,
             label = label,
             tooltipText = tooltipText ?: label,
-            modifier = Modifier
-                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
-                .fillMaxWidth(),
+            modifier =
+                Modifier
+                    .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                    .fillMaxWidth(),
             singleLine = true,
             additionalTrailingIcon = {
                 ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
-            }
+            },
         )
 
         DropdownMenu(
@@ -105,7 +107,7 @@ fun <T> SearchableDropdownSelector(
                 searchQuery = ""
             },
             properties = PopupProperties(focusable = true),
-            modifier = Modifier.widthIn(max = 340.dp)
+            modifier = Modifier.widthIn(max = 340.dp),
         ) {
             OutlinedTextField(
                 value = searchQuery,
@@ -115,19 +117,20 @@ fun <T> SearchableDropdownSelector(
                     Icon(
                         imageVector = Icons.Default.Search,
                         contentDescription = "Search",
-                        tint = MaterialTheme.colorScheme.primary
+                        tint = MaterialTheme.colorScheme.primary,
                     )
                 },
                 singleLine = true,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 6.dp)
-                    .focusRequester(focusRequester)
-                    .onFocusChanged { focusState ->
-                        if (focusState.isFocused) {
-                            keyboardController?.show()
-                        }
-                    }
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                        .focusRequester(focusRequester)
+                        .onFocusChanged { focusState ->
+                            if (focusState.isFocused) {
+                                keyboardController?.show()
+                            }
+                        },
             )
 
             if (showNoneOption) {
@@ -135,13 +138,13 @@ fun <T> SearchableDropdownSelector(
                     text = {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             if (isItemSelected != null && !isMultiSelect) {
                                 RadioButton(
                                     selected = items.none { isItemSelected(it) },
                                     onClick = null,
-                                    modifier = Modifier.size(20.dp)
+                                    modifier = Modifier.size(20.dp),
                                 )
                             }
                             Text(noneOptionText)
@@ -153,7 +156,7 @@ fun <T> SearchableDropdownSelector(
                         onItemSelected(null)
                         expanded = false
                         searchQuery = ""
-                    }
+                    },
                 )
             }
 
@@ -163,20 +166,20 @@ fun <T> SearchableDropdownSelector(
                     text = {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             if (isItemSelected != null) {
                                 if (isMultiSelect) {
                                     Checkbox(
                                         checked = selected,
                                         onCheckedChange = null,
-                                        modifier = Modifier.size(20.dp)
+                                        modifier = Modifier.size(20.dp),
                                     )
                                 } else {
                                     RadioButton(
                                         selected = selected,
                                         onClick = null,
-                                        modifier = Modifier.size(20.dp)
+                                        modifier = Modifier.size(20.dp),
                                     )
                                 }
                             }
@@ -191,7 +194,7 @@ fun <T> SearchableDropdownSelector(
                             expanded = false
                             searchQuery = ""
                         }
-                    }
+                    },
                 )
             }
 
@@ -204,7 +207,7 @@ fun <T> SearchableDropdownSelector(
                         expanded = false
                         searchQuery = ""
                         onCreateNewClick()
-                    }
+                    },
                 )
             }
         }

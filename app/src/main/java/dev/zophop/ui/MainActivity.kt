@@ -18,23 +18,24 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.fragment.app.FragmentActivity
 
 class MainActivity : FragmentActivity() {
-
     private val viewModel: MainViewModel by viewModels()
 
     private var hasSmsPermission by mutableStateOf(false)
     private var hasNotificationPermission by mutableStateOf(false)
 
-    private val smsPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        hasSmsPermission = isGranted
-    }
+    private val smsPermissionLauncher =
+        registerForActivityResult(
+            ActivityResultContracts.RequestPermission(),
+        ) { isGranted ->
+            hasSmsPermission = isGranted
+        }
 
-    private val notificationPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        hasNotificationPermission = isGranted
-    }
+    private val notificationPermissionLauncher =
+        registerForActivityResult(
+            ActivityResultContracts.RequestPermission(),
+        ) { isGranted ->
+            hasNotificationPermission = isGranted
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
@@ -45,7 +46,7 @@ class MainActivity : FragmentActivity() {
         if (!isDebug) {
             window.setFlags(
                 WindowManager.LayoutParams.FLAG_SECURE,
-                WindowManager.LayoutParams.FLAG_SECURE
+                WindowManager.LayoutParams.FLAG_SECURE,
             )
         }
 
@@ -66,7 +67,7 @@ class MainActivity : FragmentActivity() {
                             if (Build.VERSION.SDK_INT >= 33) {
                                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                             }
-                        }
+                        },
                     )
                 }
             }
@@ -95,16 +96,17 @@ class MainActivity : FragmentActivity() {
     private fun checkPermissions() {
         hasSmsPermission = ContextCompat.checkSelfPermission(
             this,
-            Manifest.permission.RECEIVE_SMS
+            Manifest.permission.RECEIVE_SMS,
         ) == PackageManager.PERMISSION_GRANTED
 
-        hasNotificationPermission = if (Build.VERSION.SDK_INT >= 33) {
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-        } else {
-            true
-        }
+        hasNotificationPermission =
+            if (Build.VERSION.SDK_INT >= 33) {
+                ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.POST_NOTIFICATIONS,
+                ) == PackageManager.PERMISSION_GRANTED
+            } else {
+                true
+            }
     }
 }

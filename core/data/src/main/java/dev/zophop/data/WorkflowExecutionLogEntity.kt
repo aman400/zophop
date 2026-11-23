@@ -12,5 +12,5 @@ data class WorkflowExecutionLogEntity(
     val timestamp: Long = System.currentTimeMillis(),
     val messageId: String? = null,
     val logs: String = "",
-    val errorReason: String? = null
+    val errorReason: String? = null,
 )

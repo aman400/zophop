@@ -33,6 +33,7 @@ dependencies {
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.json)
+    implementation(libs.okhttp)
 
     testImplementation(libs.junit)
     testImplementation(libs.androidx.junit)

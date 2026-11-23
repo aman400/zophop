@@ -1,5 +1,6 @@
 package dev.zophop.plugin.sms
 
+import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.telephony.SmsManager
@@ -8,24 +9,29 @@ import dev.zophop.domain.model.WorkflowNode
 import dev.zophop.plugin.api.ExecutionContext
 import dev.zophop.plugin.api.NodeExecutionResult
 import dev.zophop.plugin.api.NodeExecutor
+import org.json.JSONException
 import org.json.JSONObject
 
 /**
  * Strategy executor for [NodeType.SEND_SMS_ACTION].
  */
 class SendSmsExecutor : NodeExecutor {
-    override suspend fun execute(node: WorkflowNode, context: ExecutionContext, appContext: Context?): NodeExecutionResult {
-        if (appContext != null) {
-            val hasSendSms = ContextCompat.checkSelfPermission(
-                appContext,
-                android.Manifest.permission.SEND_SMS
-            ) == PackageManager.PERMISSION_GRANTED
-            if (!hasSendSms) {
-                return NodeExecutionResult.Failed("Missing Send SMS permission (SEND_SMS)")
-            }
+    override suspend fun execute(
+        node: WorkflowNode,
+        context: ExecutionContext,
+        appContext: Context?,
+    ): NodeExecutionResult {
+        if (!hasSendSmsPermission(appContext)) {
+            return NodeExecutionResult.Failed("Missing Send SMS permission (SEND_SMS)")
         }
+        return dispatchSms(node, context)
+    }
 
-        val config = try { JSONObject(node.configJson) } catch (_: Exception) { JSONObject() }
+    private fun dispatchSms(
+        node: WorkflowNode,
+        context: ExecutionContext,
+    ): NodeExecutionResult {
+        val config = parseJsonConfig(node.configJson)
         val recipientTemplate = config.optString("recipient", "")
         val bodyTemplate = config.optString("body", "\${formatted_payload}")
 
@@ -40,8 +46,25 @@ class SendSmsExecutor : NodeExecutor {
             val smsManager = SmsManager.getDefault()
             smsManager.sendTextMessage(recipient, null, body, null, null)
             NodeExecutionResult.Success(logMessage = "Dispatched SMS to $recipient")
-        } catch (e: Exception) {
+        } catch (e: IllegalArgumentException) {
+            NodeExecutionResult.Failed("Failed to send SMS: ${e.message}")
+        } catch (e: SecurityException) {
             NodeExecutionResult.Failed("Failed to send SMS: ${e.message}")
         }
     }
 }
+
+private fun hasSendSmsPermission(appContext: Context?): Boolean {
+    if (appContext == null) return true
+    return ContextCompat.checkSelfPermission(
+        appContext,
+        Manifest.permission.SEND_SMS,
+    ) == PackageManager.PERMISSION_GRANTED
+}
+
+private fun parseJsonConfig(configJson: String): JSONObject =
+    try {
+        JSONObject(configJson)
+    } catch (_: JSONException) {
+        JSONObject()
+    }

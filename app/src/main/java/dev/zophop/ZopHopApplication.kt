@@ -12,7 +12,6 @@ import dev.zophop.plugin.sms.SmsPluginModule
 import dev.zophop.service.SmsForwarderService
 
 class ZopHopApplication : Application() {
-
     override fun onCreate() {
         super.onCreate()
 

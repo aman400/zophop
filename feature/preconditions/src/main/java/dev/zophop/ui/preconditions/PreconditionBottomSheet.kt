@@ -16,17 +16,17 @@ fun PreconditionBottomSheet(
     credentials: List<Credential> = emptyList(),
     onTestPreconditionWithProgress: ((PreconditionEntity, (List<NodeExecutionStep>) -> Unit, (PreconditionResult) -> Unit) -> Unit)? = null,
     onDismiss: () -> Unit,
-    onSave: (PreconditionEntity) -> Unit
+    onSave: (PreconditionEntity) -> Unit,
 ) {
     NoSwipeBottomSheet(
-        onDismissRequest = onDismiss
+        onDismissRequest = onDismiss,
     ) {
         PreconditionEditorScreen(
             precondition = precondition,
             credentials = credentials,
             onTestPreconditionWithProgress = onTestPreconditionWithProgress,
             onDismiss = onDismiss,
-            onSave = onSave
+            onSave = onSave,
         )
     }
 }

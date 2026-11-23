@@ -5,7 +5,6 @@ import org.junit.Assert.assertNotNull
 import org.junit.Test
 
 class RoomMigrationTest {
-
     @Test
     fun testMigrationConstantsAndVersion() {
         assertNotNull(MIGRATION_1_2)

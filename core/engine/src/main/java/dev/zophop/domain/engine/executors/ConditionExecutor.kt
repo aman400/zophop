@@ -1,10 +1,10 @@
 package dev.zophop.domain.engine.executors
 
 import android.content.Context
+import dev.zophop.domain.model.WorkflowNode
 import dev.zophop.plugin.api.ExecutionContext
 import dev.zophop.plugin.api.NodeExecutionResult
 import dev.zophop.plugin.api.NodeExecutor
-import dev.zophop.domain.model.WorkflowNode
 import org.json.JSONObject
 import java.util.regex.Pattern
 
@@ -14,32 +14,76 @@ import java.util.regex.Pattern
  * Returns [NodeExecutionResult.Success] on pass or [NodeExecutionResult.Failed] on failure.
  */
 class ConditionExecutor : NodeExecutor {
-    override suspend fun execute(node: WorkflowNode, context: ExecutionContext, appContext: Context?): NodeExecutionResult {
-        val config = try { JSONObject(node.configJson) } catch (_: Exception) { JSONObject() }
+    override suspend fun execute(
+        node: WorkflowNode,
+        context: ExecutionContext,
+        appContext: Context?,
+    ): NodeExecutionResult {
+        val config =
+            try {
+                JSONObject(node.configJson)
+            } catch (_: Exception) {
+                JSONObject()
+            }
         val variableName = config.optString("variable", "code").ifEmpty { config.optString("variable", "body") }.trim()
         val operator = config.optString("operator", "NOT_EMPTY").trim()
-        val targetValue = config.optString("value", "").trim()
+        val targetValue = context.interpolate(config.optString("value", "")).trim()
 
         val actualValue = context.getString(variableName, "")
 
-        val conditionMet = when (operator.uppercase()) {
-            "EQUALS" -> actualValue.equals(targetValue, ignoreCase = true)
-            "NOT_EQUALS" -> !actualValue.equals(targetValue, ignoreCase = true)
-            "CONTAINS" -> actualValue.contains(targetValue, ignoreCase = true)
-            "NOT_CONTAINS" -> !actualValue.contains(targetValue, ignoreCase = true)
-            "REGEX_MATCH" -> try { Pattern.compile(targetValue).matcher(actualValue).find() } catch (_: Exception) { false }
-            "NOT_EMPTY" -> actualValue.isNotBlank()
-            "IS_EMPTY" -> actualValue.isBlank()
-            "GREATER_THAN" -> (actualValue.toDoubleOrNull() ?: 0.0) > (targetValue.toDoubleOrNull() ?: 0.0)
-            "LESS_THAN" -> (actualValue.toDoubleOrNull() ?: 0.0) < (targetValue.toDoubleOrNull() ?: 0.0)
-            else -> actualValue.isNotBlank()
-        }
+        val conditionMet =
+            when (operator.uppercase()) {
+                "EQUALS", "==" -> actualValue.equals(targetValue, ignoreCase = true)
+                "NOT_EQUALS", "!=" -> !actualValue.equals(targetValue, ignoreCase = true)
+                "CONTAINS" -> actualValue.contains(targetValue, ignoreCase = true)
+                "NOT_CONTAINS" -> !actualValue.contains(targetValue, ignoreCase = true)
+                "STARTS_WITH" -> actualValue.startsWith(targetValue, ignoreCase = true)
+                "ENDS_WITH" -> actualValue.endsWith(targetValue, ignoreCase = true)
+                "REGEX_MATCH" ->
+                    try {
+                        Pattern.compile(targetValue, Pattern.CASE_INSENSITIVE or Pattern.DOTALL).matcher(actualValue).find()
+                    } catch (_: Exception) {
+                        false
+                    }
+                "NOT_REGEX_MATCH", "!REGEX_MATCH" ->
+                    try {
+                        !Pattern.compile(targetValue, Pattern.CASE_INSENSITIVE or Pattern.DOTALL).matcher(actualValue).find()
+                    } catch (_: Exception) {
+                        false
+                    }
+                "NOT_EMPTY" -> actualValue.isNotBlank()
+                "IS_EMPTY" -> actualValue.isBlank()
+                "GREATER_THAN", "GT", ">" -> {
+                    val actNum = actualValue.toDoubleOrNull()
+                    val tgtNum = targetValue.toDoubleOrNull()
+                    actNum != null && tgtNum != null && actNum > tgtNum
+                }
+                "GREATER_THAN_OR_EQUAL", "GTE", ">=" -> {
+                    val actNum = actualValue.toDoubleOrNull()
+                    val tgtNum = targetValue.toDoubleOrNull()
+                    actNum != null && tgtNum != null && actNum >= tgtNum
+                }
+                "LESS_THAN", "LT", "<" -> {
+                    val actNum = actualValue.toDoubleOrNull()
+                    val tgtNum = targetValue.toDoubleOrNull()
+                    actNum != null && tgtNum != null && actNum < tgtNum
+                }
+                "LESS_THAN_OR_EQUAL", "LTE", "<=" -> {
+                    val actNum = actualValue.toDoubleOrNull()
+                    val tgtNum = targetValue.toDoubleOrNull()
+                    actNum != null && tgtNum != null && actNum <= tgtNum
+                }
+                else -> actualValue.isNotBlank()
+            }
 
         val targetStr = if (targetValue.isNotBlank()) " '$targetValue'" else ""
         return if (conditionMet) {
-            NodeExecutionResult.Success(outputPort = "main", logMessage = "Condition '$variableName $operator$targetStr' passed (TRUE)")
+            NodeExecutionResult.Success(outputPort = "true", logMessage = "Condition '$variableName $operator$targetStr' passed (TRUE)")
         } else {
-            NodeExecutionResult.Failed("Condition '$variableName $operator$targetStr' failed (FALSE, Actual: '$actualValue')")
+            NodeExecutionResult.Success(
+                outputPort = "false",
+                logMessage = "Condition '$variableName $operator$targetStr' evaluated to FALSE (Actual: '$actualValue')",
+            )
         }
     }
 }

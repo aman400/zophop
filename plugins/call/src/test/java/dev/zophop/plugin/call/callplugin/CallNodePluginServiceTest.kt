@@ -1,8 +1,8 @@
-package dev.zophop.callplugin
+package dev.zophop.plugin.call.callplugin
 
 import android.Manifest
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import dev.zophop.plugin.api.NodePluginManifest
+import dev.zophop.plugin.api.INodePluginService
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -11,18 +11,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 
 @RunWith(AndroidJUnit4::class)
 @Config(manifest = Config.NONE)
 class CallNodePluginServiceTest {
-
     @Test
     fun testCallPluginApiVersionContract() {
         val serviceController = Robolectric.buildService(CallNodePluginService::class.java).create()
         val service = serviceController.get()
-        val binder = service.onBind(null) as dev.zophop.plugin.api.INodePluginService
+        val binder = service.onBind(null) as INodePluginService
 
         assertEquals(1, binder.getPluginApiVersion())
     }
@@ -31,7 +31,7 @@ class CallNodePluginServiceTest {
     fun testCallPluginManifestStructure() {
         val serviceController = Robolectric.buildService(CallNodePluginService::class.java).create()
         val service = serviceController.get()
-        val binder = service.onBind(null) as dev.zophop.plugin.api.INodePluginService
+        val binder = service.onBind(null) as INodePluginService
         val manifests = binder.getManifests()
 
         assertEquals(3, manifests.size)
@@ -40,9 +40,17 @@ class CallNodePluginServiceTest {
 
         assertEquals("dev.zophop.callplugin.DISCONNECT_CALL_ACTION", manifests[1].typeId)
         assertEquals("Disconnect Call Action", manifests[1].displayName)
+        assertEquals(listOf("dev.zophop.callplugin.CALL_TRIGGER"), manifests[1].supportedTriggerTypes)
+        assertTrue(manifests[1].isSupportedByTrigger("dev.zophop.callplugin.CALL_TRIGGER"))
+        assertTrue(manifests[1].isSupportedByTrigger("CALL_TRIGGER"))
+        assertFalse(manifests[1].isSupportedByTrigger("SMS_TRIGGER"))
 
         assertEquals("dev.zophop.callplugin.ANSWER_CALL_ACTION", manifests[2].typeId)
         assertEquals("Answer Call Action", manifests[2].displayName)
+        assertEquals(listOf("dev.zophop.callplugin.CALL_TRIGGER"), manifests[2].supportedTriggerTypes)
+        assertTrue(manifests[2].isSupportedByTrigger("dev.zophop.callplugin.CALL_TRIGGER"))
+        assertTrue(manifests[2].isSupportedByTrigger("CALL_TRIGGER"))
+        assertFalse(manifests[2].isSupportedByTrigger("SMS_TRIGGER"))
     }
 
     @Test
@@ -53,7 +61,7 @@ class CallNodePluginServiceTest {
         val shadowApp = Shadows.shadowOf(service)
         shadowApp.grantPermissions(Manifest.permission.READ_PHONE_STATE)
 
-        val binder = service.onBind(null) as dev.zophop.plugin.api.INodePluginService
+        val binder = service.onBind(null) as INodePluginService
 
         val configJson = """{"typeId":"dev.zophop.callplugin.CALL_TRIGGER","callerRegex":".*555.*"}"""
         val inputContextJson = """{"caller_number":"+15559876543"}"""
@@ -76,7 +84,7 @@ class CallNodePluginServiceTest {
         val shadowApp = Shadows.shadowOf(service)
         shadowApp.grantPermissions(Manifest.permission.READ_PHONE_STATE)
 
-        val binder = service.onBind(null) as dev.zophop.plugin.api.INodePluginService
+        val binder = service.onBind(null) as INodePluginService
 
         val configJson = """{"typeId":"dev.zophop.callplugin.CALL_TRIGGER","callerRegex":".*999.*"}"""
         val inputContextJson = """{"caller_number":"+15551234567"}"""
@@ -96,7 +104,7 @@ class CallNodePluginServiceTest {
         val shadowApp = Shadows.shadowOf(service)
         shadowApp.denyPermissions(Manifest.permission.READ_PHONE_STATE)
 
-        val binder = service.onBind(null) as dev.zophop.plugin.api.INodePluginService
+        val binder = service.onBind(null) as INodePluginService
 
         val configJson = """{"typeId":"dev.zophop.callplugin.CALL_TRIGGER","callerRegex":".*"}"""
         val inputContextJson = """{"caller_number":"+15559876543"}"""
@@ -116,7 +124,7 @@ class CallNodePluginServiceTest {
         val shadowApp = Shadows.shadowOf(service)
         shadowApp.denyPermissions(Manifest.permission.ANSWER_PHONE_CALLS)
 
-        val binder = service.onBind(null) as dev.zophop.plugin.api.INodePluginService
+        val binder = service.onBind(null) as INodePluginService
 
         val configJson = """{"typeId":"dev.zophop.callplugin.ANSWER_CALL_ACTION"}"""
         val inputContextJson = """{"caller_number":"+15559876543"}"""
@@ -133,10 +141,10 @@ class CallNodePluginServiceTest {
         val serviceController = Robolectric.buildService(CallNodePluginService::class.java).create()
         val service = serviceController.get()
 
-        val shadowApp = Shadows.shadowOf(org.robolectric.RuntimeEnvironment.getApplication())
+        val shadowApp = Shadows.shadowOf(RuntimeEnvironment.getApplication())
         shadowApp.denyPermissions(Manifest.permission.ANSWER_PHONE_CALLS, Manifest.permission.READ_PHONE_STATE)
 
-        val binder = service.onBind(null) as dev.zophop.plugin.api.INodePluginService
+        val binder = service.onBind(null) as INodePluginService
 
         val configJson = """{"typeId":"dev.zophop.callplugin.DISCONNECT_CALL_ACTION"}"""
         val inputContextJson = """{"caller_number":"+15559876543"}"""
@@ -155,7 +163,7 @@ class CallNodePluginServiceTest {
         val shadowApp = Shadows.shadowOf(service)
         shadowApp.grantPermissions(Manifest.permission.READ_PHONE_STATE)
 
-        val binder = service.onBind(null) as dev.zophop.plugin.api.INodePluginService
+        val binder = service.onBind(null) as INodePluginService
 
         val corruptConfigJson = "INVALID_CORRUPT_JSON"
         val corruptInputJson = "INVALID_CORRUPT_JSON"

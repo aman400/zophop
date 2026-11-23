@@ -1,15 +1,14 @@
 package dev.zophop.ui
 
+import android.Manifest
 import android.app.Activity
 import android.app.KeyguardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.biometric.BiometricManager
@@ -34,19 +33,15 @@ import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SuggestionChip
-import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -64,11 +59,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.zophop.BuildConfig
+import dev.zophop.domain.engine.plugin.ExternalPluginServiceInfo
 
 @Composable
 fun SettingsScreen(
@@ -76,7 +74,7 @@ fun SettingsScreen(
     hasSmsPermission: Boolean,
     onRequestSmsPermission: () -> Unit,
     hasNotificationPermission: Boolean,
-    onRequestNotificationPermission: () -> Unit
+    onRequestNotificationPermission: () -> Unit,
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val discoveredPlugins by viewModel.discoveredPlugins.collectAsState()
@@ -85,31 +83,106 @@ fun SettingsScreen(
     var pendingToggleState by remember { mutableStateOf<Boolean?>(null) }
     var showNotificationPermissionRationaleDialog by remember { mutableStateOf(false) }
 
+    var hasLocationPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED,
+        )
+    }
+
+    var hasPhoneStatePermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED,
+        )
+    }
+
+    var hasSendSmsPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED,
+        )
+    }
+
+    var hasBluetoothPermission by remember {
+        mutableStateOf(
+            if (Build.VERSION.SDK_INT >= 31) {
+                ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+            } else {
+                true
+            },
+        )
+    }
+
+    fun refreshLocalPermissions() {
+        hasLocationPermission =
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        hasPhoneStatePermission =
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
+        hasSendSmsPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED
+        hasBluetoothPermission =
+            if (Build.VERSION.SDK_INT >= 31) {
+                ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+            } else {
+                true
+            }
+    }
+
+    val locationPermissionLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.RequestMultiplePermissions(),
+        ) {
+            refreshLocalPermissions()
+        }
+
+    val phoneStatePermissionLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.RequestPermission(),
+        ) {
+            refreshLocalPermissions()
+        }
+
+    val sendSmsPermissionLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.RequestPermission(),
+        ) {
+            refreshLocalPermissions()
+        }
+
+    val bluetoothPermissionLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.RequestPermission(),
+        ) {
+            refreshLocalPermissions()
+        }
+
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                viewModel.checkPermissionsAndStatus()
+        val observer =
+            LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) {
+                    viewModel.checkPermissionsAndStatus()
+                    refreshLocalPermissions()
+                }
             }
-        }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
 
-    val securityIntentLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            pendingToggleState?.let { targetState ->
-                viewModel.toggleLockCredentialsWithBiometric(targetState)
+    val securityIntentLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.StartActivityForResult(),
+        ) { result ->
+            if (result.resultCode == Activity.RESULT_OK) {
+                pendingToggleState?.let { targetState ->
+                    viewModel.toggleLockCredentialsWithBiometric(targetState)
+                    pendingToggleState = null
+                }
+            } else {
                 pendingToggleState = null
             }
-        } else {
-            pendingToggleState = null
         }
-    }
 
     fun authenticateSecurityToggle(targetState: Boolean) {
         pendingToggleState = targetState
@@ -118,42 +191,49 @@ fun SettingsScreen(
         if (activity != null) {
             try {
                 val executor = ContextCompat.getMainExecutor(context)
-                val prompt = BiometricPrompt(
-                    activity,
-                    executor,
-                    object : BiometricPrompt.AuthenticationCallback() {
-                        override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                            super.onAuthenticationSucceeded(result)
-                            viewModel.toggleLockCredentialsWithBiometric(targetState)
-                            pendingToggleState = null
-                        }
+                val prompt =
+                    BiometricPrompt(
+                        activity,
+                        executor,
+                        object : BiometricPrompt.AuthenticationCallback() {
+                            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                                super.onAuthenticationSucceeded(result)
+                                viewModel.toggleLockCredentialsWithBiometric(targetState)
+                                pendingToggleState = null
+                            }
 
-                        override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                            super.onAuthenticationError(errorCode, errString)
-                            pendingToggleState = null
-                        }
-                    }
-                )
-                val promptInfo = BiometricPrompt.PromptInfo.Builder()
-                    .setTitle("Vault Security Lock")
-                    .setSubtitle("Authenticate using biometrics or device lock to change vault security settings.")
-                    .setAllowedAuthenticators(
-                        BiometricManager.Authenticators.BIOMETRIC_STRONG or
-                        BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                            override fun onAuthenticationError(
+                                errorCode: Int,
+                                errString: CharSequence,
+                            ) {
+                                super.onAuthenticationError(errorCode, errString)
+                                pendingToggleState = null
+                            }
+                        },
                     )
-                    .build()
+                val promptInfo =
+                    BiometricPrompt.PromptInfo
+                        .Builder()
+                        .setTitle("Vault Security Lock")
+                        .setSubtitle("Authenticate using biometrics or device lock to change vault security settings.")
+                        .setAllowedAuthenticators(
+                            BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                                BiometricManager.Authenticators.DEVICE_CREDENTIAL,
+                        ).build()
 
                 prompt.authenticate(promptInfo)
                 return
-            } catch (_: Exception) {}
+            } catch (_: Exception) {
+            }
         }
 
         val keyguardManager = context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
         if (keyguardManager != null && keyguardManager.isDeviceSecure) {
-            val intent = keyguardManager.createConfirmDeviceCredentialIntent(
-                "Vault Security Lock",
-                "Authenticate using device PIN, pattern, or password to change vault security settings."
-            )
+            val intent =
+                keyguardManager.createConfirmDeviceCredentialIntent(
+                    "Vault Security Lock",
+                    "Authenticate using device PIN, pattern, or password to change vault security settings.",
+                )
             if (intent != null) {
                 securityIntentLauncher.launch(intent)
                 return
@@ -167,562 +247,113 @@ fun SettingsScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item { Spacer(modifier = Modifier.height(12.dp)) }
 
-            // Global Workflows Engine Switch Card
             item {
-                OutlinedCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AccountTree,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                text = "Global Automations Switch",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Global Workflows Engine Enabled",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    text = "Master toggle to pause or resume all workflow processing. Individual workflow states are preserved across toggles and can also be controlled from the Quick Settings Tile.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Switch(
-                                checked = uiState.globalWorkflowsEnabled,
-                                onCheckedChange = { enabled ->
-                                    viewModel.toggleGlobalWorkflowsEnabled(enabled)
-                                }
-                            )
-                        }
-                    }
-                }
+                GlobalWorkflowsSwitchCard(
+                    checked = uiState.globalWorkflowsEnabled,
+                    onCheckedChange = { viewModel.toggleGlobalWorkflowsEnabled(it) },
+                )
             }
 
-            // Execution Alerts & Notifications Section
             item {
-                OutlinedCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Notifications,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                text = "Workflow Execution Alerts",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Show Live Execution Notifications",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    text = "Display ongoing status notifications when background workflows execute",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Switch(
-                                checked = uiState.showWorkflowNotifications,
-                                onCheckedChange = { enable ->
-                                    val notifGranted = if (Build.VERSION.SDK_INT >= 33) hasNotificationPermission else true
-
-                                    if (enable) {
-                                        if (!notifGranted) {
-                                            showNotificationPermissionRationaleDialog = true
-                                        } else {
-                                            viewModel.toggleShowWorkflowNotifications(true)
-                                        }
-                                    } else {
-                                        viewModel.toggleShowWorkflowNotifications(false)
-                                    }
-                                }
-                            )
-                        }
-                    }
-                }
+                WorkflowExecutionAlertsCard(
+                    checked = uiState.showWorkflowNotifications,
+                    hasNotificationPermission = hasNotificationPermission,
+                    onCheckedChange = { viewModel.toggleShowWorkflowNotifications(it) },
+                    onRequestRationale = { showNotificationPermissionRationaleDialog = true },
+                )
             }
 
-            // Vault Security & Lock Section
             item {
-                OutlinedCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Lock,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                text = "Vault Security & Lock",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Lock Credentials with Device Lock",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    text = "Requires Biometrics or Device Credentials (PIN, Pattern, Password) to view secret passwords in Vault",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Switch(
-                                checked = uiState.lockCredentialsWithBiometric,
-                                onCheckedChange = { targetState ->
-                                    authenticateSecurityToggle(targetState)
-                                }
-                            )
-                        }
-                    }
-                }
+                VaultSecurityLockCard(
+                    checked = uiState.lockCredentialsWithBiometric,
+                    onCheckedChange = { authenticateSecurityToggle(it) },
+                )
             }
 
-            // Concurrency & Queueing Section
             item {
-                OutlinedCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AccountTree,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                text = "Concurrency & Execution Queue",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        // Max Parallel Executions
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "Max Parallel Executions",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                    Text(
-                                        text = "Limit concurrent workflow executions (Default: 3)",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                SuggestionChip(
-                                    onClick = {},
-                                    label = { Text("${uiState.maxParallelExecutions} Active", fontWeight = FontWeight.Bold) }
-                                )
-                            }
-                            Slider(
-                                value = uiState.maxParallelExecutions.toFloat(),
-                                onValueChange = { viewModel.updateMaxParallelExecutions(it.toInt()) },
-                                valueRange = 1f..10f,
-                                steps = 8
-                            )
-                        }
-
-                        // Max Execution Queue Size
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "Max Queue Size",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                    Text(
-                                        text = "Maximum background executions queued (Default: 20)",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                SuggestionChip(
-                                    onClick = {},
-                                    label = { Text("Max ${uiState.maxExecutionQueueSize}", fontWeight = FontWeight.Bold) }
-                                )
-                            }
-                            Slider(
-                                value = uiState.maxExecutionQueueSize.toFloat(),
-                                onValueChange = { viewModel.updateMaxExecutionQueueSize(it.toInt()) },
-                                valueRange = 5f..100f,
-                                steps = 18
-                            )
-                        }
-                    }
-                }
+                ConcurrencyAndQueueCard(
+                    maxParallel = uiState.maxParallelExecutions,
+                    onMaxParallelChange = { viewModel.updateMaxParallelExecutions(it) },
+                    maxQueue = uiState.maxExecutionQueueSize,
+                    onMaxQueueChange = { viewModel.updateMaxExecutionQueueSize(it) },
+                )
             }
 
             // System Permissions & Optimization Section
             item {
-                OutlinedCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Shield,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                text = "App Permissions",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        // SMS Permission Row
-                        PermissionStatusRow(
-                            title = "Read SMS",
-                            subtitle = "Allows app to forward your text messages",
-                            isGranted = hasSmsPermission,
-                            onGrantClick = onRequestSmsPermission
+                SettingsPermissionsSection(
+                    hasSmsPermission = hasSmsPermission,
+                    onRequestSmsPermission = onRequestSmsPermission,
+                    hasSendSmsPermission = hasSendSmsPermission,
+                    onRequestSendSmsPermission = {
+                        sendSmsPermissionLauncher.launch(Manifest.permission.SEND_SMS)
+                    },
+                    hasLocationPermission = hasLocationPermission,
+                    onRequestLocationPermission = {
+                        locationPermissionLauncher.launch(
+                            arrayOf(
+                                Manifest.permission.ACCESS_FINE_LOCATION,
+                                Manifest.permission.ACCESS_COARSE_LOCATION,
+                            ),
                         )
-
-                        // Notification Permission Row
-                        if (Build.VERSION.SDK_INT >= 33) {
-                            PermissionStatusRow(
-                                title = "Show Notifications",
-                                subtitle = "Lets you see alerts from this app",
-                                isGranted = hasNotificationPermission,
-                                onGrantClick = {
-                                    if (!hasNotificationPermission) {
-                                        showNotificationPermissionRationaleDialog = true
-                                    }
-                                }
-                            )
+                    },
+                    hasPhoneStatePermission = hasPhoneStatePermission,
+                    onRequestPhoneStatePermission = {
+                        phoneStatePermissionLauncher.launch(Manifest.permission.READ_PHONE_STATE)
+                    },
+                    hasBluetoothPermission = hasBluetoothPermission,
+                    onRequestBluetoothPermission = {
+                        if (Build.VERSION.SDK_INT >= 31) {
+                            bluetoothPermissionLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT)
                         }
-
-                        // Notification Listener Permission
-                        PermissionStatusRow(
-                            title = "Read App Notifications",
-                            subtitle = "Allows app to forward notifications from other apps",
-                            isGranted = uiState.hasNotificationListenerPermission,
-                            onGrantClick = {
-                                try {
-                                    context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-                                } catch (_: Exception) {}
-                            }
-                        )
-
-                        // Battery Optimization Row
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Keep App Running",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    text = if (!uiState.isBatteryOptimized) "Optimized (Best for reliability)" else "Warning (May delay forwarding messages)",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = if (!uiState.isBatteryOptimized) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
-                                )
-                            }
-                            if (uiState.isBatteryOptimized) {
-                                OutlinedButton(
-                                    onClick = {
-                                        try {
-                                            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                                                data = "package:${context.packageName}".toUri()
-                                            }
-                                            context.startActivity(intent)
-                                        } catch (_: Exception) {
-                                            context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-                                        }
-                                    }
-                                ) {
-                                    Text("Fix", fontSize = 12.sp)
-                                }
-                            }
+                    },
+                    hasNotificationPermission = hasNotificationPermission,
+                    onRequestNotificationPermission = onRequestNotificationPermission,
+                    hasNotificationListenerPermission = uiState.hasNotificationListenerPermission,
+                    onRequestNotificationListenerPermission = {
+                        try {
+                            context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                        } catch (_: Exception) {
                         }
-                    }
-                }
+                    },
+                    isBatteryOptimized = uiState.isBatteryOptimized,
+                    onRequestIgnoreBatteryOptimizations = {
+                        try {
+                            val intent =
+                                Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                    data = "package:${context.packageName}".toUri()
+                                }
+                            context.startActivity(intent)
+                        } catch (_: Exception) {
+                            context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                        }
+                    },
+                    discoveredPlugins = discoveredPlugins,
+                )
             }
 
-            // Installed External Node Plugins Section
             item {
-                ElevatedCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.elevatedCardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Text(
-                            text = "🧩 Installed Node Plugins (${discoveredPlugins.size})",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Text(
-                            text = "Discovers third-party plugin apps installed on this device that export custom workflow pipeline step nodes.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-
-                        if (discoveredPlugins.isEmpty()) {
-                            Text(
-                                text = "No external plugin apps detected. Install a ZopHop plugin (e.g. Telegram Plugin) to see it here.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        } else {
-                            discoveredPlugins.forEach { plugin ->
-                                Surface(
-                                    color = MaterialTheme.colorScheme.surfaceContainer,
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = plugin.manifest.displayName,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Surface(
-                                                color = MaterialTheme.colorScheme.primaryContainer,
-                                                shape = RoundedCornerShape(4.dp)
-                                            ) {
-                                                Text(
-                                                    text = "v${plugin.apiVersion}",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                                                )
-                                            }
-                                        }
-                                        Text(
-                                            text = plugin.manifest.description,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        Text(
-                                            text = "Package: ${plugin.packageName}",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.outline
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        Surface(
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Extension,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Column {
-                                    Text(
-                                        text = "Open Node Plugin Ecosystem",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                                    )
-                                    Text(
-                                        text = "Developers can build and publish custom nodes as standalone Android apps using the ZopHop Plugin API.",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
+                InstalledNodePluginsCard(discoveredPlugins = discoveredPlugins)
             }
 
-            // About App & Official Website Section
             item {
-                ElevatedCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.elevatedCardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                            ) {
-                                androidx.compose.foundation.Image(
-                                    painter = androidx.compose.ui.res.painterResource(id = dev.zophop.R.drawable.ic_launcher_background),
-                                    contentDescription = null,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                                androidx.compose.foundation.Image(
-                                    painter = androidx.compose.ui.res.painterResource(id = dev.zophop.R.drawable.ic_launcher_foreground),
-                                    contentDescription = "App Icon",
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            }
-                            Column {
-                                Text(
-                                    text = "About ZopHop",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = "v${BuildConfig.VERSION_NAME}",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            }
+                AboutAppCard(
+                    onVisitWebsite = {
+                        try {
+                            val intent = Intent(Intent.ACTION_VIEW, "https://aman400.github.io/zophop".toUri())
+                            context.startActivity(intent)
+                        } catch (_: Exception) {
                         }
-
-                        Text(
-                            text = "Automatically forward SMS, notifications, and OTPs to your devices securely.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-
-                        Button(
-                            onClick = {
-                                try {
-                                    val intent = Intent(Intent.ACTION_VIEW, "https://aman400.github.io/zophop".toUri())
-                                    context.startActivity(intent)
-                                } catch (_: Exception) {}
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Language,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Visit Official Website & Docs")
-                        }
-                    }
-                }
+                    },
+                )
             }
 
             item { Spacer(modifier = Modifier.height(32.dp)) }
@@ -730,80 +361,517 @@ fun SettingsScreen(
     }
 
     if (showNotificationPermissionRationaleDialog) {
-        AlertDialog(
-            onDismissRequest = { showNotificationPermissionRationaleDialog = false },
-            title = { Text("Notification Permission Required") },
-            text = {
-                Text("To display live execution alerts when background workflows run, please enable notifications and notification listener access in the app's settings.")
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showNotificationPermissionRationaleDialog = false
-                        try {
-                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                data = Uri.fromParts("package", context.packageName, null)
-                            }
-                            context.startActivity(intent)
-                        } catch (_: Exception) {
-                            try {
-                                context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-                            } catch (_: Exception) {}
+        NotificationPermissionRationaleDialog(
+            onDismiss = { showNotificationPermissionRationaleDialog = false },
+            onOpenSettings = {
+                showNotificationPermissionRationaleDialog = false
+                try {
+                    val intent =
+                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = Uri.fromParts("package", context.packageName, null)
                         }
+                    context.startActivity(intent)
+                } catch (_: Exception) {
+                    try {
+                        context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                    } catch (_: Exception) {
                     }
-                ) {
-                    Text("Open Settings")
                 }
             },
-            dismissButton = {
-                TextButton(onClick = { showNotificationPermissionRationaleDialog = false }) {
-                    Text("Cancel")
-                }
-            }
         )
     }
 }
 
 @Composable
-fun PermissionStatusRow(
-    title: String,
-    subtitle: String,
-    isGranted: Boolean,
-    onGrantClick: () -> Unit
+private fun GlobalWorkflowsSwitchCard(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
 ) {
-    Row(
+    OutlinedCard(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+        colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        if (isGranted) {
-            SuggestionChip(
-                onClick = {},
-                label = { Text("Granted", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
-                colors = SuggestionChipDefaults.suggestionChipColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    labelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            )
-        } else {
-            Button(
-                onClick = onGrantClick,
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("Grant", fontSize = 11.sp)
+                Icon(
+                    imageVector = Icons.Default.AccountTree,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    text = "Global Automations Switch",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Global Workflows Engine Enabled",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = "Master toggle to pause or resume all workflow processing. Individual workflow states are preserved across toggles and can also be controlled from the Quick Settings Tile.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = checked,
+                    onCheckedChange = onCheckedChange,
+                )
             }
         }
     }
+}
+
+@Composable
+private fun WorkflowExecutionAlertsCard(
+    checked: Boolean,
+    hasNotificationPermission: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    onRequestRationale: () -> Unit,
+) {
+    OutlinedCard(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Notifications,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    text = "Workflow Execution Alerts",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Show Live Execution Notifications",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = "Display ongoing status notifications when background workflows execute",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = checked,
+                    onCheckedChange = { enable ->
+                        val notifGranted = if (Build.VERSION.SDK_INT >= 33) hasNotificationPermission else true
+                        if (enable && !notifGranted) {
+                            onRequestRationale()
+                        } else {
+                            onCheckedChange(enable)
+                        }
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun VaultSecurityLockCard(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    OutlinedCard(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Lock,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    text = "Vault Security & Lock",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Lock Credentials with Device Lock",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = "Requires Biometrics or Device Credentials (PIN, Pattern, Password) to view secret passwords in Vault",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = checked,
+                    onCheckedChange = onCheckedChange,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConcurrencyAndQueueCard(
+    maxParallel: Int,
+    onMaxParallelChange: (Int) -> Unit,
+    maxQueue: Int,
+    onMaxQueueChange: (Int) -> Unit,
+) {
+    OutlinedCard(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AccountTree,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    text = "Concurrency & Execution Queue",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Max Parallel Executions",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = "Limit concurrent workflow executions (Default: 3)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    SuggestionChip(
+                        onClick = {},
+                        label = { Text("$maxParallel Active", fontWeight = FontWeight.Bold) },
+                    )
+                }
+                Slider(
+                    value = maxParallel.toFloat(),
+                    onValueChange = { onMaxParallelChange(it.toInt()) },
+                    valueRange = 1f..10f,
+                    steps = 8,
+                )
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Max Queue Size",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = "Maximum background executions queued (Default: 20)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    SuggestionChip(
+                        onClick = {},
+                        label = { Text("Max $maxQueue", fontWeight = FontWeight.Bold) },
+                    )
+                }
+                Slider(
+                    value = maxQueue.toFloat(),
+                    onValueChange = { onMaxQueueChange(it.toInt()) },
+                    valueRange = 5f..100f,
+                    steps = 18,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun InstalledNodePluginsCard(
+    discoveredPlugins: List<ExternalPluginServiceInfo>,
+) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        colors =
+            CardDefaults.elevatedCardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            ),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = "🧩 Installed Node Plugins (${discoveredPlugins.size})",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                text = "Discovers third-party plugin apps installed on this device that export custom workflow pipeline step nodes.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            if (discoveredPlugins.isEmpty()) {
+                Text(
+                    text = "No external plugin apps detected. Install a ZopHop plugin (e.g. Telegram Plugin) to see it here.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                discoveredPlugins.forEach { plugin ->
+                    PluginItemView(plugin)
+                }
+            }
+
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Extension,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Column {
+                        Text(
+                            text = "Open Node Plugin Ecosystem",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                        Text(
+                            text = "Developers can build and publish custom nodes as standalone Android apps using the ZopHop Plugin API.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PluginItemView(plugin: ExternalPluginServiceInfo) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = plugin.manifest.displayName,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = RoundedCornerShape(4.dp),
+                ) {
+                    Text(
+                        text = "v${plugin.apiVersion}",
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
+            }
+            Text(
+                text = plugin.manifest.description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = "Package: ${plugin.packageName}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AboutAppCard(
+    onVisitWebsite: () -> Unit,
+) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        colors =
+            CardDefaults.elevatedCardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            ),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Box(
+                    modifier =
+                        Modifier
+                            .size(36.dp)
+                            .clip(CircleShape),
+                ) {
+                    androidx.compose.foundation.Image(
+                        painter =
+                            androidx.compose.ui.res
+                                .painterResource(id = dev.zophop.R.drawable.ic_launcher_background),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    androidx.compose.foundation.Image(
+                        painter =
+                            androidx.compose.ui.res
+                                .painterResource(id = dev.zophop.R.drawable.ic_launcher_foreground),
+                        contentDescription = "App Icon",
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                Column {
+                    Text(
+                        text = "About ZopHop",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = "v${BuildConfig.VERSION_NAME}",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+
+            Text(
+                text = "Automatically forward SMS, notifications, and OTPs to your devices securely.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            Button(
+                onClick = onVisitWebsite,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Language,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Visit Official Website & Docs")
+            }
+        }
+    }
+}
+
+@Composable
+private fun NotificationPermissionRationaleDialog(
+    onDismiss: () -> Unit,
+    onOpenSettings: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Notification Permission Required") },
+        text = {
+            Text(
+                "To display live execution alerts when background workflows run, please enable notifications and notification listener access in the app's settings.",
+            )
+        },
+        confirmButton = {
+            Button(onClick = onOpenSettings) {
+                Text("Open Settings")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+    )
 }

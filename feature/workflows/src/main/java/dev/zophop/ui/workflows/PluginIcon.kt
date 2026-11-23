@@ -28,7 +28,7 @@ fun PluginIcon(
     fallbackVector: ImageVector = Icons.Default.Extension,
     tint: Color = MaterialTheme.colorScheme.primary,
     size: Dp = 24.dp,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
 
@@ -37,32 +37,41 @@ fun PluginIcon(
             value = null
             return@produceState
         }
-        value = withContext(Dispatchers.IO) {
-            try {
-                val appResources = context.packageManager.getResourcesForApplication(packageName)
-                val resId = appResources.getIdentifier(iconResName, "drawable", packageName)
-                if (resId != 0) {
-                    androidx.core.content.res.ResourcesCompat.getDrawable(appResources, resId, context.theme)
-                } else null
-            } catch (_: Exception) {
-                null
+        value =
+            withContext(Dispatchers.IO) {
+                try {
+                    val appResources = context.packageManager.getResourcesForApplication(packageName)
+                    val resId = appResources.getIdentifier(iconResName, "drawable", packageName)
+                    if (resId != 0) {
+                        androidx.core.content.res.ResourcesCompat
+                            .getDrawable(appResources, resId, context.theme)
+                    } else {
+                        null
+                    }
+                } catch (_: Exception) {
+                    null
+                }
             }
-        }
     }
 
     val currentDrawable = drawableState
     if (currentDrawable != null) {
         Image(
-            bitmap = currentDrawable.toBitmap(width = (size.value * 2).toInt().coerceAtLeast(1), height = (size.value * 2).toInt().coerceAtLeast(1)).asImageBitmap(),
+            bitmap =
+                currentDrawable
+                    .toBitmap(
+                        width = (size.value * 2).toInt().coerceAtLeast(1),
+                        height = (size.value * 2).toInt().coerceAtLeast(1),
+                    ).asImageBitmap(),
             contentDescription = null,
-            modifier = modifier.size(size)
+            modifier = modifier.size(size),
         )
     } else {
         Icon(
             imageVector = fallbackVector,
             contentDescription = null,
             tint = tint,
-            modifier = modifier.size(size)
+            modifier = modifier.size(size),
         )
     }
 }

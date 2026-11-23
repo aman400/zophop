@@ -5,7 +5,12 @@ plugins {
 
 android {
     namespace = "dev.zophop.feature.workflows"
-    compileSdk = 37
+    compileSdk {
+        version =
+            release(37) {
+                minorApiLevel = 1
+            }
+    }
 
     defaultConfig {
         minSdk = 26
@@ -48,4 +53,7 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(project(":plugins:ntfy"))
+    testImplementation(project(":plugins:gotify"))
+    testImplementation(project(":plugins:sms"))
 }

@@ -4,7 +4,7 @@ import android.content.Context
 import dev.zophop.plugin.api.CredentialSpec
 
 open class CredentialSpecRegistry(
-    private val context: Context?
+    private val context: Context?,
 ) {
     private val unifiedPluginRegistry = UnifiedPluginRegistry(context)
 

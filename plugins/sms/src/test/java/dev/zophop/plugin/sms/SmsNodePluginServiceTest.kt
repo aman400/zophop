@@ -2,11 +2,9 @@ package dev.zophop.plugin.sms
 
 import android.Manifest
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import dev.zophop.plugin.api.NodePluginManifest
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -17,7 +15,6 @@ import org.robolectric.annotation.Config
 @RunWith(AndroidJUnit4::class)
 @Config(manifest = Config.NONE)
 class SmsNodePluginServiceTest {
-
     @Test
     fun testSmsPluginManifestStructureAndPermissions() {
         val serviceController = Robolectric.buildService(SmsNodePluginService::class.java).create()
@@ -25,7 +22,7 @@ class SmsNodePluginServiceTest {
         val binder = service.onBind(null) as dev.zophop.plugin.api.INodePluginService
         val manifests = binder.getManifests()
 
-        assertEquals(3, manifests.size)
+        assertEquals(2, manifests.size)
 
         val trig = manifests.find { it.typeId == "dev.zophop.plugin.sms.SMS_TRIGGER" }!!
         assertTrue(trig.requiredPermissions.contains(Manifest.permission.RECEIVE_SMS))
@@ -33,8 +30,9 @@ class SmsNodePluginServiceTest {
         val sendSms = manifests.find { it.typeId == "dev.zophop.plugin.sms.SEND_SMS_ACTION" }!!
         assertTrue(sendSms.requiredPermissions.contains(Manifest.permission.SEND_SMS))
 
-        val simCheck = manifests.find { it.typeId == "dev.zophop.plugin.sms.SIM_CHECK_LOGIC" }!!
-        assertTrue(simCheck.requiredPermissions.contains(Manifest.permission.READ_PHONE_STATE))
+        // SIM checks are Preconditions (Precondition.SimCheck), not workflow pipeline nodes
+        val simCheckNode = manifests.find { it.typeId.contains("SIM_CHECK_LOGIC") }
+        org.junit.Assert.assertNull("SIM Check must not be exposed as a workflow node; it belongs in Preconditions", simCheckNode)
     }
 
     @Test

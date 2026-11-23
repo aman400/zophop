@@ -3,7 +3,6 @@ package dev.zophop.data
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import dev.zophop.domain.model.Credential
-import dev.zophop.domain.model.CredentialType
 import org.json.JSONObject
 
 @Entity(tableName = "credentials")
@@ -13,7 +12,7 @@ data class CredentialEntity(
     val type: String,
     val dataJson: String,
     val createdAt: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
 ) {
     fun toDomain(): Credential {
         val map = mutableMapOf<String, String>()
@@ -24,7 +23,8 @@ data class CredentialEntity(
                 val k = keys.next()
                 map[k] = json.optString(k, "")
             }
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+        }
 
         return Credential(
             id = id,
@@ -32,7 +32,7 @@ data class CredentialEntity(
             type = type,
             dataMap = map,
             createdAt = createdAt,
-            updatedAt = updatedAt
+            updatedAt = updatedAt,
         )
     }
 
@@ -48,7 +48,7 @@ data class CredentialEntity(
                 type = credential.type,
                 dataJson = json.toString(),
                 createdAt = credential.createdAt,
-                updatedAt = credential.updatedAt
+                updatedAt = credential.updatedAt,
             )
         }
     }

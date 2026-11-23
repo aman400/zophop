@@ -8,12 +8,15 @@ interface NodePluginModule {
     fun createExecutor(
         typeId: String,
         okHttpClient: OkHttpClient,
-        credentialRepository: Any?
+        credentialRepository: Any?,
     ): NodeExecutor? = null
 
     fun getManifests(): List<NodePluginManifest>
 
     fun getCredentialSpecs(): List<CredentialSpec> = emptyList()
 
-    fun validateConfig(typeId: String, configJson: String): String? = null
+    fun validateConfig(
+        typeId: String,
+        configJson: String,
+    ): String? = null
 }

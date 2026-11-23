@@ -1,10 +1,8 @@
 package dev.zophop.plugin.ntfy
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import dev.zophop.plugin.api.NodePluginManifest
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -14,7 +12,6 @@ import org.robolectric.annotation.Config
 @RunWith(AndroidJUnit4::class)
 @Config(manifest = Config.NONE)
 class NtfyNodePluginServiceTest {
-
     @Test
     fun testNtfyPluginManifestStructure() {
         val serviceController = Robolectric.buildService(NtfyNodePluginService::class.java).create()
@@ -43,5 +40,29 @@ class NtfyNodePluginServiceTest {
         val json = JSONObject(resultJson)
         assertEquals(false, json.getBoolean("isSuccess"))
         assertTrue(json.getString("errorReason").contains("serverUrl is empty"))
+    }
+
+    @Test
+    fun testNtfyActionWithEmojiHeadersDoesNotThrowIllegalArgumentException() {
+        val serviceController = Robolectric.buildService(NtfyNodePluginService::class.java).create()
+        val service = serviceController.get()
+        val binder = service.onBind(null) as dev.zophop.plugin.api.INodePluginService
+
+        val configJson = """{
+            "typeId":"dev.zophop.plugin.ntfy.NTFY_ACTION",
+            "serverUrl":"http://127.0.0.1:1",
+            "topic":"test-topic",
+            "title":"🚨 Emergency Alert ₹500",
+            "tags":"fire,🔥"
+        }"""
+        val resultJson = binder.executeNode("node_1", configJson, "{}")
+        val json = JSONObject(resultJson)
+
+        // It must NOT crash with OkHttp "Unexpected char" header exception
+        val reason = json.optString("errorReason", "")
+        org.junit.Assert.assertFalse(
+            "Must not throw OkHttp header Unexpected char exception for emoji headers: $reason",
+            reason.contains("Unexpected char", ignoreCase = true),
+        )
     }
 }

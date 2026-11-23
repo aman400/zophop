@@ -29,7 +29,7 @@ data class AppSettings(
     val autoClearMinutes: Int = 1440,
     val lockCredentialsWithBiometric: Boolean = false,
     val globalWorkflowsEnabled: Boolean = true,
-    val dismissedBiometricBanner: Boolean = false
+    val dismissedBiometricBanner: Boolean = false,
 ) {
     val allowlistItems: List<String>
         get() = allowlist.split(",", "\n").map { it.trim() }.filter { it.isNotEmpty() }
@@ -40,31 +40,36 @@ data class AppSettings(
 
 interface SettingsRepository {
     fun getSettings(): AppSettings
+
     fun saveSettings(settings: AppSettings)
+
     fun setEnabled(enabled: Boolean)
 }
 
-class EncryptedSettingsRepository(context: Context) : SettingsRepository {
-
+class EncryptedSettingsRepository(
+    context: Context,
+) : SettingsRepository {
     private val prefs: SharedPreferences = createEncryptedSharedPreferences(context)
 
-    private fun createEncryptedSharedPreferences(context: Context): SharedPreferences {
-        return try {
-            val masterKey = MasterKey.Builder(context.applicationContext)
-                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                .build()
+    private fun createEncryptedSharedPreferences(context: Context): SharedPreferences =
+        try {
+            val masterKey =
+                MasterKey
+                    .Builder(context.applicationContext)
+                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                    .build()
 
             EncryptedSharedPreferences.create(
                 context.applicationContext,
                 PREFS_FILE_NAME,
                 masterKey,
                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
             )
-        } catch (e: Exception) {
+        } catch (ignored: Exception) {
+            android.util.Log.w("SettingsRepository", "EncryptedSharedPreferences unavailable: ${ignored.message}")
             context.getSharedPreferences(PREFS_FILE_NAME, Context.MODE_PRIVATE)
         }
-    }
 
     override fun getSettings(): AppSettings {
         val rawNodes = prefs.getString(KEY_DELIVERY_NODES, "") ?: ""
@@ -82,17 +87,33 @@ class EncryptedSettingsRepository(context: Context) : SettingsRepository {
             val activeUrl = if (legacyType == ServerType.GOTIFY) gotifyUrl.ifBlank { legacyUrl } else ntfyUrl.ifBlank { legacyUrl }
 
             if (activeUrl.isNotBlank()) {
-                nodes = listOf(
-                    DeliveryNode(
-                        id = "default-migrated-node",
-                        name = if (legacyType == ServerType.GOTIFY) "Gotify Target Node" else "ntfy Target Node",
-                        serverType = legacyType,
-                        serverUrl = activeUrl,
-                        topic = if (legacyType == ServerType.GOTIFY) "" else prefs.getString(KEY_NTFY_TOPIC, legacyTopic) ?: legacyTopic,
-                        token = if (legacyType == ServerType.GOTIFY) prefs.getString(KEY_GOTIFY_TOKEN, legacyToken) ?: legacyToken else prefs.getString(KEY_NTFY_TOKEN, legacyToken) ?: legacyToken,
-                        isEnabled = true
+                nodes =
+                    listOf(
+                        DeliveryNode(
+                            id = "default-migrated-node",
+                            name = if (legacyType == ServerType.GOTIFY) "Gotify Target Node" else "ntfy Target Node",
+                            serverType = legacyType,
+                            serverUrl = activeUrl,
+                            topic =
+                                if (legacyType ==
+                                    ServerType.GOTIFY
+                                ) {
+                                    ""
+                                } else {
+                                    prefs.getString(KEY_NTFY_TOPIC, legacyTopic) ?: legacyTopic
+                                },
+                            token =
+                                if (legacyType ==
+                                    ServerType.GOTIFY
+                                ) {
+                                    prefs.getString(KEY_GOTIFY_TOKEN, legacyToken) ?: legacyToken
+                                } else {
+                                    prefs.getString(KEY_NTFY_TOKEN, legacyToken)
+                                        ?: legacyToken
+                                },
+                            isEnabled = true,
+                        ),
                     )
-                )
             }
         }
 
@@ -115,12 +136,13 @@ class EncryptedSettingsRepository(context: Context) : SettingsRepository {
             autoClearMinutes = prefs.getInt(KEY_AUTO_CLEAR_MINUTES, 1440),
             lockCredentialsWithBiometric = prefs.getBoolean(KEY_LOCK_CREDENTIALS_WITH_BIOMETRIC, false),
             globalWorkflowsEnabled = prefs.getBoolean(KEY_GLOBAL_WORKFLOWS_ENABLED, true),
-            dismissedBiometricBanner = prefs.getBoolean(KEY_DISMISSED_BIOMETRIC_BANNER, false)
+            dismissedBiometricBanner = prefs.getBoolean(KEY_DISMISSED_BIOMETRIC_BANNER, false),
         )
     }
 
     override fun saveSettings(settings: AppSettings) {
-        prefs.edit()
+        prefs
+            .edit()
             .putString(KEY_DELIVERY_NODES, serializeNodes(settings.nodes))
             .putString(KEY_ALLOWLIST, settings.allowlist)
             .putString(KEY_KEYWORD_REGEX, settings.keywordRegex)
@@ -178,8 +200,8 @@ class EncryptedSettingsRepository(context: Context) : SettingsRepository {
         private const val KEY_GLOBAL_WORKFLOWS_ENABLED = "global_workflows_enabled"
         private const val KEY_DISMISSED_BIOMETRIC_BANNER = "dismissed_biometric_banner"
 
-        fun serializeNodes(nodes: List<DeliveryNode>): String {
-            return nodes.joinToString("|||") { node ->
+        fun serializeNodes(nodes: List<DeliveryNode>): String =
+            nodes.joinToString("|||") { node ->
                 val name = node.name.replace("|", "_").replace(":", "_")
                 val type = node.serverType.replace("|", "_")
                 val url = node.serverUrl.replace("|", "_")
@@ -188,9 +210,8 @@ class EncryptedSettingsRepository(context: Context) : SettingsRepository {
                 val healthUrl = node.customHealthcheckUrl.replace("|", "_")
                 val method = node.healthcheckMethod.replace("|", "_")
                 val headers = node.healthcheckHeaders.replace("|", "_").replace("\n", "___")
-                "${node.id}:::${name}:::${type}:::${url}:::${topic}:::${token}:::${node.isEnabled}:::${node.requireInternet}:::${node.requireVpn}:::${node.requireHealthcheck}:::${healthUrl}:::${method}:::${headers}:::${node.healthcheckExpectedStatus}"
+                "${node.id}:::$name:::$type:::$url:::$topic:::$token:::${node.isEnabled}:::${node.requireInternet}:::${node.requireVpn}:::${node.requireHealthcheck}:::$healthUrl:::$method:::$headers:::${node.healthcheckExpectedStatus}"
             }
-        }
 
         fun deserializeNodes(raw: String): List<DeliveryNode> {
             if (raw.isBlank()) return emptyList()
@@ -211,9 +232,11 @@ class EncryptedSettingsRepository(context: Context) : SettingsRepository {
                         customHealthcheckUrl = if (parts.size >= 11) parts[10] else "",
                         healthcheckMethod = if (parts.size >= 12 && parts[11].isNotBlank()) parts[11] else "GET",
                         healthcheckHeaders = if (parts.size >= 13) parts[12].replace("___", "\n") else "",
-                        healthcheckExpectedStatus = if (parts.size >= 14) parts[13].toIntOrNull() ?: 200 else 200
+                        healthcheckExpectedStatus = if (parts.size >= 14) parts[13].toIntOrNull() ?: 200 else 200,
                     )
-                } else null
+                } else {
+                    null
+                }
             }
         }
     }

@@ -1,10 +1,9 @@
-package dev.zophop.gotifyplugin
+package dev.zophop.plugin.gotify.gotifyplugin
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import dev.zophop.plugin.api.NodePluginManifest
+import dev.zophop.plugin.api.INodePluginService
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -14,12 +13,11 @@ import org.robolectric.annotation.Config
 @RunWith(AndroidJUnit4::class)
 @Config(manifest = Config.NONE)
 class GotifyNodePluginServiceTest {
-
     @Test
     fun testGotifyPluginManifestStructure() {
         val serviceController = Robolectric.buildService(GotifyNodePluginService::class.java).create()
         val service = serviceController.get()
-        val binder = service.onBind(null) as dev.zophop.plugin.api.INodePluginService
+        val binder = service.onBind(null) as INodePluginService
         val manifests = binder.getManifests()
 
         assertEquals(1, manifests.size)
@@ -35,7 +33,7 @@ class GotifyNodePluginServiceTest {
     fun testGotifyActionFailsOnEmptyServerUrl() {
         val serviceController = Robolectric.buildService(GotifyNodePluginService::class.java).create()
         val service = serviceController.get()
-        val binder = service.onBind(null) as dev.zophop.plugin.api.INodePluginService
+        val binder = service.onBind(null) as INodePluginService
 
         val configJson = """{"typeId":"dev.zophop.gotifyplugin.GOTIFY_ACTION"}"""
         val resultJson = binder.executeNode("node_1", configJson, "{}")

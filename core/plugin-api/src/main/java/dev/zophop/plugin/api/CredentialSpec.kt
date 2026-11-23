@@ -8,5 +8,5 @@ data class CredentialSpec(
     val typeId: String,
     val displayName: String,
     val description: String = "",
-    val fields: List<ConfigFieldSpec> = emptyList()
+    val fields: List<ConfigFieldSpec> = emptyList(),
 ) : Parcelable
