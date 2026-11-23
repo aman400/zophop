@@ -7,75 +7,6 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-val MIGRATION_1_2 =
-    object : Migration(1, 2) {
-        override fun migrate(db: SupportSQLiteDatabase) {
-            db.execSQL(
-                """
-                CREATE TABLE IF NOT EXISTS `credentials` (
-                    `id` TEXT NOT NULL,
-                    `name` TEXT NOT NULL,
-                    `type` TEXT NOT NULL,
-                    `dataJson` TEXT NOT NULL,
-                    `createdAt` INTEGER NOT NULL,
-                    `updatedAt` INTEGER NOT NULL,
-                    PRIMARY KEY(`id`)
-                )
-                """.trimIndent(),
-            )
-        }
-    }
-
-val MIGRATION_2_3 =
-    object : Migration(2, 3) {
-        override fun migrate(db: SupportSQLiteDatabase) {
-            db.execSQL(
-                """
-                CREATE TABLE IF NOT EXISTS `preconditions` (
-                    `id` TEXT NOT NULL,
-                    `name` TEXT NOT NULL,
-                    `type` TEXT NOT NULL,
-                    `isEnabled` INTEGER NOT NULL DEFAULT 1,
-                    `targetUrl` TEXT NOT NULL DEFAULT '',
-                    `method` TEXT NOT NULL DEFAULT 'GET',
-                    `headers` TEXT NOT NULL DEFAULT '',
-                    `expectedStatus` INTEGER NOT NULL DEFAULT 200,
-                    `requiredCarrier` TEXT NOT NULL DEFAULT '',
-                    `requiredPermission` TEXT NOT NULL DEFAULT '',
-                    `credentialId` TEXT NOT NULL DEFAULT '',
-                    `pipelineJson` TEXT NOT NULL DEFAULT '',
-                    `onFailureAction` TEXT NOT NULL DEFAULT 'FAIL_IMMEDIATELY',
-                    `maxRetries` INTEGER NOT NULL DEFAULT 3,
-                    `retryIntervalSeconds` INTEGER NOT NULL DEFAULT 30,
-                    `showNotificationOnFailure` INTEGER NOT NULL DEFAULT 0,
-                    `updatedAt` INTEGER NOT NULL DEFAULT 0,
-                    PRIMARY KEY(`id`)
-                )
-                """.trimIndent(),
-            )
-        }
-    }
-
-val MIGRATION_3_4 =
-    object : Migration(3, 4) {
-        override fun migrate(db: SupportSQLiteDatabase) {
-            db.execSQL(
-                """
-                CREATE TABLE IF NOT EXISTS `workflow_execution_logs` (
-                    `id` TEXT NOT NULL,
-                    `workflowId` TEXT NOT NULL,
-                    `status` TEXT NOT NULL,
-                    `timestamp` INTEGER NOT NULL,
-                    `messageId` TEXT,
-                    `logs` TEXT NOT NULL DEFAULT '',
-                    `errorReason` TEXT,
-                    PRIMARY KEY(`id`)
-                )
-                """.trimIndent(),
-            )
-        }
-    }
-
 val MIGRATION_4_5 =
     object : Migration(4, 5) {
         override fun migrate(db: SupportSQLiteDatabase) {
@@ -104,13 +35,7 @@ val MIGRATION_4_5 =
         }
     }
 
-val ALL_MIGRATIONS =
-    arrayOf(
-        MIGRATION_1_2,
-        MIGRATION_2_3,
-        MIGRATION_3_4,
-        MIGRATION_4_5,
-    )
+val ALL_MIGRATIONS = arrayOf(MIGRATION_4_5)
 
 @Database(
     entities = [
@@ -143,12 +68,9 @@ abstract class AppDatabase : RoomDatabase() {
                         context.applicationContext,
                         AppDatabase::class.java,
                         "zophop_db",
-                    ).addMigrations(
-                        MIGRATION_1_2,
-                        MIGRATION_2_3,
-                        MIGRATION_3_4,
-                        MIGRATION_4_5,
-                    ).fallbackToDestructiveMigrationOnDowngrade(true)
+                    ).addMigrations(MIGRATION_4_5)
+                        .fallbackToDestructiveMigrationFrom(dropAllTables = true, 1, 2, 3)
+                        .fallbackToDestructiveMigrationOnDowngrade(dropAllTables = true)
                         .build()
                 INSTANCE = instance
                 instance

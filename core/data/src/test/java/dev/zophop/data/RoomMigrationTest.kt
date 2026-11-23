@@ -11,21 +11,9 @@ import java.lang.reflect.Proxy
 class RoomMigrationTest {
     @Test
     fun testMigrationConstantsAndVersion() {
-        assertNotNull(MIGRATION_1_2)
-        assertNotNull(MIGRATION_2_3)
-        assertNotNull(MIGRATION_3_4)
         assertNotNull(MIGRATION_4_5)
 
-        assertEquals(4, ALL_MIGRATIONS.size)
-
-        assertEquals(1, MIGRATION_1_2.startVersion)
-        assertEquals(2, MIGRATION_1_2.endVersion)
-
-        assertEquals(2, MIGRATION_2_3.startVersion)
-        assertEquals(3, MIGRATION_2_3.endVersion)
-
-        assertEquals(3, MIGRATION_3_4.startVersion)
-        assertEquals(4, MIGRATION_3_4.endVersion)
+        assertEquals(1, ALL_MIGRATIONS.size)
 
         assertEquals(4, MIGRATION_4_5.startVersion)
         assertEquals(5, MIGRATION_4_5.endVersion)
