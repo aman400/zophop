@@ -285,4 +285,55 @@ class EntityMappingAndSerializationTest {
         assertEquals(12, prec.retryIntervalSeconds)
         assertEquals("EXPONENTIAL", prec.retryStrategy)
     }
+
+    @Test
+    fun testWorkflowEntityResilienceOnMalformedPreconditionType() {
+        val graphJson =
+            """
+            {
+                "nodes": [
+                    {
+                        "id": "node_1",
+                        "name": "Node With Unknown Prec",
+                        "type": "HTTP_ACTION",
+                        "isEnabled": true,
+                        "configJson": "{}",
+                        "preconditions": [
+                            {
+                                "id": "p1",
+                                "type": "UNKNOWN_FUTURE_PRECONDITION",
+                                "isEnabled": true,
+                                "onFailureAction": "FAIL_IMMEDIATELY"
+                            },
+                            {
+                                "id": "p2",
+                                "type": "  internet_check  ",
+                                "isEnabled": true,
+                                "onFailureAction": "QUEUE"
+                            }
+                        ]
+                    }
+                ],
+                "connections": []
+            }
+            """.trimIndent()
+
+        val entity =
+            WorkflowEntity(
+                id = "wf_resilience_test",
+                name = "Resilience Test",
+                graphJson = graphJson,
+            )
+
+        val domain = entity.toDomain()
+        assertEquals(1, domain.nodes.size)
+        val node = domain.nodes[0]
+        assertEquals("node_1", node.id)
+        assertEquals(2, node.preconditions.size)
+        // Unknown type gracefully fell back to INTERNET_CHECK rather than dropping the node
+        assertTrue(node.preconditions[0] is Precondition.InternetCheck)
+        // Case-insensitive trimmed type parsed properly
+        assertTrue(node.preconditions[1] is Precondition.InternetCheck)
+        assertEquals("QUEUE", node.preconditions[1].onFailureAction)
+    }
 }

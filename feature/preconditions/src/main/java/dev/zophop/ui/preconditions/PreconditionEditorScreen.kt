@@ -1264,10 +1264,10 @@ private fun PreconditionSaveConfirmDialogWrapper(
                     isEnabled = isEnabled,
                     pipelineJson = pipelineJson,
                     onFailureAction = onFailureAction,
-                    maxRetries = maxRetries.toIntOrNull() ?: 3,
-                    retryIntervalSeconds = retryIntervalSeconds.toIntOrNull() ?: 30,
+                    maxRetries = maxRetries.toIntOrNull()?.coerceAtLeast(0) ?: 3,
+                    retryIntervalSeconds = retryIntervalSeconds.toIntOrNull()?.coerceAtLeast(1) ?: 30,
                     retryStrategy = retryStrategy,
-                    queueTimeoutMinutes = queueTimeoutMinutes.toIntOrNull() ?: 10,
+                    queueTimeoutMinutes = queueTimeoutMinutes.toIntOrNull()?.coerceAtLeast(1) ?: 10,
                     showNotificationOnFailure = showNotificationOnFailure,
                     updatedAt = System.currentTimeMillis(),
                 )
@@ -1326,10 +1326,10 @@ private fun buildTestingEntity(
         isEnabled = isEnabled,
         pipelineJson = pipelineJson,
         onFailureAction = onFailureAction,
-        maxRetries = maxRetries.toIntOrNull() ?: 3,
-        retryIntervalSeconds = retryIntervalSeconds.toIntOrNull() ?: 30,
+        maxRetries = maxRetries.toIntOrNull()?.coerceAtLeast(0) ?: 3,
+        retryIntervalSeconds = retryIntervalSeconds.toIntOrNull()?.coerceAtLeast(1) ?: 30,
         retryStrategy = retryStrategy,
-        queueTimeoutMinutes = queueTimeoutMinutes.toIntOrNull() ?: 10,
+        queueTimeoutMinutes = queueTimeoutMinutes.toIntOrNull()?.coerceAtLeast(1) ?: 10,
         showNotificationOnFailure = showNotificationOnFailure,
     )
 

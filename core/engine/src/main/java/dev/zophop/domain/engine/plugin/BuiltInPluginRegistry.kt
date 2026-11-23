@@ -102,11 +102,26 @@ object BuiltInPluginRegistry {
             null
         }
 
-    private fun resolveSingletonInstance(clazz: Class<*>): Any? = try {
-        clazz.getField("INSTANCE").get(null)
-    } catch (_: ReflectiveOperationException) {
-        clazz.getDeclaredField("INSTANCE").apply { isAccessible = true }.get(null)
-    }
+    private fun resolveSingletonInstance(clazz: Class<*>): Any? =
+        getSingletonFromField(clazz) ?: newInstanceFromConstructor(clazz)
+
+    private fun getSingletonFromField(clazz: Class<*>): Any? =
+        try {
+            clazz.getField("INSTANCE").get(null)
+        } catch (_: ReflectiveOperationException) {
+            try {
+                clazz.getDeclaredField("INSTANCE").apply { isAccessible = true }.get(null)
+            } catch (_: ReflectiveOperationException) {
+                null
+            }
+        }
+
+    private fun newInstanceFromConstructor(clazz: Class<*>): Any? =
+        try {
+            clazz.getDeclaredConstructor().apply { isAccessible = true }.newInstance()
+        } catch (_: ReflectiveOperationException) {
+            null
+        }
 
     fun createExecutor(
         typeId: String,

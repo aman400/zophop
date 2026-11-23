@@ -27,6 +27,20 @@ class NodePluginModuleRegistryTest {
             )
     }
 
+    class ClassBasedTestModule : NodePluginModule {
+        override val moduleId: String = "class-based-test-module"
+
+        override fun getManifests(): List<NodePluginManifest> =
+            listOf(
+                NodePluginManifest(
+                    typeId = "com.test.CLASS_BASED_ACTION",
+                    displayName = "Class Based Action",
+                    description = "Class-based module test",
+                    category = NodeCategory.ACTION,
+                ),
+            )
+    }
+
     @Test
     fun testCoreEngineNodesModuleManifestDiscovery() {
         val manifests = CoreEngineNodesModule.getManifests()
@@ -47,6 +61,21 @@ class NodePluginModuleRegistryTest {
         assertEquals("Custom Test Trigger", fetched?.displayName)
 
         BuiltInPluginRegistry.unregisterModule(CustomTestModule.moduleId)
+    }
+
+    @Test
+    fun testClassBasedModuleResolutionAndRegistration() {
+        val module = ClassBasedTestModule()
+        BuiltInPluginRegistry.registerModule(module)
+
+        val allBuiltIn = BuiltInPluginRegistry.getBuiltInManifests()
+        assertTrue(allBuiltIn.any { it.typeId == "com.test.CLASS_BASED_ACTION" })
+
+        val fetched = BuiltInPluginRegistry.getBuiltInManifestByTypeId("com.test.CLASS_BASED_ACTION")
+        assertNotNull(fetched)
+        assertEquals("Class Based Action", fetched?.displayName)
+
+        BuiltInPluginRegistry.unregisterModule(module.moduleId)
     }
 
     @Test

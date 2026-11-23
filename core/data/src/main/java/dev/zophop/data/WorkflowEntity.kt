@@ -206,7 +206,7 @@ private fun parseWorkflowNode(nodeObj: JSONObject): WorkflowNode {
 
 private fun parsePrecondition(pObj: JSONObject): Precondition {
     val pId = pObj.optString("id", "")
-    val pTypeStr = pObj.getString("type")
+    val pTypeStr = pObj.optString("type", "")
     val isPEnabled = pObj.optBoolean("isEnabled", true)
     val pFailureAction = pObj.optString("onFailureAction", "FAIL_IMMEDIATELY")
     val pMaxRetries = pObj.optInt("maxRetries", 3)
@@ -215,7 +215,14 @@ private fun parsePrecondition(pObj: JSONObject): Precondition {
     val pQueueTimeout = pObj.optInt("queueTimeoutMinutes", 10)
     val pShowNotif = pObj.optBoolean("showNotificationOnFailure", false)
 
-    return when (PreconditionType.valueOf(pTypeStr)) {
+    val precType =
+        try {
+            PreconditionType.valueOf(pTypeStr.uppercase().trim())
+        } catch (_: IllegalArgumentException) {
+            PreconditionType.INTERNET_CHECK
+        }
+
+    return when (precType) {
         PreconditionType.INTERNET_CHECK ->
             Precondition.InternetCheck(
                 id = pId,

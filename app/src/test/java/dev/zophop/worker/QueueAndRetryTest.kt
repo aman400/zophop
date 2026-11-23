@@ -412,4 +412,34 @@ class QueueAndRetryTest {
             assertNull(updated?.body)
             assertEquals(0, fakeClient.callCount)
         }
+
+    @Test
+    fun testQueueModePreservesDiagnosticErrorMessageWhenBodyIsNull() =
+        runTest {
+            val fakeClient = FakeNtfyClient(failCount = 0)
+            val manager =
+                ForwardingManager(
+                    messageDao = messageDao,
+                    settingsRepository = settingsRepo,
+                    ntfyClient = fakeClient,
+                    delayProvider = {},
+                )
+
+            val msgWithNullBody =
+                MessageEntity(
+                    id = "msg-null-body",
+                    sender = "TEST_BANK",
+                    body = null,
+                    receivedAt = System.currentTimeMillis(),
+                    status = MessageStatus.QUEUED,
+                    errorMessage = "Prior diagnostic error reason",
+                )
+            messageDao.insertMessage(msgWithNullBody)
+
+            manager.processPendingQueue()
+
+            val updated = messageDao.getMessageById("msg-null-body")
+            assertEquals(MessageStatus.EXPIRED, updated?.status)
+            assertEquals("Prior diagnostic error reason", updated?.errorMessage)
+        }
 }

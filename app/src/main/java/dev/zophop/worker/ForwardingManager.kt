@@ -168,7 +168,12 @@ class ForwardingManager(
             return null
         }
         if (now - current.receivedAt > expiryMillis || current.body == null) {
-            val note = if (current.body == null) null else "Expired after $expiryMinutes minutes (Queue timeout reached)"
+            val note =
+                if (current.body == null) {
+                    current.errorMessage ?: "Message payload missing or expired"
+                } else {
+                    "Expired after $expiryMinutes minutes (Queue timeout reached)"
+                }
             messageDao.updateMessage(current.copy(status = MessageStatus.EXPIRED, body = null, errorMessage = note))
             context?.let { ctx ->
                 SmsForwarderService.updateNotificationStatus(

@@ -505,6 +505,22 @@ class PreconditionEvaluatorExtendedTest {
     }
 
     @Test
+    fun testCalculateRetryDelayRobustnessAgainstOverflowAndInvalidCaps() {
+        // Zero or negative maxCapSeconds should not throw IllegalArgumentException and return at least 1
+        assertEquals(1, calculateRetryDelaySeconds(RetryStrategy.FIXED, baseIntervalSeconds = 10, attempt = 1, maxCapSeconds = 0))
+        assertEquals(1, calculateRetryDelaySeconds(RetryStrategy.EXPONENTIAL, baseIntervalSeconds = 10, attempt = 1, maxCapSeconds = -5))
+
+        // Large base with exponential shift should not overflow to negative number
+        val largeBase = 5_000_000
+        val delay = calculateRetryDelaySeconds(RetryStrategy.EXPONENTIAL, baseIntervalSeconds = largeBase, attempt = 10, maxCapSeconds = 3600)
+        assertEquals(3600, delay)
+
+        // Negative or zero attempt should safely clamp to shift 0
+        assertEquals(10, calculateRetryDelaySeconds(RetryStrategy.EXPONENTIAL, baseIntervalSeconds = 10, attempt = -5))
+        assertEquals(10, calculateRetryDelaySeconds(RetryStrategy.EXPONENTIAL, baseIntervalSeconds = 10, attempt = 0))
+    }
+
+    @Test
     fun testPreconditionRetryWithExponentialBackoffRecovers() =
         runTest {
             var attempts = 0

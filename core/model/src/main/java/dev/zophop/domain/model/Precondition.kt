@@ -38,18 +38,19 @@ fun calculateRetryDelaySeconds(
         if (min >= max) min else kotlin.random.Random.nextInt(min, max + 1)
     },
 ): Int {
+    val cap = maxCapSeconds.coerceAtLeast(1)
     val base = baseIntervalSeconds.coerceAtLeast(1)
     return when (strategy.uppercase().trim()) {
         RetryStrategy.EXPONENTIAL -> {
             val shift = (attempt - 1).coerceIn(0, 10)
-            (base * (1 shl shift)).coerceIn(1, maxCapSeconds)
+            (base.toLong() * (1 shl shift)).coerceIn(1L, cap.toLong()).toInt()
         }
         RetryStrategy.RANDOMIZED -> {
             val shift = (attempt - 1).coerceIn(0, 10)
-            val ceiling = (base * (1 shl shift)).coerceIn(1, maxCapSeconds)
-            randomGenerator(1, ceiling)
+            val ceiling = (base.toLong() * (1 shl shift)).coerceIn(1L, cap.toLong()).toInt()
+            randomGenerator(1, ceiling).coerceIn(1, cap)
         }
-        else -> base.coerceIn(1, maxCapSeconds) // FIXED
+        else -> base.coerceIn(1, cap) // FIXED
     }
 }
 

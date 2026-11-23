@@ -854,14 +854,18 @@ suspend fun okhttp3.Call.await(): okhttp3.Response =
                     call: okhttp3.Call,
                     response: okhttp3.Response,
                 ) {
-                    continuation.resume(response)
+                    if (continuation.isActive) {
+                        continuation.resume(response)
+                    } else {
+                        response.close()
+                    }
                 }
 
                 override fun onFailure(
                     call: okhttp3.Call,
                     e: java.io.IOException,
                 ) {
-                    if (!continuation.isCancelled) {
+                    if (continuation.isActive) {
                         continuation.resumeWithException(e)
                     }
                 }
