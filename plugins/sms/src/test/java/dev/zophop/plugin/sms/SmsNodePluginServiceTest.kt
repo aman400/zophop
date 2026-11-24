@@ -2,7 +2,9 @@ package dev.zophop.plugin.sms
 
 import android.Manifest
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import org.json.JSONObject
+import dev.zophop.domain.model.optBoolean
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -46,9 +48,9 @@ class SmsNodePluginServiceTest {
         val configJson = """{"typeId":"dev.zophop.plugin.sms.SMS_TRIGGER"}"""
         val resultJson = binder.executeNode("node_1", configJson, "{}")
 
-        val json = JSONObject(resultJson)
-        assertFalse(json.getBoolean("isSuccess"))
-        assertTrue(json.getString("errorReason").contains("RECEIVE_SMS"))
+        val json = parseJsonObjectSafe(resultJson)
+        assertFalse(json.optBoolean("isSuccess"))
+        assertTrue(json.optString("errorReason").contains("RECEIVE_SMS"))
     }
 
     @Test
@@ -62,8 +64,8 @@ class SmsNodePluginServiceTest {
         val configJson = """{"typeId":"dev.zophop.plugin.sms.SEND_SMS_ACTION","recipient":"123","body":"test"}"""
         val resultJson = binder.executeNode("node_2", configJson, "{}")
 
-        val json = JSONObject(resultJson)
-        assertFalse(json.getBoolean("isSuccess"))
-        assertTrue(json.getString("errorReason").contains("SEND_SMS"))
+        val json = parseJsonObjectSafe(resultJson)
+        assertFalse(json.optBoolean("isSuccess"))
+        assertTrue(json.optString("errorReason").contains("SEND_SMS"))
     }
 }

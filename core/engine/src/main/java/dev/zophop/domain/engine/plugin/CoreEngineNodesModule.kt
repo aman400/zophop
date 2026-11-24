@@ -17,6 +17,8 @@ import dev.zophop.domain.engine.executors.SimCheckExecutor
 import dev.zophop.domain.engine.executors.TemplateFormatterExecutor
 import dev.zophop.domain.engine.executors.VpnCheckExecutor
 import dev.zophop.domain.model.CredentialType
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ConfigFieldSpec
 import dev.zophop.plugin.api.CredentialSpec
 import dev.zophop.plugin.api.ExecutionContext
@@ -26,10 +28,9 @@ import dev.zophop.plugin.api.NodeCategory
 import dev.zophop.plugin.api.NodeExecutor
 import dev.zophop.plugin.api.NodePluginManifest
 import dev.zophop.plugin.api.NodePluginModule
+import kotlinx.serialization.json.JsonObject
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.json.JSONException
-import org.json.JSONObject
 import java.util.regex.Pattern
 import java.util.regex.PatternSyntaxException
 
@@ -631,12 +632,7 @@ object CoreEngineNodesModule : NodePluginModule {
         typeId: String,
         configJson: String,
     ): String? {
-        val config =
-            try {
-                JSONObject(configJson)
-            } catch (_: JSONException) {
-                JSONObject()
-            }
+        val config = parseJsonObjectSafe(configJson)
         return when {
             typeId.contains("SEND_SMS_ACTION", ignoreCase = true) -> validateSmsAction(config)
             typeId.contains("SEND_NOTIFICATION_ACTION", ignoreCase = true) -> validateNotificationAction(config)
@@ -651,7 +647,7 @@ object CoreEngineNodesModule : NodePluginModule {
         }
     }
 
-    private fun validateSmsAction(config: JSONObject): String? {
+    private fun validateSmsAction(config: JsonObject): String? {
         val recipient = config.optString("recipient", "").trim()
         val body = config.optString("body", "").trim().ifEmpty { "\${body}" }
         return when {
@@ -661,7 +657,7 @@ object CoreEngineNodesModule : NodePluginModule {
         }
     }
 
-    private fun validateNotificationAction(config: JSONObject): String? {
+    private fun validateNotificationAction(config: JsonObject): String? {
         val title = config.optString("title", "").trim().ifEmpty { "ZopHop Notification" }
         val body = config.optString("body", "").trim().ifEmpty { "\${body}" }
         return when {
@@ -671,7 +667,7 @@ object CoreEngineNodesModule : NodePluginModule {
         }
     }
 
-    private fun validateHttpAction(config: JSONObject): String? {
+    private fun validateHttpAction(config: JsonObject): String? {
         val credentialId = config.optString("credentialId", "").trim()
         val url = config.optString("url", "").ifBlank { config.optString("serverUrl", "") }.trim()
         return when {
@@ -683,7 +679,7 @@ object CoreEngineNodesModule : NodePluginModule {
         }
     }
 
-    private fun validateRegexParser(config: JSONObject): String? {
+    private fun validateRegexParser(config: JsonObject): String? {
         val regex = config.optString("regex", "").trim().ifEmpty { "\\b\\d{6}\\b" }
         val outputKey = config.optString("outputKey", "").trim().ifEmpty { "code" }
         if (regex.isBlank()) return "Regular expression pattern cannot be blank."
@@ -695,7 +691,7 @@ object CoreEngineNodesModule : NodePluginModule {
         }
     }
 
-    private fun validateJsonParser(config: JSONObject): String? {
+    private fun validateJsonParser(config: JsonObject): String? {
         val jsonKey = config.optString("jsonKey", "").trim().ifEmpty { "data.status" }
         val outputKey = config.optString("outputKey", "").trim().ifEmpty { "parsedStatus" }
         return when {
@@ -705,12 +701,12 @@ object CoreEngineNodesModule : NodePluginModule {
         }
     }
 
-    private fun validateTemplateFormatter(config: JSONObject): String? {
+    private fun validateTemplateFormatter(config: JsonObject): String? {
         val template = config.optString("template", "").trim().ifEmpty { "\${body}" }
         return if (template.isBlank()) "Template text cannot be blank." else null
     }
 
-    private fun validateCondition(config: JSONObject): String? {
+    private fun validateCondition(config: JsonObject): String? {
         val variable = config.optString("variable", "").trim().ifEmpty { "status" }
         val operator = config.optString("operator", "").trim().ifEmpty { "EQUALS" }
         return when {
@@ -720,7 +716,7 @@ object CoreEngineNodesModule : NodePluginModule {
         }
     }
 
-    private fun validateCronTrigger(config: JSONObject): String? {
+    private fun validateCronTrigger(config: JsonObject): String? {
         val cronExpression = config.optString("cronExpression", "").trim().ifEmpty { "every 30m" }
         return if (cronExpression.isBlank()) "Schedule interval or cron expression cannot be blank." else null
     }

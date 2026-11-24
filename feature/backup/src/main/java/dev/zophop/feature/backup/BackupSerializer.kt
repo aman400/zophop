@@ -10,9 +10,17 @@ import dev.zophop.domain.model.PreconditionType
 import dev.zophop.domain.model.Workflow
 import dev.zophop.domain.model.WorkflowConnection
 import dev.zophop.domain.model.WorkflowNode
-import kotlinx.serialization.encodeToString
-import org.json.JSONArray
-import org.json.JSONObject
+import dev.zophop.domain.model.optBoolean
+import dev.zophop.domain.model.optInt
+import dev.zophop.domain.model.optJsonArray
+import dev.zophop.domain.model.optJsonObject
+import dev.zophop.domain.model.optLong
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonArraySafe
+import dev.zophop.domain.model.parseJsonObjectSafe
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import java.security.GeneralSecurityException
 import java.util.UUID
 
@@ -124,13 +132,13 @@ object BackupSerializer {
         }
 
         return if (trimmed.startsWith("[")) {
-            parseJsonArray(JSONArray(trimmed))
+            parseJsonArray(parseJsonArraySafe(trimmed))
         } else {
-            parseJsonObject(JSONObject(trimmed))
+            parseJsonObject(parseJsonObjectSafe(trimmed))
         }
     }
 
-    private fun parseJsonObject(obj: JSONObject): ParsedBackupData {
+    private fun parseJsonObject(obj: JsonObject): ParsedBackupData {
         if (isBundleObject(obj)) {
             return parseBundle(obj)
         }
@@ -163,20 +171,20 @@ object BackupSerializer {
         throw IllegalArgumentException("Unrecognized JSON schema: does not match Workflows, Credentials, or Preconditions")
     }
 
-    private fun isBundleObject(obj: JSONObject): Boolean =
+    private fun isBundleObject(obj: JsonObject): Boolean =
         obj.optString("type") == BACKUP_TYPE ||
-            (obj.has("workflows") && (obj.has("credentials") || obj.has("preconditions")))
+            (obj.containsKey("workflows") && (obj.containsKey("credentials") || obj.containsKey("preconditions")))
 
-    private fun isWorkflowObject(obj: JSONObject): Boolean =
-        obj.has("nodes") || obj.has("graphJson") || (obj.has("name") && obj.has("connections"))
+    private fun isWorkflowObject(obj: JsonObject): Boolean =
+        obj.containsKey("nodes") || obj.containsKey("graphJson") || (obj.containsKey("name") && obj.containsKey("connections"))
 
-    private fun isCredentialObject(obj: JSONObject): Boolean =
-        obj.has("type") && (obj.has("data") || obj.has("dataMap") || obj.has("dataJson"))
+    private fun isCredentialObject(obj: JsonObject): Boolean =
+        obj.containsKey("type") && (obj.containsKey("data") || obj.containsKey("dataMap") || obj.containsKey("dataJson"))
 
-    private fun isPreconditionObject(obj: JSONObject): Boolean =
-        obj.has("type") && (obj.has("onFailureAction") || obj.has("targetUrl") || obj.has("minBatteryPercent"))
+    private fun isPreconditionObject(obj: JsonObject): Boolean =
+        obj.containsKey("type") && (obj.containsKey("onFailureAction") || obj.containsKey("targetUrl") || obj.containsKey("minBatteryPercent"))
 
-    private fun parseBundle(obj: JSONObject): ParsedBackupData {
+    private fun parseBundle(obj: JsonObject): ParsedBackupData {
         try {
             val bundle = AppJson.decodeFromString<BackupBundle>(obj.toString())
             val hasEncryptedItems =
@@ -200,21 +208,24 @@ object BackupSerializer {
         val isEncryptedFlag = obj.optBoolean("isEncrypted", false)
 
         val workflows = mutableListOf<Workflow>()
-        val wfArr = obj.optJSONArray("workflows") ?: JSONArray()
-        for (i in 0 until wfArr.length()) {
-            workflows.add(parseWorkflow(wfArr.getJSONObject(i)))
+        val wfArr = obj.optJsonArray("workflows") ?: JsonArray(emptyList())
+        for (elem in wfArr) {
+            val o = elem as? JsonObject ?: continue
+            workflows.add(parseWorkflow(o))
         }
 
         val credentials = mutableListOf<Credential>()
-        val credArr = obj.optJSONArray("credentials") ?: JSONArray()
-        for (i in 0 until credArr.length()) {
-            credentials.add(parseCredential(credArr.getJSONObject(i)))
+        val credArr = obj.optJsonArray("credentials") ?: JsonArray(emptyList())
+        for (elem in credArr) {
+            val o = elem as? JsonObject ?: continue
+            credentials.add(parseCredential(o))
         }
 
         val preconditions = mutableListOf<PreconditionEntity>()
-        val precArr = obj.optJSONArray("preconditions") ?: JSONArray()
-        for (i in 0 until precArr.length()) {
-            preconditions.add(parsePreconditionEntity(precArr.getJSONObject(i)))
+        val precArr = obj.optJsonArray("preconditions") ?: JsonArray(emptyList())
+        for (elem in precArr) {
+            val o = elem as? JsonObject ?: continue
+            preconditions.add(parsePreconditionEntity(o))
         }
 
         val hasEncryptedItems = isEncryptedFlag ||
@@ -231,13 +242,13 @@ object BackupSerializer {
         )
     }
 
-    private fun parseJsonArray(arr: JSONArray): ParsedBackupData {
+    private fun parseJsonArray(arr: JsonArray): ParsedBackupData {
         val workflows = mutableListOf<Workflow>()
         val credentials = mutableListOf<Credential>()
         val preconditions = mutableListOf<PreconditionEntity>()
 
-        for (i in 0 until arr.length()) {
-            val item = arr.optJSONObject(i) ?: continue
+        for (elem in arr) {
+            val item = elem as? JsonObject ?: continue
             val parsedItem = try {
                 parseJsonObject(item)
             } catch (_: IllegalArgumentException) {
@@ -432,7 +443,7 @@ object BackupSerializer {
 
     // --- Deserialization Helpers ---
 
-    private fun parseWorkflow(obj: JSONObject): Workflow {
+    private fun parseWorkflow(obj: JsonObject): Workflow {
         val id = obj.optString("id", UUID.randomUUID().toString())
         val name = obj.optString("name", "Imported Workflow")
         val description = obj.optString("description", "")
@@ -443,19 +454,19 @@ object BackupSerializer {
 
         val nodesList = mutableListOf<WorkflowNode>()
         val nodesArr = extractNodesArray(obj)
-        for (i in 0 until nodesArr.length()) {
-            val nObj = nodesArr.getJSONObject(i)
+        for (elem in nodesArr) {
+            val nObj = elem as? JsonObject ?: continue
             nodesList.add(parseWorkflowNode(nObj))
         }
 
         val connectionsList = mutableListOf<WorkflowConnection>()
         val connArr = extractConnectionsArray(obj)
-        for (i in 0 until connArr.length()) {
-            val cObj = connArr.getJSONObject(i)
+        for (elem in connArr) {
+            val cObj = elem as? JsonObject ?: continue
             connectionsList.add(
                 WorkflowConnection(
-                    fromNodeId = cObj.getString("fromNodeId"),
-                    toNodeId = cObj.getString("toNodeId"),
+                    fromNodeId = cObj.optString("fromNodeId"),
+                    toNodeId = cObj.optString("toNodeId"),
                     outputPort = cObj.optString("outputPort", "main"),
                     inputPort = cObj.optString("inputPort", "main"),
                 ),
@@ -475,41 +486,39 @@ object BackupSerializer {
         )
     }
 
-    private fun extractNodesArray(obj: JSONObject): JSONArray {
-        val directNodes = obj.optJSONArray("nodes")
+    private fun extractNodesArray(obj: JsonObject): JsonArray {
+        val directNodes = obj.optJsonArray("nodes")
         if (directNodes != null) return directNodes
 
         val graphJsonStr = obj.optString("graphJson")
-        val innerNodes = if (graphJsonStr.isNotBlank()) {
+        return if (graphJsonStr.isNotBlank()) {
             try {
-                JSONObject(graphJsonStr).optJSONArray("nodes")
+                parseJsonObjectSafe(graphJsonStr).optJsonArray("nodes") ?: JsonArray(emptyList())
             } catch (_: Exception) {
-                null
+                JsonArray(emptyList())
             }
         } else {
-            null
+            JsonArray(emptyList())
         }
-        return innerNodes ?: JSONArray()
     }
 
-    private fun extractConnectionsArray(obj: JSONObject): JSONArray {
-        val directConnections = obj.optJSONArray("connections")
+    private fun extractConnectionsArray(obj: JsonObject): JsonArray {
+        val directConnections = obj.optJsonArray("connections")
         if (directConnections != null) return directConnections
 
         val graphJsonStr = obj.optString("graphJson")
-        val innerConn = if (graphJsonStr.isNotBlank()) {
+        return if (graphJsonStr.isNotBlank()) {
             try {
-                JSONObject(graphJsonStr).optJSONArray("connections")
+                parseJsonObjectSafe(graphJsonStr).optJsonArray("connections") ?: JsonArray(emptyList())
             } catch (_: Exception) {
-                null
+                JsonArray(emptyList())
             }
         } else {
-            null
+            JsonArray(emptyList())
         }
-        return innerConn ?: JSONArray()
     }
 
-    private fun parseWorkflowNode(nodeObj: JSONObject): WorkflowNode {
+    private fun parseWorkflowNode(nodeObj: JsonObject): WorkflowNode {
         val id = nodeObj.optString("id", UUID.randomUUID().toString())
         val name = nodeObj.optString("name", "Node")
         val typeStr = nodeObj.optString("type", "")
@@ -522,9 +531,9 @@ object BackupSerializer {
         }
 
         val preconditions = mutableListOf<Precondition>()
-        val preArr = nodeObj.optJSONArray("preconditions") ?: JSONArray()
-        for (j in 0 until preArr.length()) {
-            val pObj = preArr.getJSONObject(j)
+        val preArr = nodeObj.optJsonArray("preconditions") ?: JsonArray(emptyList())
+        for (elem in preArr) {
+            val pObj = elem as? JsonObject ?: continue
             preconditions.add(parsePrecondition(pObj))
         }
 
@@ -538,7 +547,7 @@ object BackupSerializer {
         )
     }
 
-    private fun parsePrecondition(pObj: JSONObject): Precondition {
+    private fun parsePrecondition(pObj: JsonObject): Precondition {
         val pId = pObj.optString("id", UUID.randomUUID().toString())
         val pTypeStr = pObj.optString("type", "")
         val pIcon = pObj.optString("icon", "")
@@ -600,7 +609,7 @@ object BackupSerializer {
         }
     }
 
-    private fun parseCredential(obj: JSONObject): Credential {
+    private fun parseCredential(obj: JsonObject): Credential {
         val id = obj.optString("id", UUID.randomUUID().toString())
         val name = obj.optString("name", "Imported Credential")
         val type = obj.optString("type", CredentialType.BEARER_TOKEN)
@@ -608,20 +617,16 @@ object BackupSerializer {
         val updatedAt = obj.optLong("updatedAt", System.currentTimeMillis())
 
         val dataMap = mutableMapOf<String, String>()
-        val dataObj = obj.optJSONObject("data") ?: obj.optJSONObject("dataMap")
+        val dataObj = obj.optJsonObject("data") ?: obj.optJsonObject("dataMap")
         if (dataObj != null) {
-            val keys = dataObj.keys()
-            while (keys.hasNext()) {
-                val k = keys.next()
-                dataMap[k] = dataObj.optString(k, "")
+            for ((k, v) in dataObj) {
+                dataMap[k] = v.optString()
             }
-        } else if (obj.has("dataJson")) {
+        } else if (obj.containsKey("dataJson")) {
             try {
-                val parsedDataJson = JSONObject(obj.getString("dataJson"))
-                val keys = parsedDataJson.keys()
-                while (keys.hasNext()) {
-                    val k = keys.next()
-                    dataMap[k] = parsedDataJson.optString(k, "")
+                val parsedDataJson = parseJsonObjectSafe(obj.optString("dataJson"))
+                for ((k, v) in parsedDataJson) {
+                    dataMap[k] = v.optString()
                 }
             } catch (_: Exception) {
             }
@@ -637,7 +642,7 @@ object BackupSerializer {
         )
     }
 
-    private fun parsePreconditionEntity(obj: JSONObject): PreconditionEntity =
+    private fun parsePreconditionEntity(obj: JsonObject): PreconditionEntity =
         PreconditionEntity(
             id = obj.optString("id", UUID.randomUUID().toString()),
             name = obj.optString("name", "Imported Precondition"),
@@ -666,46 +671,41 @@ object BackupSerializer {
     private fun encryptSensitiveJsonKeys(jsonString: String, password: String): String {
         if (jsonString.isBlank()) return jsonString
         return try {
-            val json = JSONObject(jsonString)
+            val json = parseJsonObjectSafe(jsonString)
+            if (json.isEmpty()) return jsonString
             var modified = false
-            val keys = json.keys()
-            while (keys.hasNext()) {
-                val key = keys.next()
-                if (encryptJsonKeyIfSensitive(json, key, password)) {
+            val newMap = json.toMutableMap()
+            for ((key, value) in json) {
+                val strVal = value.optString()
+                val shouldEncrypt = DatabaseEncryption.isSensitiveKey(key) &&
+                    strVal.isNotBlank() &&
+                    !PasswordBasedEncryption.isEncryptedWithPassword(strVal)
+                if (shouldEncrypt) {
+                    newMap[key] = JsonPrimitive(PasswordBasedEncryption.encrypt(strVal, password))
                     modified = true
                 }
             }
-            if (modified) json.toString() else jsonString
+            if (modified) AppJson.encodeToString(JsonObject(newMap)) else jsonString
         } catch (_: Exception) {
             jsonString
         }
     }
 
-    private fun encryptJsonKeyIfSensitive(json: JSONObject, key: String, password: String): Boolean {
-        if (!DatabaseEncryption.isSensitiveKey(key)) return false
-        val value = json.optString(key, "")
-        if (value.isNotBlank() && !PasswordBasedEncryption.isEncryptedWithPassword(value)) {
-            json.put(key, PasswordBasedEncryption.encrypt(value, password))
-            return true
-        }
-        return false
-    }
-
     private fun decryptSensitiveJsonKeys(jsonString: String, password: CharSequence): String {
         if (jsonString.isBlank()) return jsonString
         return try {
-            val json = JSONObject(jsonString)
+            val json = parseJsonObjectSafe(jsonString)
+            if (json.isEmpty()) return jsonString
             var modified = false
-            val keys = json.keys()
-            while (keys.hasNext()) {
-                val key = keys.next()
-                val value = json.optString(key, "")
-                if (PasswordBasedEncryption.isEncryptedWithPassword(value)) {
-                    json.put(key, PasswordBasedEncryption.decrypt(value, password))
+            val newMap = json.toMutableMap()
+            for ((key, value) in json) {
+                val strVal = value.optString()
+                if (PasswordBasedEncryption.isEncryptedWithPassword(strVal)) {
+                    newMap[key] = JsonPrimitive(PasswordBasedEncryption.decrypt(strVal, password))
                     modified = true
                 }
             }
-            if (modified) json.toString() else jsonString
+            if (modified) AppJson.encodeToString(JsonObject(newMap)) else jsonString
         } catch (_: Exception) {
             jsonString
         }

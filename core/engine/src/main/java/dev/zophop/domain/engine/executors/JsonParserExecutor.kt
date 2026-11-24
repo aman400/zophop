@@ -1,13 +1,26 @@
 package dev.zophop.domain.engine.executors
 
 import android.content.Context
+import dev.zophop.domain.model.AppJson
 import dev.zophop.domain.model.WorkflowNode
+import dev.zophop.domain.model.optJsonArray
+import dev.zophop.domain.model.optJsonObject
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ExecutionContext
 import dev.zophop.plugin.api.NodeExecutionResult
 import dev.zophop.plugin.api.NodeExecutor
-import org.json.JSONArray
-import org.json.JSONException
-import org.json.JSONObject
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.put
 
 private val SIZE_TOKENS = setOf("length", "size", "count")
 private val TRUTHY_STRINGS = setOf("true", "1", "yes", "on")
@@ -98,109 +111,110 @@ class JsonParserExecutor : NodeExecutor {
     }
 
     private fun findRecursively(
-        root: Any?,
+        root: JsonElement?,
         targetKey: String,
-    ): Any? {
-        if (root == null || root == JSONObject.NULL) return null
+    ): JsonElement? {
+        if (root == null || root is JsonNull) return null
         return when (root) {
-            is JSONObject -> findInJsonObject(root, targetKey)
-            is JSONArray -> findInJsonArray(root, targetKey)
+            is JsonObject -> findInJsonObject(root, targetKey)
+            is JsonArray -> findInJsonArray(root, targetKey)
             else -> null
         }
     }
 
-    private fun findInJsonObject(root: JSONObject, targetKey: String): Any? {
-        if (root.has(targetKey)) return root.get(targetKey)
-        val keys = root.keys()
-        while (keys.hasNext()) {
-            val found = findRecursively(root.opt(keys.next()), targetKey)
-            if (found != null && found != JSONObject.NULL) return found
+    private fun findInJsonObject(root: JsonObject, targetKey: String): JsonElement? {
+        if (root.containsKey(targetKey)) return root[targetKey]
+        for ((_, v) in root) {
+            val found = findRecursively(v, targetKey)
+            if (found != null && found !is JsonNull) return found
         }
         return null
     }
 
-    private fun findInJsonArray(root: JSONArray, targetKey: String): Any? {
-        for (i in 0 until root.length()) {
-            val found = findRecursively(root.opt(i), targetKey)
-            if (found != null && found != JSONObject.NULL) return found
+    private fun findInJsonArray(root: JsonArray, targetKey: String): JsonElement? {
+        for (item in root) {
+            val found = findRecursively(item, targetKey)
+            if (found != null && found !is JsonNull) return found
         }
         return null
     }
 
     private fun evaluateBracketToken(
-        current: Any?,
+        current: JsonElement?,
         inner: String,
         tokens: List<String>,
         tokenIndex: Int,
-    ): Any? = when {
+    ): JsonElement? = when {
         inner == "*" || inner.isEmpty() -> {
-            if (current is JSONArray) projectWildcard(current, tokens, tokenIndex) else null
+            if (current is JsonArray) projectWildcard(current, tokens, tokenIndex) else null
         }
         inner.toIntOrNull() != null -> {
             val idx = inner.toInt()
-            val nextItem = if (current is JSONArray) resolveArrayIndex(current, idx) else null
+            val nextItem = if (current is JsonArray) resolveArrayIndex(current, idx) else null
             evaluateTokens(nextItem, tokens, tokenIndex + 1)
         }
         else -> {
-            val nextItem = if (current is JSONObject && current.has(inner)) current.get(inner) else null
+            val nextItem = if (current is JsonObject && current.containsKey(inner)) current[inner] else null
             evaluateTokens(nextItem, tokens, tokenIndex + 1)
         }
     }
 
-    private fun projectWildcard(current: JSONArray, tokens: List<String>, tokenIndex: Int): JSONArray {
-        val results = JSONArray()
-        for (i in 0 until current.length()) {
-            val item = current.opt(i)
+    private fun projectWildcard(current: JsonArray, tokens: List<String>, tokenIndex: Int): JsonArray {
+        val results = mutableListOf<JsonElement>()
+        for (item in current) {
             val projected = evaluateTokens(item, tokens, tokenIndex + 1)
-            if (projected != null && projected != JSONObject.NULL) {
-                results.put(projected)
+            if (projected != null && projected !is JsonNull) {
+                results.add(projected)
             }
         }
-        return results
+        return JsonArray(results)
     }
 
-    private fun resolveArrayIndex(current: JSONArray, idx: Int): Any? {
-        val resolvedIndex = if (idx < 0) current.length() + idx else idx
-        return if (resolvedIndex in 0 until current.length()) current.get(resolvedIndex) else null
+    private fun resolveArrayIndex(current: JsonArray, idx: Int): JsonElement? {
+        val resolvedIndex = if (idx < 0) current.size + idx else idx
+        return if (resolvedIndex in 0 until current.size) current[resolvedIndex] else null
     }
 
-    private fun evaluatePropertyToken(current: Any?, token: String): Any? = when (current) {
-        is JSONObject -> when {
-            current.has(token) -> current.get(token)
-            token in SIZE_TOKENS -> current.length()
-            token == "keys" -> JSONArray(current.keys().asSequence().toList())
+    private fun evaluatePropertyToken(current: JsonElement?, token: String): JsonElement? = when (current) {
+        is JsonObject -> when {
+            current.containsKey(token) -> current[token]
+            token in SIZE_TOKENS -> JsonPrimitive(current.size)
+            token == "keys" -> JsonArray(current.keys.map { JsonPrimitive(it) })
             else -> null
         }
-        is JSONArray -> evaluateArrayProperty(current, token)
+        is JsonArray -> evaluateArrayProperty(current, token)
         else -> null
     }
 
-    private fun evaluateArrayProperty(current: JSONArray, token: String): Any? {
+    private fun evaluateArrayProperty(current: JsonArray, token: String): JsonElement? {
         val idx = token.toIntOrNull()
         return when {
             idx != null -> resolveArrayIndex(current, idx)
-            token in SIZE_TOKENS -> current.length()
+            token in SIZE_TOKENS -> JsonPrimitive(current.size)
             else -> mapArrayElements(current, token)
         }
     }
 
-    private fun mapArrayElements(current: JSONArray, token: String): JSONArray? {
-        val results = JSONArray()
-        for (i in 0 until current.length()) {
-            val obj = current.optJSONObject(i)
-            if (obj != null && obj.has(token)) {
-                results.put(obj.get(token))
+    private fun mapArrayElements(current: JsonArray, token: String): JsonArray? {
+        val results = mutableListOf<JsonElement>()
+        for (item in current) {
+            val obj = item as? JsonObject
+            if (obj != null && obj.containsKey(token)) {
+                val v = obj[token]
+                if (v != null) {
+                    results.add(v)
+                }
             }
         }
-        return if (results.length() > 0) results else null
+        return if (results.isNotEmpty()) JsonArray(results) else null
     }
 
     private fun evaluateTokens(
-        current: Any?,
+        current: JsonElement?,
         tokens: List<String>,
         tokenIndex: Int,
-    ): Any? {
-        if (current == null || current == JSONObject.NULL) return null
+    ): JsonElement? {
+        if (current == null || current is JsonNull) return null
         if (tokenIndex >= tokens.size) return current
 
         val token = tokens[tokenIndex]
@@ -214,9 +228,9 @@ class JsonParserExecutor : NodeExecutor {
     }
 
     private fun extractJsonPath(
-        root: Any,
+        root: JsonElement,
         rawPath: String,
-    ): Any? {
+    ): JsonElement? {
         val path = rawPath.trim().removePrefix("$").trim()
         if (path.isEmpty() || path == ".") return root
 
@@ -237,70 +251,75 @@ class JsonParserExecutor : NodeExecutor {
             else -> defaultValue
         }
 
-    private fun convertToNumber(value: Any, defaultValue: String): Any? = when (value) {
-        is Number -> value.toInt()
-        is Boolean -> if (value) 1 else 0
-        else ->
-            value.toString().trim().toIntOrNull()
-                ?: value.toString().trim().toDoubleOrNull()?.toInt()
+    private fun convertToNumber(value: JsonElement, defaultValue: String): Any? = when (value) {
+        is JsonPrimitive ->
+            value.intOrNull
+                ?: value.doubleOrNull?.toInt()
+                ?: value.content.trim().toIntOrNull()
                 ?: defaultValue.toIntOrNull()
+        else -> defaultValue.toIntOrNull()
     }
 
-    private fun convertToDouble(value: Any, defaultValue: String): Double? = when (value) {
-        is Number -> value.toDouble()
-        is Boolean -> if (value) 1.0 else 0.0
-        else -> value.toString().trim().toDoubleOrNull() ?: defaultValue.toDoubleOrNull()
+    private fun convertToDouble(value: JsonElement, defaultValue: String): Double? = when (value) {
+        is JsonPrimitive -> value.doubleOrNull ?: value.content.trim().toDoubleOrNull() ?: defaultValue.toDoubleOrNull()
+        else -> defaultValue.toDoubleOrNull()
     }
 
-    private fun convertToBoolean(value: Any, defaultValue: String): Boolean = when (value) {
-        is Boolean -> value
-        is Number -> value.toDouble() != 0.0
-        else -> {
-            val str = value.toString().trim().lowercase()
-            when {
-                str in TRUTHY_STRINGS -> true
-                str in FALSY_STRINGS -> false
-                else -> defaultValue.toBooleanStrictOrNull() ?: false
-            }
+    private fun convertToBoolean(value: JsonElement, defaultValue: String): Boolean = when (value) {
+        is JsonPrimitive -> {
+            value.booleanOrNull
+                ?: (value.doubleOrNull?.let { it != 0.0 })
+                ?: when (value.content.trim().lowercase()) {
+                    in TRUTHY_STRINGS -> true
+                    in FALSY_STRINGS -> false
+                    else -> defaultValue.toBooleanStrictOrNull() ?: false
+                }
         }
+        else -> defaultValue.toBooleanStrictOrNull() ?: false
     }
 
-    private fun convertToCount(value: Any): Int = when (value) {
-        is JSONArray -> value.length()
-        is JSONObject -> value.length()
-        is Collection<*> -> value.size
-        is String -> value.length
+    private fun convertToCount(value: JsonElement): Int = when (value) {
+        is JsonArray -> value.size
+        is JsonObject -> value.size
+        is JsonPrimitive -> value.content.length
         else -> 1
     }
 
-    private fun convertToArray(value: Any): String = when (value) {
-        is JSONArray -> value.toString()
-        is JSONObject -> JSONArray().put(value).toString()
-        is Collection<*> -> JSONArray(value).toString()
-        else -> JSONArray().put(value.toString()).toString()
+    private fun convertToArray(value: JsonElement): String = when (value) {
+        is JsonArray -> value.toString()
+        else -> buildJsonArray { add(value) }.toString()
     }
 
     private fun convertType(
-        value: Any?,
+        value: JsonElement?,
         targetType: String,
         defaultValue: String,
     ): Any? {
-        if (value == null || value == JSONObject.NULL) {
+        if (value == null || value is JsonNull) {
             return if (defaultValue.isNotBlank()) convertDefaultValue(defaultValue, targetType) else null
         }
         return when (targetType.uppercase()) {
-            "STRING" -> value.toString()
+            "STRING" -> if (value is JsonPrimitive) value.content else value.toString()
             "NUMBER", "INTEGER", "INT" -> convertToNumber(value, defaultValue)
             "DOUBLE", "FLOAT" -> convertToDouble(value, defaultValue)
             "BOOLEAN", "BOOL" -> convertToBoolean(value, defaultValue)
             "COUNT", "LENGTH", "SIZE" -> convertToCount(value)
             "ARRAY", "LIST" -> convertToArray(value)
             "JSON_STRING" -> value.toString()
-            else -> if (value is JSONObject || value is JSONArray) value.toString() else value
+            else -> when (value) {
+                is JsonPrimitive -> {
+                    if (value.isString) {
+                        value.content
+                    } else {
+                        value.booleanOrNull ?: value.intOrNull ?: value.doubleOrNull ?: value.content
+                    }
+                }
+                else -> value.toString()
+            }
         }
     }
 
-    private fun resolveRawInput(config: JSONObject, context: ExecutionContext): String {
+    private fun resolveRawInput(config: JsonObject, context: ExecutionContext): String {
         val rawInputVariable = config.optString("inputVariable", "").trim()
         val inputVariable = context.interpolate(rawInputVariable).trim()
         return when {
@@ -314,23 +333,21 @@ class JsonParserExecutor : NodeExecutor {
         }
     }
 
-    private fun extractMultiMappings(config: JSONObject): List<Triple<String, String, String>> {
-        val mappingsObj = config.optJSONObject("mappings")
-        val mappingsArr = config.optJSONArray("mappings") ?: config.optJSONArray("extractions")
+    private fun extractMultiMappings(config: JsonObject): List<Triple<String, String, String>> {
+        val mappingsObj = config.optJsonObject("mappings")
+        val mappingsArr = config.optJsonArray("mappings") ?: config.optJsonArray("extractions")
         val multiExtractions = mutableListOf<Triple<String, String, String>>()
 
         if (mappingsObj != null) {
-            val keys = mappingsObj.keys()
-            while (keys.hasNext()) {
-                val outK = keys.next()
-                val p = mappingsObj.optString(outK, "")
+            for ((outK, pElem) in mappingsObj) {
+                val p = (pElem as? JsonPrimitive)?.content ?: pElem.toString()
                 if (outK.isNotBlank() && p.isNotBlank()) {
                     multiExtractions.add(Triple(p, outK, "AUTO"))
                 }
             }
         } else if (mappingsArr != null) {
-            for (i in 0 until mappingsArr.length()) {
-                val item = mappingsArr.optJSONObject(i) ?: continue
+            for (i in 0 until mappingsArr.size) {
+                val item = mappingsArr.optJsonObject(i) ?: continue
                 val p = item.optString("jsonKey", item.optString("path", ""))
                 val outK = item.optString("outputKey", item.optString("key", p))
                 val tType = item.optString("targetType", "AUTO")
@@ -344,7 +361,7 @@ class JsonParserExecutor : NodeExecutor {
 
     private fun executeMulti(
         multiExtractions: List<Triple<String, String, String>>,
-        jsonRoot: Any,
+        jsonRoot: JsonElement,
         context: ExecutionContext,
         outputKey: String,
         defaultValue: String,
@@ -372,7 +389,7 @@ class JsonParserExecutor : NodeExecutor {
     }
 
     private fun executeSingle(
-        jsonRoot: Any,
+        jsonRoot: JsonElement,
         jsonKey: String,
         targetType: String,
         defaultValue: String,
@@ -406,11 +423,7 @@ class JsonParserExecutor : NodeExecutor {
         context: ExecutionContext,
         appContext: Context?,
     ): NodeExecutionResult {
-        val config = try {
-            JSONObject(node.configJson)
-        } catch (_: JSONException) {
-            JSONObject()
-        }
+        val config = parseJsonObjectSafe(node.configJson)
         val rawJsonKey = config.optString("jsonKey", "code").trim()
         val jsonKey = context.interpolate(rawJsonKey).trim()
         val outputKey = config.optString("outputKey", rawJsonKey).ifEmpty { rawJsonKey }.trim()
@@ -424,11 +437,12 @@ class JsonParserExecutor : NodeExecutor {
 
         return try {
             val trimmedInput = cleanJsonInput(rawInput)
-            val jsonRoot: Any = when {
-                trimmedInput.startsWith("[") -> JSONArray(trimmedInput)
-                trimmedInput.startsWith("{") -> JSONObject(trimmedInput)
-                else -> JSONObject(mapOf("value" to trimmedInput))
-            }
+            val jsonRoot: JsonElement =
+                try {
+                    AppJson.parseToJsonElement(trimmedInput)
+                } catch (_: Exception) {
+                    buildJsonObject { put("value", trimmedInput) }
+                }
 
             val multiExtractions = extractMultiMappings(config)
             if (multiExtractions.isNotEmpty()) {
@@ -436,8 +450,6 @@ class JsonParserExecutor : NodeExecutor {
             } else {
                 executeSingle(jsonRoot, jsonKey, targetType, defaultValue, outputKey, context)
             }
-        } catch (e: JSONException) {
-            NodeExecutionResult.Failed("JSON parsing error for '$jsonKey': ${e.message}")
         } catch (e: IllegalArgumentException) {
             NodeExecutionResult.Failed("JSON parsing error for '$jsonKey': ${e.message}")
         } catch (e: IllegalStateException) {

@@ -5,6 +5,8 @@ import dev.zophop.domain.model.PreconditionType
 import dev.zophop.domain.model.Workflow
 import dev.zophop.domain.model.WorkflowConnection
 import dev.zophop.domain.model.WorkflowNode
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -234,7 +236,7 @@ class WorkflowValidationAndUiTest {
     @Test
     fun testConditionNodeDefaultConfigHasEqualsOperator() {
         val defaultConfig = WorkflowUiHelper.getDefaultConfigForType(NodeType.CONDITION)
-        val json = org.json.JSONObject(defaultConfig)
+        val json = parseJsonObjectSafe(defaultConfig)
         assertEquals("status", json.optString("variable"))
         assertEquals("EQUALS", json.optString("operator"))
         assertEquals("active", json.optString("value"))
@@ -271,44 +273,44 @@ class WorkflowValidationAndUiTest {
         allTypes.forEach { type ->
             val configStr = WorkflowUiHelper.getDefaultConfigForType(type)
             assertTrue("Default config for $type must not be empty or '{}'", configStr != "{}" && configStr.isNotBlank())
-            val json = org.json.JSONObject(configStr)
-            assertTrue("JSON for $type must have keys", json.length() > 0)
+            val json = parseJsonObjectSafe(configStr)
+            assertTrue("JSON for $type must have keys", json.size > 0)
         }
 
         // Verify specific key defaults
-        val internetJson = org.json.JSONObject(WorkflowUiHelper.getDefaultConfigForType(NodeType.INTERNET_CHECK))
+        val internetJson = parseJsonObjectSafe(WorkflowUiHelper.getDefaultConfigForType(NodeType.INTERNET_CHECK))
         assertEquals("true", internetJson.optString("requireInternet"))
         assertEquals("true", internetJson.optString("requireConnected"))
         assertEquals("ANY", internetJson.optString("requiredNetworkType"))
 
-        val vpnJson = org.json.JSONObject(WorkflowUiHelper.getDefaultConfigForType(NodeType.VPN_CHECK))
+        val vpnJson = parseJsonObjectSafe(WorkflowUiHelper.getDefaultConfigForType(NodeType.VPN_CHECK))
         assertEquals("true", vpnJson.optString("requireConnected"))
 
-        val gpsJson = org.json.JSONObject(WorkflowUiHelper.getDefaultConfigForType(NodeType.GPS_CHECK))
+        val gpsJson = parseJsonObjectSafe(WorkflowUiHelper.getDefaultConfigForType(NodeType.GPS_CHECK))
         assertEquals("true", gpsJson.optString("requireGpsEnabled"))
         assertEquals("true", gpsJson.optString("fetchCoordinates"))
 
-        val btJson = org.json.JSONObject(WorkflowUiHelper.getDefaultConfigForType(NodeType.BLUETOOTH_CHECK))
+        val btJson = parseJsonObjectSafe(WorkflowUiHelper.getDefaultConfigForType(NodeType.BLUETOOTH_CHECK))
         assertEquals("true", btJson.optString("requireBluetoothEnabled"))
         assertEquals("false", btJson.optString("requireConnected"))
 
-        val batteryJson = org.json.JSONObject(WorkflowUiHelper.getDefaultConfigForType(NodeType.BATTERY_CHECK))
+        val batteryJson = parseJsonObjectSafe(WorkflowUiHelper.getDefaultConfigForType(NodeType.BATTERY_CHECK))
         assertEquals("15", batteryJson.optString("minBatteryPercent"))
         assertEquals("false", batteryJson.optString("requireCharging"))
 
-        val regexJson = org.json.JSONObject(WorkflowUiHelper.getDefaultConfigForType(NodeType.REGEX_PARSER))
+        val regexJson = parseJsonObjectSafe(WorkflowUiHelper.getDefaultConfigForType(NodeType.REGEX_PARSER))
         assertEquals("\\b\\d{6}\\b", regexJson.optString("regex"))
         assertEquals("code", regexJson.optString("outputKey"))
 
-        val jsonParserJson = org.json.JSONObject(WorkflowUiHelper.getDefaultConfigForType(NodeType.JSON_PARSER))
+        val jsonParserJson = parseJsonObjectSafe(WorkflowUiHelper.getDefaultConfigForType(NodeType.JSON_PARSER))
         assertEquals("data.status", jsonParserJson.optString("jsonKey"))
         assertEquals("parsedStatus", jsonParserJson.optString("outputKey"))
 
-        val ntfyJson = org.json.JSONObject(WorkflowUiHelper.getDefaultConfigForType(NodeType.NTFY_ACTION))
+        val ntfyJson = parseJsonObjectSafe(WorkflowUiHelper.getDefaultConfigForType(NodeType.NTFY_ACTION))
         assertEquals("3", ntfyJson.optString("priority"))
         assertEquals("https://ntfy.sh", ntfyJson.optString("serverUrl"))
 
-        val gotifyJson = org.json.JSONObject(WorkflowUiHelper.getDefaultConfigForType(NodeType.GOTIFY_ACTION))
+        val gotifyJson = parseJsonObjectSafe(WorkflowUiHelper.getDefaultConfigForType(NodeType.GOTIFY_ACTION))
         assertEquals("5", gotifyJson.optString("priority"))
         assertEquals("https://gotify.example.com", gotifyJson.optString("serverUrl"))
     }

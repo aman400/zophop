@@ -36,6 +36,8 @@ import dev.zophop.domain.model.Credential
 import dev.zophop.domain.model.NodeType
 import dev.zophop.domain.model.Workflow
 import dev.zophop.domain.model.WorkflowNode
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.filter.SmsFilter
 import dev.zophop.plugin.api.ExecutionContext
 import dev.zophop.service.SmsForwarderService
@@ -49,7 +51,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
+import kotlinx.serialization.json.JsonObject
 import java.util.UUID
 
 data class ActiveExecutionState(
@@ -582,20 +584,13 @@ class MainViewModel(
                             node.type.contains("TRIGGER", ignoreCase = true) ||
                             workflow.connections.none { it.toNodeId == node.id }
                     }
-                val triggerConfig =
-                    try {
-                        JSONObject(triggerNode?.configJson ?: "{}")
-                    } catch (_: Exception) {
-                        JSONObject()
-                    }
+                val triggerConfig = parseJsonObjectSafe(triggerNode?.configJson ?: "{}")
 
                 val testContextMap = mutableMapOf<String, Any>()
-                val keys = triggerConfig.keys()
-                while (keys.hasNext()) {
-                    val key = keys.next()
+                for ((key, value) in triggerConfig) {
                     if (key.startsWith("test", ignoreCase = true) && key.length > 4) {
                         val contextKey = key.substring(4).replaceFirstChar { it.lowercase() }
-                        val valStr = triggerConfig.optString(key, "")
+                        val valStr = value.optString()
                         if (valStr.isNotBlank()) {
                             testContextMap[contextKey] = valStr
                             if (contextKey == "body" || contextKey == "text") {
@@ -704,7 +699,7 @@ class MainViewModel(
 
     private fun populateTriggerTestContext(
         triggerNode: WorkflowNode?,
-        triggerConfig: JSONObject,
+        triggerConfig: JsonObject,
         testContextMap: MutableMap<String, Any>,
     ) {
         val triggerType = triggerNode?.type ?: ""
@@ -730,7 +725,7 @@ class MainViewModel(
         testContextMap["show_workflow_notifications"] = _uiState.value.showWorkflowNotifications
     }
 
-    private fun populateManualTestContext(config: JSONObject, map: MutableMap<String, Any>) {
+    private fun populateManualTestContext(config: JsonObject, map: MutableMap<String, Any>) {
         if (!map.containsKey("body") && !map.containsKey("text")) {
             val defaultBody = config.optString("testBody", "Manual test execution").ifBlank { "Manual test execution" }
             map["body"] = defaultBody
@@ -738,7 +733,7 @@ class MainViewModel(
         }
     }
 
-    private fun populateSmsTestContext(config: JSONObject, map: MutableMap<String, Any>) {
+    private fun populateSmsTestContext(config: JsonObject, map: MutableMap<String, Any>) {
         if (!map.containsKey("body") && !map.containsKey("text")) {
             val defaultBody = config.optString("testBody", "Your OTP verification code is 849201")
                 .ifBlank { "Your OTP verification code is 849201" }
@@ -756,7 +751,7 @@ class MainViewModel(
         }
     }
 
-    private fun populateNotificationTestContext(config: JSONObject, map: MutableMap<String, Any>) {
+    private fun populateNotificationTestContext(config: JsonObject, map: MutableMap<String, Any>) {
         if (!map.containsKey("body") && !map.containsKey("text")) {
             val defaultBody = config.optString("testText", "Bank Alert: OTP Code 849201")
                 .ifBlank { "Bank Alert: OTP Code 849201" }
@@ -774,7 +769,7 @@ class MainViewModel(
         }
     }
 
-    private fun populateCallTestContext(config: JSONObject, map: MutableMap<String, Any>) {
+    private fun populateCallTestContext(config: JsonObject, map: MutableMap<String, Any>) {
         if (!map.containsKey("caller_number") && !map.containsKey("sender")) {
             val caller = config.optString("testCaller", "+15559876543").ifBlank { "+15559876543" }
             map["caller_number"] = caller
@@ -783,7 +778,7 @@ class MainViewModel(
         }
     }
 
-    private fun populateCronTestContext(config: JSONObject, map: MutableMap<String, Any>) {
+    private fun populateCronTestContext(config: JsonObject, map: MutableMap<String, Any>) {
         if (!map.containsKey("body") && !map.containsKey("text")) {
             val defaultBody = config.optString("testPayload", "Scheduled cron trigger executed")
                 .ifBlank { "Scheduled cron trigger executed" }
@@ -795,7 +790,7 @@ class MainViewModel(
         }
     }
 
-    private fun populateGenericTestContext(config: JSONObject, map: MutableMap<String, Any>) {
+    private fun populateGenericTestContext(config: JsonObject, map: MutableMap<String, Any>) {
         if (!map.containsKey("body") && !map.containsKey("text")) {
             val defaultBody = config.optString("testBody", "Test execution payload").ifBlank { "Test execution payload" }
             map["body"] = defaultBody
@@ -841,12 +836,7 @@ class MainViewModel(
             currentWorkflows.forEach { wf ->
                 val notifTrigger = wf.nodes.find { it.type == NodeType.NOTIFICATION_TRIGGER }
                 if (notifTrigger != null && wf.isEnabled) {
-                    val config =
-                        try {
-                            JSONObject(notifTrigger.configJson)
-                        } catch (_: Exception) {
-                            JSONObject()
-                        }
+                    val config = parseJsonObjectSafe(notifTrigger.configJson)
                     val pkgFilter = config.optString("packageFilter", ".*")
                     val isInstalled =
                         dev.zophop.ui.workflows.AppListHelper

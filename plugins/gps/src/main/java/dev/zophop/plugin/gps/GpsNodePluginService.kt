@@ -9,6 +9,8 @@ import android.location.LocationManager
 import android.os.IBinder
 import androidx.core.content.ContextCompat
 import dev.zophop.domain.model.WorkflowNode
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ConfigFieldSpec
 import dev.zophop.plugin.api.ExecutionContext
 import dev.zophop.plugin.api.INodePluginService
@@ -17,8 +19,9 @@ import dev.zophop.plugin.api.NodeExecutionResult
 import dev.zophop.plugin.api.NodeExecutor
 import dev.zophop.plugin.api.NodePluginManifest
 import dev.zophop.plugin.api.NodePluginModule
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okhttp3.OkHttpClient
-import org.json.JSONObject
 
 /**
  * Action executor for [GET_LOCATION_ACTION].
@@ -120,12 +123,7 @@ private fun checkGpsStatus(
     val isGpsEnabled = lm?.isProviderEnabled(LocationManager.GPS_PROVIDER) == true
     val isNetworkEnabled = lm?.isProviderEnabled(LocationManager.NETWORK_PROVIDER) == true
 
-    val config =
-        try {
-            JSONObject(node.configJson)
-        } catch (_: Exception) {
-            JSONObject()
-        }
+    val config = parseJsonObjectSafe(node.configJson)
     val requireHighAccuracy = config.optString("requireHighAccuracy", "true") == "true"
 
     return when {
@@ -215,24 +213,22 @@ class GpsNodePluginService : Service() {
                 val acc = location?.accuracy?.toString() ?: "0.0"
                 val mapsUrl = "https://maps.google.com/?q=$lat,$lon"
 
-                return JSONObject()
-                    .apply {
-                        put("isSuccess", true)
-                        put("outputPort", "main")
-                        put("logMessage", "Location: ($lat, $lon)")
-                        put("latitude", lat)
-                        put("longitude", lon)
-                        put("accuracy", acc)
-                        put("maps_url", mapsUrl)
-                    }.toString()
+                return buildJsonObject {
+                    put("isSuccess", true)
+                    put("outputPort", "main")
+                    put("logMessage", "Location: ($lat, $lon)")
+                    put("latitude", lat)
+                    put("longitude", lon)
+                    put("accuracy", acc)
+                    put("maps_url", mapsUrl)
+                }.toString()
             }
 
             private fun fail(reason: String) =
-                JSONObject()
-                    .apply {
-                        put("isSuccess", false)
-                        put("errorReason", reason)
-                    }.toString()
+                buildJsonObject {
+                    put("isSuccess", false)
+                    put("errorReason", reason)
+                }.toString()
         }
 
     override fun onBind(intent: Intent?): IBinder = binder

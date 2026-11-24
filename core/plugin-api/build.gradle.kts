@@ -36,7 +36,6 @@ kotlin {
 dependencies {
     api(project(":core:model"))
     implementation(libs.androidx.core.ktx)
-    implementation(libs.json)
     implementation(libs.okhttp)
 
     testImplementation(libs.junit)

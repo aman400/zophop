@@ -7,13 +7,16 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.IBinder
 import android.telecom.TelecomManager
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ConfigFieldSpec
 import dev.zophop.plugin.api.INodePluginService
 import dev.zophop.plugin.api.NodeCategory
 import dev.zophop.plugin.api.NodePluginManifest
 import dev.zophop.plugin.api.NodePluginModule
-import org.json.JSONException
-import org.json.JSONObject
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.util.regex.Pattern
 import java.util.regex.PatternSyntaxException
 
@@ -89,7 +92,7 @@ class CallNodePluginService : Service() {
             }
 
             private fun executeCallTrigger(
-                config: JSONObject,
+                config: JsonObject,
                 callerNumber: String,
             ): String {
                 val hasPhonePermission = checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
@@ -100,7 +103,7 @@ class CallNodePluginService : Service() {
             }
 
             private fun evaluateCallTriggerService(
-                config: JSONObject,
+                config: JsonObject,
                 callerNumber: String,
             ): String {
                 val callerRegex = config.optString("callerRegex", ".*")
@@ -110,18 +113,17 @@ class CallNodePluginService : Service() {
                     failService("Caller number '$callerNumber' did not match filter regex '$callerRegex'")
                 } else {
                     val outputMap =
-                        JSONObject().apply {
+                        buildJsonObject {
                             put("caller_number", callerNumber)
                             put("sender", callerNumber)
                             put("header", callerNumber)
                         }
-                    JSONObject()
-                        .apply {
-                            put("isSuccess", true)
-                            put("outputPort", "main")
-                            put("logMessage", "Incoming call trigger matched caller '$callerNumber'")
-                            put("outputDataMap", outputMap)
-                        }.toString()
+                    buildJsonObject {
+                        put("isSuccess", true)
+                        put("outputPort", "main")
+                        put("logMessage", "Incoming call trigger matched caller '$callerNumber'")
+                        put("outputDataMap", outputMap)
+                    }.toString()
                 }
             }
 
@@ -157,13 +159,12 @@ class CallNodePluginService : Service() {
                         false
                     }
 
-                return JSONObject()
-                    .apply {
-                        put("isSuccess", endSuccess)
-                        put("outputPort", "main")
-                        put("logMessage", if (endSuccess) "Disconnected incoming call from '$callerNumber'" else "Failed to end call")
-                        put("outputDataMap", JSONObject().apply { put("call_status", if (endSuccess) "DISCONNECTED" else "FAILED") })
-                    }.toString()
+                return buildJsonObject {
+                    put("isSuccess", endSuccess)
+                    put("outputPort", "main")
+                    put("logMessage", if (endSuccess) "Disconnected incoming call from '$callerNumber'" else "Failed to end call")
+                    put("outputDataMap", buildJsonObject { put("call_status", if (endSuccess) "DISCONNECTED" else "FAILED") })
+                }.toString()
             }
 
             private fun executeAnswerCall(callerNumber: String): String {
@@ -192,32 +193,25 @@ class CallNodePluginService : Service() {
                         false
                     }
 
-                return JSONObject()
-                    .apply {
-                        put("isSuccess", acceptSuccess)
-                        put("outputPort", "main")
-                        put("logMessage", if (acceptSuccess) "Answered incoming call from '$callerNumber'" else "Failed to answer call")
-                        put("outputDataMap", JSONObject().apply { put("call_status", if (acceptSuccess) "ANSWERED" else "FAILED") })
-                    }.toString()
+                return buildJsonObject {
+                    put("isSuccess", acceptSuccess)
+                    put("outputPort", "main")
+                    put("logMessage", if (acceptSuccess) "Answered incoming call from '$callerNumber'" else "Failed to answer call")
+                    put("outputDataMap", buildJsonObject { put("call_status", if (acceptSuccess) "ANSWERED" else "FAILED") })
+                }.toString()
             }
 
             private fun failService(reason: String): String =
-                JSONObject()
-                    .apply {
-                        put("isSuccess", false)
-                        put("errorReason", reason)
-                    }.toString()
+                buildJsonObject {
+                    put("isSuccess", false)
+                    put("errorReason", reason)
+                }.toString()
         }
 
     override fun onBind(intent: Intent?): IBinder = binder
 }
 
-private fun parseJsonConfig(configJson: String): JSONObject =
-    try {
-        JSONObject(configJson)
-    } catch (_: JSONException) {
-        JSONObject()
-    }
+private fun parseJsonConfig(configJson: String): JsonObject = parseJsonObjectSafe(configJson)
 
 private fun matchesCallerRegex(
     callerRegex: String,

@@ -375,8 +375,11 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONArray
-import org.json.JSONObject
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 
 class TelegramNodePluginService : Service() {
 
@@ -387,22 +390,22 @@ class TelegramNodePluginService : Service() {
         override fun getPluginApiVersion(): Int = 1
 
         override fun getManifestJson(): String {
-            val schema = JSONArray().apply {
-                put(JSONObject().apply {
+            val schema = buildJsonArray {
+                add(buildJsonObject {
                     put("key", "botToken")
                     put("label", "Telegram Bot Token")
                     put("type", "TEXT")
                     put("tooltip", "Bot token provided by @BotFather")
                     put("singleLine", true)
                 })
-                put(JSONObject().apply {
+                add(buildJsonObject {
                     put("key", "chatId")
                     put("label", "Telegram Chat ID")
                     put("type", "TEXT")
                     put("tooltip", "Target Chat ID or Channel username (e.g. -100123456789)")
                     put("singleLine", true)
                 })
-                put(JSONObject().apply {
+                add(buildJsonObject {
                     put("key", "messageTemplate")
                     put("label", "Message Template")
                     put("type", "TEMPLATE")
@@ -411,7 +414,7 @@ class TelegramNodePluginService : Service() {
                 })
             }
 
-            val manifest = JSONObject().apply {
+            val manifest = buildJsonObject {
                 put("typeId", "com.example.telegramplugin.TELEGRAM_ACTION")
                 put("displayName", "Telegram Notification")
                 put("description", "Sends formatted notifications and alerts to a Telegram chat via Bot API")
@@ -424,15 +427,15 @@ class TelegramNodePluginService : Service() {
         }
 
         override fun executeNode(nodeId: String, configJson: String, inputContextJson: String): String {
-            val config = try { JSONObject(configJson) } catch (_: Exception) { JSONObject() }
-            val inputCtx = try { JSONObject(inputContextJson) } catch (_: Exception) { JSONObject() }
+            val config = parseJsonObjectSafe(configJson)
+            val inputCtx = parseJsonObjectSafe(inputContextJson)
 
             val botToken = config.optString("botToken", "").trim()
             val chatId = config.optString("chatId", "").trim()
             val template = config.optString("messageTemplate", "\${body}").ifEmpty { "\${body}" }
 
             if (botToken.isBlank() || chatId.isBlank()) {
-                return JSONObject().apply {
+                return buildJsonObject {
                     put("isSuccess", false)
                     put("errorReason", "Telegram botToken or chatId is empty")
                 }.toString()
@@ -440,15 +443,13 @@ class TelegramNodePluginService : Service() {
 
             // Simple variable interpolation
             var message = template
-            val keys = inputCtx.keys()
-            while (keys.hasNext()) {
-                val key = keys.next()
-                val value = inputCtx.optString(key, "")
-                message = message.replace("\${$key}", value).replace("{$key}", value)
+            for ((key, value) in inputCtx) {
+                val strVal = value.optString()
+                message = message.replace("\${$key}", strVal).replace("{$key}", strVal)
             }
 
             val url = "https://api.telegram.org/bot$botToken/sendMessage"
-            val jsonBody = JSONObject().apply {
+            val jsonBody = buildJsonObject {
                 put("chat_id", chatId)
                 put("text", message)
                 put("parse_mode", "Markdown")
@@ -461,19 +462,19 @@ class TelegramNodePluginService : Service() {
                 val response = client.newCall(request).execute()
                 val responseBody = response.body?.string() ?: ""
                 if (response.isSuccessful) {
-                    JSONObject().apply {
+                    buildJsonObject {
                         put("isSuccess", true)
                         put("outputPort", "main")
                         put("logMessage", "Telegram message successfully sent to chat $chatId")
                     }.toString()
                 } else {
-                    JSONObject().apply {
+                    buildJsonObject {
                         put("isSuccess", false)
                         put("errorReason", "Telegram API error (${response.code}): $responseBody")
                     }.toString()
                 }
             } catch (e: Exception) {
-                JSONObject().apply {
+                buildJsonObject {
                     put("isSuccess", false)
                     put("errorReason", "Telegram request exception: ${e.message}")
                 }.toString()

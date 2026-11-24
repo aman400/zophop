@@ -67,8 +67,9 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import dev.zophop.core.ui.components.CredentialBottomSheet
 import dev.zophop.domain.model.Credential
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.ui.MainViewModel
-import org.json.JSONObject
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -211,7 +212,7 @@ fun CredentialsScreen(
                             workflows.filter { wf ->
                                 wf.nodes.any { node ->
                                     try {
-                                        JSONObject(node.configJson).optString("credentialId") == cred.id
+                                        parseJsonObjectSafe(node.configJson).optString("credentialId") == cred.id
                                     } catch (_: Exception) {
                                         false
                                     }
@@ -269,7 +270,7 @@ fun CredentialsScreen(
                 workflows.filter { wf ->
                     wf.nodes.any { node ->
                         try {
-                            JSONObject(node.configJson).optString("credentialId") == cred.id
+                            parseJsonObjectSafe(node.configJson).optString("credentialId") == cred.id
                         } catch (_: Exception) {
                             false
                         }
@@ -300,7 +301,7 @@ fun CredentialsScreen(
                 workflows.filter { wf ->
                     wf.nodes.any { node ->
                         try {
-                            JSONObject(node.configJson).optString("credentialId") == cred.id
+                            parseJsonObjectSafe(node.configJson).optString("credentialId") == cred.id
                         } catch (_: Exception) {
                             false
                         }

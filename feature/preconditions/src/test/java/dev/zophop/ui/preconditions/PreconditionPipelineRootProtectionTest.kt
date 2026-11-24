@@ -5,14 +5,14 @@ import dev.zophop.data.getStepCount
 import dev.zophop.data.hasNodeType
 import dev.zophop.data.toDomain
 import dev.zophop.domain.engine.plugin.BuiltInPluginRegistry
+import dev.zophop.domain.model.AppJson
 import dev.zophop.domain.model.NodeType
 import dev.zophop.domain.model.Precondition
 import dev.zophop.domain.model.PreconditionType
 import dev.zophop.domain.model.WorkflowConnection
+import dev.zophop.domain.model.WorkflowGraph
 import dev.zophop.domain.model.WorkflowNode
 import dev.zophop.plugin.api.NodeCategory
-import org.json.JSONArray
-import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -213,41 +213,12 @@ class PreconditionPipelineRootProtectionTest {
             )
 
         val pipeJson =
-            JSONObject()
-                .apply {
-                    val arr =
-                        JSONArray().apply {
-                            put(
-                                JSONObject().apply {
-                                    put("id", rootNode.id)
-                                    put("name", rootNode.name)
-                                    put("type", rootNode.type)
-                                    put("isEnabled", rootNode.isEnabled)
-                                    put("configJson", rootNode.configJson)
-                                },
-                            )
-                            put(
-                                JSONObject().apply {
-                                    put("id", downstreamNode.id)
-                                    put("name", downstreamNode.name)
-                                    put("type", downstreamNode.type)
-                                    put("isEnabled", downstreamNode.isEnabled)
-                                    put("configJson", downstreamNode.configJson)
-                                },
-                            )
-                        }
-                    put("nodes", arr)
-                    val conns =
-                        JSONArray().apply {
-                            put(
-                                JSONObject().apply {
-                                    put("fromNodeId", rootNodeId)
-                                    put("toNodeId", downstreamId)
-                                },
-                            )
-                        }
-                    put("connections", conns)
-                }.toString()
+            AppJson.encodeToString(
+                WorkflowGraph(
+                    nodes = listOf(rootNode, downstreamNode),
+                    connections = listOf(WorkflowConnection(fromNodeId = rootNodeId, toNodeId = downstreamId)),
+                ),
+            )
 
         val entity =
             PreconditionEntity(

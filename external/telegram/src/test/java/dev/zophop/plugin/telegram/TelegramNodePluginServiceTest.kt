@@ -2,6 +2,8 @@ package dev.zophop.plugin.telegram
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.zophop.domain.model.WorkflowNode
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ExecutionContext
 import dev.zophop.plugin.api.NodeExecutionResult
 import kotlinx.coroutines.test.runTest
@@ -245,9 +247,9 @@ class TelegramNodePluginServiceTest {
 
             val result = executor.execute(node, context, null)
             assertTrue(result is NodeExecutionResult.Success)
-            val json = org.json.JSONObject(requestBody)
-            assertEquals("-100778899", json.getString("chat_id"))
-            assertEquals("Hello Alice", json.getString("text"))
-            org.junit.Assert.assertFalse(json.has("parse_mode"))
+            val json = parseJsonObjectSafe(requestBody)
+            assertEquals("-100778899", json.optString("chat_id"))
+            assertEquals("Hello Alice", json.optString("text"))
+            org.junit.Assert.assertFalse(json.containsKey("parse_mode"))
         }
 }

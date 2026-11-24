@@ -2,10 +2,11 @@ package dev.zophop.domain.engine.executors
 
 import android.content.Context
 import dev.zophop.domain.model.WorkflowNode
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ExecutionContext
 import dev.zophop.plugin.api.NodeExecutionResult
 import dev.zophop.plugin.api.NodeExecutor
-import org.json.JSONObject
 import java.util.regex.Pattern
 
 /**
@@ -19,12 +20,7 @@ class ConditionExecutor : NodeExecutor {
         context: ExecutionContext,
         appContext: Context?,
     ): NodeExecutionResult {
-        val config =
-            try {
-                JSONObject(node.configJson)
-            } catch (_: Exception) {
-                JSONObject()
-            }
+        val config = parseJsonObjectSafe(node.configJson)
         val variableName = config.optString("variable", "code").ifEmpty { config.optString("variable", "body") }.trim()
         val operator = config.optString("operator", "NOT_EMPTY").trim()
         val targetValue = context.interpolate(config.optString("value", "")).trim()

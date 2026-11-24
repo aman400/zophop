@@ -3,10 +3,13 @@ package dev.zophop.plugin.call
 import android.Manifest
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.zophop.domain.model.WorkflowNode
+import dev.zophop.domain.model.optBoolean
+import dev.zophop.domain.model.optJsonObject
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ExecutionContext
 import dev.zophop.plugin.api.NodeExecutionResult
 import kotlinx.coroutines.test.runTest
-import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -131,11 +134,11 @@ class CallNodePluginServiceTest {
         val resultJson = binder.executeNode("node_trigger", configJson, inputContextJson)
         assertNotNull(resultJson)
 
-        val json = JSONObject(resultJson)
-        assertTrue(json.getBoolean("isSuccess"))
-        val outputMap = json.getJSONObject("outputDataMap")
-        assertEquals("+15559876543", outputMap.getString("caller_number"))
-        assertEquals("+15559876543", outputMap.getString("sender"))
+        val json = parseJsonObjectSafe(resultJson)
+        assertTrue(json.optBoolean("isSuccess"))
+        val outputMap = json.optJsonObject("outputDataMap")!!
+        assertEquals("+15559876543", outputMap.optString("caller_number"))
+        assertEquals("+15559876543", outputMap.optString("sender"))
     }
 
     @Test
@@ -152,11 +155,11 @@ class CallNodePluginServiceTest {
         val inputContextJson = """{"caller_number":"+15551234567"}"""
 
         val resultJson = binder.executeNode("node_trigger", configJson, inputContextJson)
-        val json = JSONObject(resultJson)
+        val json = parseJsonObjectSafe(resultJson)
 
-        assertFalse(json.getBoolean("isSuccess"))
+        assertFalse(json.optBoolean("isSuccess"))
         assertTrue(json.optBoolean("isIgnored", false))
-        assertTrue(json.getString("errorReason").contains("did not match filter regex"))
+        assertTrue(json.optString("errorReason").contains("did not match filter regex"))
     }
 
     @Test
@@ -173,10 +176,10 @@ class CallNodePluginServiceTest {
         val inputContextJson = """{"caller_number":"+15559876543"}"""
 
         val resultJson = binder.executeNode("node_trigger", configJson, inputContextJson)
-        val json = JSONObject(resultJson)
+        val json = parseJsonObjectSafe(resultJson)
 
-        assertFalse(json.getBoolean("isSuccess"))
-        assertTrue(json.getString("errorReason").contains("READ_PHONE_STATE permission not granted"))
+        assertFalse(json.optBoolean("isSuccess"))
+        assertTrue(json.optString("errorReason").contains("READ_PHONE_STATE permission not granted"))
     }
 
     @Test
@@ -193,10 +196,10 @@ class CallNodePluginServiceTest {
         val inputContextJson = """{"caller_number":"+15559876543"}"""
 
         val resultJson = binder.executeNode("node_answer", configJson, inputContextJson)
-        val json = JSONObject(resultJson)
+        val json = parseJsonObjectSafe(resultJson)
 
-        assertFalse(json.getBoolean("isSuccess"))
-        assertTrue(json.getString("errorReason").contains("ANSWER_PHONE_CALLS permission not granted"))
+        assertFalse(json.optBoolean("isSuccess"))
+        assertTrue(json.optString("errorReason").contains("ANSWER_PHONE_CALLS permission not granted"))
     }
 
     @Test
@@ -213,9 +216,9 @@ class CallNodePluginServiceTest {
         val inputContextJson = """{"caller_number":"+15559876543"}"""
 
         val resultJson = binder.executeNode("node_disconnect", configJson, inputContextJson)
-        val json = JSONObject(resultJson)
+        val json = parseJsonObjectSafe(resultJson)
 
-        assertFalse(json.getBoolean("isSuccess"))
+        assertFalse(json.optBoolean("isSuccess"))
     }
 
     @Test
@@ -234,7 +237,7 @@ class CallNodePluginServiceTest {
         val resultJson = binder.executeNode("node_corrupt", corruptConfigJson, corruptInputJson)
         assertNotNull(resultJson)
 
-        val json = JSONObject(resultJson)
-        assertTrue(json.has("isSuccess"))
+        val json = parseJsonObjectSafe(resultJson)
+        assertTrue(json.containsKey("isSuccess"))
     }
 }

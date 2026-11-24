@@ -63,17 +63,21 @@ import dev.zophop.data.PreconditionEntity
 import dev.zophop.data.toDomain
 import dev.zophop.domain.engine.NodeExecutionStep
 import dev.zophop.domain.engine.PreconditionResult
+import dev.zophop.domain.model.AppJson
 import dev.zophop.domain.model.Credential
 import dev.zophop.domain.model.NodeType
 import dev.zophop.domain.model.Precondition
 import dev.zophop.domain.model.PreconditionType
 import dev.zophop.domain.model.Workflow
 import dev.zophop.domain.model.WorkflowConnection
+import dev.zophop.domain.model.WorkflowGraph
 import dev.zophop.domain.model.WorkflowNode
+import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.ui.workflows.NodeConfigBottomSheet
 import dev.zophop.ui.workflows.WorkflowUiHelper
-import org.json.JSONArray
-import org.json.JSONObject
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.util.UUID
 
 /**
@@ -653,13 +657,14 @@ private fun convertLegacyToNodesAndConns(
                     type = NodeType.BATTERY_CHECK,
                     isEnabled = true,
                     configJson =
-                        JSONObject(WorkflowUiHelper.getDefaultConfigForType(NodeType.BATTERY_CHECK))
-                            .apply {
-                                if (precondition.minBatteryPercent > 0) {
-                                    put("minBatteryPercent", precondition.minBatteryPercent.toString())
-                                }
-                                put("requireCharging", precondition.requireCharging.toString())
-                            }.toString(),
+                        buildJsonObject {
+                            val defaults = parseJsonObjectSafe(WorkflowUiHelper.getDefaultConfigForType(NodeType.BATTERY_CHECK))
+                            for ((k, v) in defaults) put(k, v)
+                            if (precondition.minBatteryPercent > 0) {
+                                put("minBatteryPercent", precondition.minBatteryPercent.toString())
+                            }
+                            put("requireCharging", precondition.requireCharging.toString())
+                        }.toString(),
                 ),
             ) to emptyList()
         }
@@ -672,12 +677,13 @@ private fun convertLegacyToNodesAndConns(
                     type = NodeType.SIM_CHECK,
                     isEnabled = true,
                     configJson =
-                        JSONObject(WorkflowUiHelper.getDefaultConfigForType(NodeType.SIM_CHECK))
-                            .apply {
-                                if (precondition.requiredCarrier.isNotBlank()) {
-                                    put("requiredCarrier", precondition.requiredCarrier)
-                                }
-                            }.toString(),
+                        buildJsonObject {
+                            val defaults = parseJsonObjectSafe(WorkflowUiHelper.getDefaultConfigForType(NodeType.SIM_CHECK))
+                            for ((k, v) in defaults) put(k, v)
+                            if (precondition.requiredCarrier.isNotBlank()) {
+                                put("requiredCarrier", precondition.requiredCarrier)
+                            }
+                        }.toString(),
                 ),
             ) to emptyList()
         }
@@ -691,13 +697,12 @@ private fun convertLegacyToNodesAndConns(
                     type = NodeType.HTTP_ACTION,
                     isEnabled = true,
                     configJson =
-                        JSONObject()
-                            .apply {
-                                put("url", precondition.targetUrl.ifBlank { "https://example.com/health" })
-                                put("method", precondition.method.ifBlank { "GET" })
-                                put("headers", precondition.headers)
-                                if (precondition.credentialId.isNotBlank()) put("credentialId", precondition.credentialId)
-                            }.toString(),
+                        buildJsonObject {
+                            put("url", precondition.targetUrl.ifBlank { "https://example.com/health" })
+                            put("method", precondition.method.ifBlank { "GET" })
+                            put("headers", precondition.headers)
+                            if (precondition.credentialId.isNotBlank()) put("credentialId", precondition.credentialId)
+                        }.toString(),
                 )
             val condNode =
                 WorkflowNode(
@@ -706,12 +711,11 @@ private fun convertLegacyToNodesAndConns(
                     type = NodeType.CONDITION,
                     isEnabled = true,
                     configJson =
-                        JSONObject()
-                            .apply {
-                                put("variable", "http_status")
-                                put("operator", "EQUALS")
-                                put("value", precondition.expectedStatus.toString())
-                            }.toString(),
+                        buildJsonObject {
+                            put("variable", "http_status")
+                            put("operator", "EQUALS")
+                            put("value", precondition.expectedStatus.toString())
+                        }.toString(),
                 )
             listOf(httpNode, condNode) to listOf(WorkflowConnection(fromNodeId = httpId, toNodeId = condId))
         }
@@ -1065,34 +1069,7 @@ private fun PreconditionNotificationRationaleDialog(
 private fun buildPipelineJson(
     chainNodes: List<WorkflowNode>,
     chainConnections: List<WorkflowConnection>,
-): String =
-    JSONObject().apply {
-        val nodesArr = JSONArray()
-        chainNodes.forEach { node ->
-            nodesArr.put(
-                JSONObject().apply {
-                    put("id", node.id)
-                    put("name", node.name)
-                    put("type", node.type)
-                    put("isEnabled", node.isEnabled)
-                    put("configJson", node.configJson)
-                },
-            )
-        }
-        put("nodes", nodesArr)
-
-        val connArr = JSONArray()
-        chainConnections.forEach { conn ->
-            connArr.put(
-                JSONObject().apply {
-                    put("fromNodeId", conn.fromNodeId)
-                    put("toNodeId", conn.toNodeId)
-                    put("outputPort", conn.outputPort)
-                },
-            )
-        }
-        put("connections", connArr)
-    }.toString()
+): String = AppJson.encodeToString(WorkflowGraph(nodes = chainNodes, connections = chainConnections))
 
 private fun hasPreconditionChanges(
     precondition: PreconditionEntity?,

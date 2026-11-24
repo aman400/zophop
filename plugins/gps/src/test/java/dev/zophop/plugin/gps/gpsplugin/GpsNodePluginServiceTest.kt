@@ -2,8 +2,10 @@ package dev.zophop.plugin.gps.gpsplugin
 
 import android.Manifest
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import dev.zophop.domain.model.optBoolean
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.INodePluginService
-import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -42,8 +44,8 @@ class GpsNodePluginServiceTest {
         val configJson = """{"typeId":"dev.zophop.gpsplugin.GET_LOCATION_ACTION"}"""
         val resultJson = binder.executeNode("node_1", configJson, "{}")
 
-        val json = JSONObject(resultJson)
-        assertFalse(json.getBoolean("isSuccess"))
-        assertTrue(json.getString("errorReason").contains("Location permissions"))
+        val json = parseJsonObjectSafe(resultJson)
+        assertFalse(json.optBoolean("isSuccess"))
+        assertTrue(json.optString("errorReason").contains("Location permissions"))
     }
 }

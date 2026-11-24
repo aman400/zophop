@@ -1,8 +1,8 @@
 package dev.zophop.ui.workflows
 
 import dev.zophop.domain.engine.plugin.BuiltInPluginRegistry
+import dev.zophop.domain.model.AppJson
 import dev.zophop.plugin.api.NodePluginManifest
-import org.json.JSONObject
 import java.util.regex.Pattern
 import java.util.regex.PatternSyntaxException
 
@@ -13,7 +13,7 @@ object NodeConfigValidator {
         manifest: NodePluginManifest? = null,
     ): String? {
         val schemaError = validateAgainstSchema(config, manifest)
-        val configJson = JSONObject(config).toString()
+        val configJson = AppJson.encodeToString(config)
         val pluginError = BuiltInPluginRegistry.validateConfig(nodeType, configJson)
         return schemaError ?: pluginError ?: validateByTypeFallback(nodeType, config)
     }

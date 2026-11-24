@@ -1,7 +1,9 @@
 package dev.zophop.plugin.gotify
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import org.json.JSONObject
+import dev.zophop.domain.model.optBoolean
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -37,8 +39,8 @@ class GotifyNodePluginServiceTest {
         val configJson = """{"typeId":"dev.zophop.plugin.gotify.GOTIFY_ACTION"}"""
         val resultJson = binder.executeNode("node_1", configJson, "{}")
 
-        val json = JSONObject(resultJson)
-        assertEquals(false, json.getBoolean("isSuccess"))
-        assertTrue(json.getString("errorReason").contains("serverUrl is empty"))
+        val json = parseJsonObjectSafe(resultJson)
+        assertEquals(false, json.optBoolean("isSuccess"))
+        assertTrue(json.optString("errorReason").contains("serverUrl is empty"))
     }
 }

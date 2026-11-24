@@ -11,7 +11,8 @@ import dev.zophop.plugin.api.INodePluginService
 import dev.zophop.plugin.api.NodeCategory
 import dev.zophop.plugin.api.NodePluginManifest
 import dev.zophop.plugin.api.NodePluginModule
-import org.json.JSONObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 object GpsPluginModule : NodePluginModule {
     override val moduleId: String = "gps-plugin-module"
@@ -83,24 +84,22 @@ class GpsNodePluginService : Service() {
                 val acc = location?.accuracy?.toString() ?: "0.0"
                 val mapsUrl = "https://maps.google.com/?q=$lat,$lon"
 
-                return JSONObject()
-                    .apply {
-                        put("isSuccess", true)
-                        put("outputPort", "main")
-                        put("logMessage", "Location: ($lat, $lon)")
-                        put("latitude", lat)
-                        put("longitude", lon)
-                        put("accuracy", acc)
-                        put("maps_url", mapsUrl)
-                    }.toString()
+                return buildJsonObject {
+                    put("isSuccess", true)
+                    put("outputPort", "main")
+                    put("logMessage", "Location: ($lat, $lon)")
+                    put("latitude", lat)
+                    put("longitude", lon)
+                    put("accuracy", acc)
+                    put("maps_url", mapsUrl)
+                }.toString()
             }
 
             private fun fail(reason: String) =
-                JSONObject()
-                    .apply {
-                        put("isSuccess", false)
-                        put("errorReason", reason)
-                    }.toString()
+                buildJsonObject {
+                    put("isSuccess", false)
+                    put("errorReason", reason)
+                }.toString()
         }
 
     override fun onBind(intent: Intent?): IBinder = binder

@@ -10,21 +10,22 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import dev.zophop.domain.model.WorkflowNode
+import dev.zophop.domain.model.optBoolean
+import dev.zophop.domain.model.optInt
+import dev.zophop.domain.model.optJsonArray
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ExecutionContext
 import dev.zophop.plugin.api.NodeExecutionResult
 import dev.zophop.plugin.api.NodeExecutor
-import org.json.JSONArray
-import org.json.JSONException
-import org.json.JSONObject
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
 import java.util.regex.Pattern
 import java.util.regex.PatternSyntaxException
 
-private fun parseTriggerConfig(configJson: String): JSONObject =
-    try {
-        JSONObject(configJson)
-    } catch (_: JSONException) {
-        JSONObject()
-    }
+private fun parseTriggerConfig(configJson: String): JsonObject = parseJsonObjectSafe(configJson)
 
 /**
  * Strategy executor for [NodeType.MANUAL_TRIGGER].
@@ -159,7 +160,7 @@ class RegexParserExecutor : NodeExecutor {
         }
     }
 
-    private fun resolveInputText(config: JSONObject, context: ExecutionContext): String {
+    private fun resolveInputText(config: JsonObject, context: ExecutionContext): String {
         val rawInputVar = config.optString("inputVariable", "").trim()
         val inputVariable = context.interpolate(rawInputVar).trim()
         return when {
@@ -222,7 +223,7 @@ class RegexParserExecutor : NodeExecutor {
     private fun handleSuccessfulMatches(
         matches: List<MatchRecord>,
         matchIndex: Int,
-        config: JSONObject,
+        config: JsonObject,
         outputKey: String,
         matchAll: Boolean,
         outputType: String,
@@ -240,7 +241,7 @@ class RegexParserExecutor : NodeExecutor {
         chosenMatch.groups.forEachIndexed { idx, gVal ->
             if (gVal != null) context.set("group_${idx + 1}", gVal)
         }
-        populateOutputKeysArray(config.optJSONArray("outputKeys"), chosenMatch.groups, context)
+        populateOutputKeysArray(config.optJsonArray("outputKeys"), chosenMatch.groups, context)
         populateMatchAllArray(matches, outputKey, matchAll, outputType, context)
 
         val logDetails = if (chosenMatch.namedGroups.isNotEmpty()) {
@@ -252,12 +253,12 @@ class RegexParserExecutor : NodeExecutor {
     }
 
     private fun populateOutputKeysArray(
-        outputKeysArr: JSONArray?,
+        outputKeysArr: JsonArray?,
         groups: List<String?>,
         context: ExecutionContext,
     ) {
         if (outputKeysArr == null) return
-        for (i in 0 until outputKeysArr.length()) {
+        for (i in 0 until outputKeysArr.size) {
             val k = outputKeysArr.optString(i, "").trim()
             val v = groups.getOrNull(i)
             if (k.isNotEmpty() && v != null) {
@@ -276,11 +277,13 @@ class RegexParserExecutor : NodeExecutor {
         val isArrayOutput = outputType.equals("ARRAY", ignoreCase = true) || outputType.equals("LIST", ignoreCase = true)
         if (!matchAll && !isArrayOutput) return
 
-        val allArray = JSONArray()
-        matches.forEach { m ->
-            val v = m.groups.firstOrNull { it != null } ?: m.fullMatch
-            allArray.put(v)
-        }
+        val allArray =
+            buildJsonArray {
+                matches.forEach { m ->
+                    val v = m.groups.firstOrNull { it != null } ?: m.fullMatch
+                    add(JsonPrimitive(v))
+                }
+            }
         context.set("${outputKey}_all", allArray.toString())
         context.set("all_matches", allArray.toString())
         if (isArrayOutput) {

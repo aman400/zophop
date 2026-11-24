@@ -3,15 +3,18 @@ package dev.zophop.plugin.gotify
 import android.content.Context
 import dev.zophop.data.CredentialRepository
 import dev.zophop.domain.model.WorkflowNode
+import dev.zophop.domain.model.optInt
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ExecutionContext
 import dev.zophop.plugin.api.NodeExecutionResult
 import dev.zophop.plugin.api.NodeExecutor
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONException
-import org.json.JSONObject
 import java.io.IOException
 
 /**
@@ -37,12 +40,11 @@ class GotifyActionExecutor(
     private fun sendGotifyMessage(params: GotifyParams): NodeExecutionResult {
         val targetUrl = "${params.serverUrl}/message" + (if (params.appToken.isNotBlank()) "?token=${params.appToken}" else "")
         val jsonBody =
-            JSONObject()
-                .apply {
-                    put("title", params.title)
-                    put("message", params.payload)
-                    put("priority", params.priority)
-                }.toString()
+            buildJsonObject {
+                put("title", params.title)
+                put("message", params.payload)
+                put("priority", params.priority)
+            }.toString()
 
         return try {
             val requestBuilder =
@@ -85,12 +87,7 @@ private suspend fun resolveGotifyParams(
     credentialRepository: Any?,
 ): GotifyParams {
     val credRepo = credentialRepository as? CredentialRepository
-    val config =
-        try {
-            JSONObject(node.configJson)
-        } catch (_: JSONException) {
-            JSONObject()
-        }
+    val config = parseJsonObjectSafe(node.configJson)
     val credentialId = config.optString("credentialId", "")
     val resolvedCred =
         if (credentialId.isNotBlank() && credRepo != null) {

@@ -6,6 +6,8 @@ import android.content.Intent
 import android.os.IBinder
 import android.provider.Settings
 import dev.zophop.domain.model.WorkflowNode
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ConfigFieldSpec
 import dev.zophop.plugin.api.ExecutionContext
 import dev.zophop.plugin.api.INodePluginService
@@ -14,9 +16,10 @@ import dev.zophop.plugin.api.NodeExecutionResult
 import dev.zophop.plugin.api.NodeExecutor
 import dev.zophop.plugin.api.NodePluginManifest
 import dev.zophop.plugin.api.NodePluginModule
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okhttp3.OkHttpClient
-import org.json.JSONException
-import org.json.JSONObject
 import java.util.regex.Pattern
 import java.util.regex.PatternSyntaxException
 
@@ -48,12 +51,7 @@ private fun checkNotificationPermission(appContext: Context?): String? {
     }
 }
 
-private fun parseConfig(configJson: String): JSONObject =
-    try {
-        JSONObject(configJson)
-    } catch (_: JSONException) {
-        JSONObject()
-    }
+private fun parseConfig(configJson: String): JsonObject = parseJsonObjectSafe(configJson)
 
 private fun evaluateTriggerMatches(
     node: WorkflowNode,
@@ -208,12 +206,11 @@ class NotificationNodePluginService : Service() {
                 configJson: String,
                 inputContextJson: String,
             ): String =
-                JSONObject()
-                    .apply {
-                        put("isSuccess", true)
-                        put("outputPort", "main")
-                        put("logMessage", "Notification plugin executed")
-                    }.toString()
+                buildJsonObject {
+                    put("isSuccess", true)
+                    put("outputPort", "main")
+                    put("logMessage", "Notification plugin executed")
+                }.toString()
         }
 
     override fun onBind(intent: Intent?): IBinder = binder

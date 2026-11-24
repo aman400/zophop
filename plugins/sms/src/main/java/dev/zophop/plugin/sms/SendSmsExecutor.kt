@@ -6,11 +6,12 @@ import android.content.pm.PackageManager
 import android.telephony.SmsManager
 import androidx.core.content.ContextCompat
 import dev.zophop.domain.model.WorkflowNode
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ExecutionContext
 import dev.zophop.plugin.api.NodeExecutionResult
 import dev.zophop.plugin.api.NodeExecutor
-import org.json.JSONException
-import org.json.JSONObject
+import kotlinx.serialization.json.JsonObject
 
 /**
  * Strategy executor for [NodeType.SEND_SMS_ACTION].
@@ -62,9 +63,4 @@ private fun hasSendSmsPermission(appContext: Context?): Boolean {
     ) == PackageManager.PERMISSION_GRANTED
 }
 
-private fun parseJsonConfig(configJson: String): JSONObject =
-    try {
-        JSONObject(configJson)
-    } catch (_: JSONException) {
-        JSONObject()
-    }
+private fun parseJsonConfig(configJson: String): JsonObject = parseJsonObjectSafe(configJson)

@@ -1,10 +1,12 @@
 package dev.zophop.data
 
+import dev.zophop.domain.model.AppJson
 import dev.zophop.domain.model.NodeType
 import dev.zophop.domain.model.Precondition
 import dev.zophop.domain.model.PreconditionType
 import dev.zophop.domain.model.Workflow
 import dev.zophop.domain.model.WorkflowConnection
+import dev.zophop.domain.model.WorkflowGraph
 import dev.zophop.domain.model.WorkflowNode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -51,34 +53,12 @@ class EntityMappingAndSerializationTest {
         val conn1 = WorkflowConnection("n1", "n2", "main")
 
         val pipelineJson =
-            org.json
-                .JSONObject()
-                .apply {
-                    val nodesArr =
-                        org.json.JSONArray().apply {
-                            put(
-                                org.json.JSONObject().apply {
-                                    put("id", node1.id)
-                                    put("name", node1.name)
-                                    put("type", node1.type)
-                                    put("isEnabled", node1.isEnabled)
-                                    put("configJson", node1.configJson)
-                                },
-                            )
-                        }
-                    val connsArr =
-                        org.json.JSONArray().apply {
-                            put(
-                                org.json.JSONObject().apply {
-                                    put("fromNodeId", conn1.fromNodeId)
-                                    put("toNodeId", conn1.toNodeId)
-                                    put("outputPort", conn1.outputPort)
-                                },
-                            )
-                        }
-                    put("nodes", nodesArr)
-                    put("connections", connsArr)
-                }.toString()
+            AppJson.encodeToString(
+                WorkflowGraph(
+                    nodes = listOf(node1),
+                    connections = listOf(conn1),
+                ),
+            )
 
         val entity =
             PreconditionEntity(

@@ -75,7 +75,10 @@ import dev.zophop.data.PreconditionEntity
 import dev.zophop.data.toDomain
 import dev.zophop.domain.model.Credential
 import dev.zophop.domain.model.WorkflowNode
-import org.json.JSONObject
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 @Composable
 fun NodeConfigBottomSheet(
@@ -983,20 +986,16 @@ private fun loadInitialNodeConfig(
     val map = mutableMapOf<String, String>()
     try {
         val defaultConfigStr = WorkflowUiHelper.getDefaultConfigForType(nodeType)
-        val defaultJson = JSONObject(defaultConfigStr)
-        val defaultKeys = defaultJson.keys()
-        while (defaultKeys.hasNext()) {
-            val k = defaultKeys.next()
+        val defaultJson = parseJsonObjectSafe(defaultConfigStr)
+        for ((k, _) in defaultJson) {
             map[k] = defaultJson.optString(k, "")
         }
     } catch (_: Exception) {
     }
 
     try {
-        val json = JSONObject(configJson)
-        val keys = json.keys()
-        while (keys.hasNext()) {
-            val k = keys.next()
+        val json = parseJsonObjectSafe(configJson)
+        for ((k, _) in json) {
             val v = json.optString(k, "")
             if (v.isNotBlank()) {
                 map[k] = v
@@ -1030,7 +1029,7 @@ private fun buildAndValidateNodeConfig(
     configMapForValidation["credentialId"] = credentialId
 
     val validationJson =
-        JSONObject().apply {
+        buildJsonObject {
             for ((k, v) in configMapForValidation) {
                 put(k, v)
             }
@@ -1050,10 +1049,8 @@ private fun applyDefaultConfigValues(
     manifest: dev.zophop.plugin.api.NodePluginManifest? = null,
 ) {
     try {
-        val defaults = JSONObject(WorkflowUiHelper.getDefaultConfigForType(nodeType, manifest))
-        val dKeys = defaults.keys()
-        while (dKeys.hasNext()) {
-            val dk = dKeys.next()
+        val defaults = parseJsonObjectSafe(WorkflowUiHelper.getDefaultConfigForType(nodeType, manifest))
+        for ((dk, _) in defaults) {
             val dv = defaults.optString(dk, "")
             if (map[dk].isNullOrBlank() && dv.isNotBlank()) {
                 map[dk] = dv

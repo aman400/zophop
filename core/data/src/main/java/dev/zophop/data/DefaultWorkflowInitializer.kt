@@ -3,7 +3,8 @@ package dev.zophop.data
 import dev.zophop.domain.model.Workflow
 import dev.zophop.domain.model.WorkflowConnection
 import dev.zophop.domain.model.WorkflowNode
-import org.json.JSONObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.util.UUID
 
 class DefaultWorkflowInitializer(
@@ -32,10 +33,9 @@ class DefaultWorkflowInitializer(
                 type = "TEMPLATE_FORMATTER",
                 isEnabled = true,
                 configJson =
-                    JSONObject()
-                        .apply {
-                            put("template", "Test Alert Payload: \${body}")
-                        }.toString(),
+                    buildJsonObject {
+                        put("template", "Test Alert Payload: \${body}")
+                    }.toString(),
             )
 
         val actionId = UUID.randomUUID().toString()
@@ -46,11 +46,10 @@ class DefaultWorkflowInitializer(
                 type = "SEND_NOTIFICATION_ACTION",
                 isEnabled = true,
                 configJson =
-                    JSONObject()
-                        .apply {
-                            put("title", "ZopHop Forwarder Test")
-                            put("body", "\${formatted_payload}")
-                        }.toString(),
+                    buildJsonObject {
+                        put("title", "ZopHop Forwarder Test")
+                        put("body", "\${formatted_payload}")
+                    }.toString(),
             )
 
         val defaultWorkflow =

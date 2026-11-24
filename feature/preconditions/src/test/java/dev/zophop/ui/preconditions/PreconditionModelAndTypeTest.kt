@@ -4,8 +4,12 @@ import dev.zophop.data.PreconditionEntity
 import dev.zophop.data.getStepCount
 import dev.zophop.data.hasNodeType
 import dev.zophop.data.toDomain
+import dev.zophop.domain.model.AppJson
 import dev.zophop.domain.model.Precondition
 import dev.zophop.domain.model.PreconditionType
+import dev.zophop.domain.model.WorkflowConnection
+import dev.zophop.domain.model.WorkflowGraph
+import dev.zophop.domain.model.WorkflowNode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -115,24 +119,21 @@ class PreconditionModelAndTypeTest {
     @Test
     fun testSingleNodeChainedPreconditionEntity() {
         val pipeJson =
-            org.json
-                .JSONObject()
-                .apply {
-                    val arr =
-                        org.json.JSONArray().apply {
-                            put(
-                                org.json.JSONObject().apply {
-                                    put("id", "node_gps")
-                                    put("name", "GPS Hardware Check")
-                                    put("type", "GPS_CHECK")
-                                    put("isEnabled", true)
-                                    put("configJson", """{"requireGpsEnabled":"true"}""")
-                                },
-                            )
-                        }
-                    put("nodes", arr)
-                    put("connections", org.json.JSONArray())
-                }.toString()
+            AppJson.encodeToString(
+                WorkflowGraph(
+                    nodes =
+                        listOf(
+                            WorkflowNode(
+                                id = "node_gps",
+                                name = "GPS Hardware Check",
+                                type = "GPS_CHECK",
+                                isEnabled = true,
+                                configJson = """{"requireGpsEnabled":"true"}""",
+                            ),
+                        ),
+                    connections = emptyList(),
+                ),
+            )
 
         val entity =
             PreconditionEntity(
@@ -160,43 +161,35 @@ class PreconditionModelAndTypeTest {
     @Test
     fun testMultiNodeChainedPreconditionEntity() {
         val pipeJson =
-            org.json
-                .JSONObject()
-                .apply {
-                    val arr =
-                        org.json.JSONArray().apply {
-                            put(
-                                org.json.JSONObject().apply {
-                                    put("id", "n1")
-                                    put("name", "VPN Check")
-                                    put("type", "VPN_CHECK")
-                                    put("isEnabled", true)
-                                    put("configJson", """{"requireConnected":"true"}""")
-                                },
-                            )
-                            put(
-                                org.json.JSONObject().apply {
-                                    put("id", "n2")
-                                    put("name", "Condition")
-                                    put("type", "CONDITION")
-                                    put("isEnabled", true)
-                                    put("configJson", """{"variable":"vpn_connected","operator":"EQUALS","value":"true"}""")
-                                },
-                            )
-                        }
-                    put("nodes", arr)
-                    val conns =
-                        org.json.JSONArray().apply {
-                            put(
-                                org.json.JSONObject().apply {
-                                    put("fromNodeId", "n1")
-                                    put("toNodeId", "n2")
-                                    put("outputPort", "main")
-                                },
-                            )
-                        }
-                    put("connections", conns)
-                }.toString()
+            AppJson.encodeToString(
+                WorkflowGraph(
+                    nodes =
+                        listOf(
+                            WorkflowNode(
+                                id = "n1",
+                                name = "VPN Check",
+                                type = "VPN_CHECK",
+                                isEnabled = true,
+                                configJson = """{"requireConnected":"true"}""",
+                            ),
+                            WorkflowNode(
+                                id = "n2",
+                                name = "Condition",
+                                type = "CONDITION",
+                                isEnabled = true,
+                                configJson = """{"variable":"vpn_connected","operator":"EQUALS","value":"true"}""",
+                            ),
+                        ),
+                    connections =
+                        listOf(
+                            WorkflowConnection(
+                                fromNodeId = "n1",
+                                toNodeId = "n2",
+                                outputPort = "main",
+                            ),
+                        ),
+                ),
+            )
 
         val entity =
             PreconditionEntity(

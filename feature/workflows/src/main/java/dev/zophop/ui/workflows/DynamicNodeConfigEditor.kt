@@ -18,9 +18,12 @@ import androidx.compose.ui.Modifier
 import dev.zophop.core.ui.components.HeaderInputEditor
 import dev.zophop.core.ui.components.InfoTooltipField
 import dev.zophop.core.ui.components.QueryParamsInputEditor
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ConfigFieldSpec
 import dev.zophop.plugin.api.NodePluginManifest
-import org.json.JSONObject
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 @Composable
 fun DynamicNodeConfigEditor(
@@ -39,14 +42,9 @@ fun DynamicNodeConfigEditor(
         key: String,
         value: Any,
     ) {
-        val newObj =
-            try {
-                JSONObject(currentConfig.toString())
-            } catch (_: Exception) {
-                JSONObject()
-            }
-        newObj.put(key, value)
-        onConfigChanged(newObj.toString())
+        val newMap = currentConfig.toMutableMap()
+        newMap[key] = JsonPrimitive(value.toString())
+        onConfigChanged(JsonObject(newMap).toString())
     }
 
     Column(modifier = modifier.fillMaxWidth()) {
@@ -61,40 +59,22 @@ fun DynamicNodeConfigEditor(
     }
 }
 
-private fun mergeConfigJson(configJson: String, typeId: String): JSONObject {
-    val defaultConfig =
-        try {
-            JSONObject(WorkflowUiHelper.getDefaultConfigForType(typeId))
-        } catch (_: Exception) {
-            JSONObject()
-        }
-    val userConfig =
-        try {
-            JSONObject(configJson)
-        } catch (_: Exception) {
-            JSONObject()
-        }
-    val merged = JSONObject()
-    val defaultKeys = defaultConfig.keys()
-    while (defaultKeys.hasNext()) {
-        val k = defaultKeys.next()
-        merged.put(k, defaultConfig.opt(k))
-    }
-    val userKeys = userConfig.keys()
-    while (userKeys.hasNext()) {
-        val k = userKeys.next()
-        val v = userConfig.opt(k)
-        if (v != null && v.toString().isNotBlank()) {
-            merged.put(k, v)
+private fun mergeConfigJson(configJson: String, typeId: String): JsonObject {
+    val defaultConfig = parseJsonObjectSafe(WorkflowUiHelper.getDefaultConfigForType(typeId))
+    val userConfig = parseJsonObjectSafe(configJson)
+    val merged = defaultConfig.toMutableMap()
+    for ((k, v) in userConfig) {
+        if (v.toString().isNotBlank()) {
+            merged[k] = v
         }
     }
-    return merged
+    return JsonObject(merged)
 }
 
 @Composable
 private fun RenderDynamicField(
     fieldSpec: ConfigFieldSpec,
-    currentConfig: JSONObject,
+    currentConfig: JsonObject,
     updateConfigKey: (String, Any) -> Unit,
     availableVariables: List<String>,
 ) {
@@ -161,7 +141,7 @@ private fun RenderDynamicField(
 @Composable
 private fun DynamicDropdownField(
     fieldSpec: ConfigFieldSpec.DropdownField,
-    currentConfig: JSONObject,
+    currentConfig: JsonObject,
     updateConfigKey: (String, Any) -> Unit,
 ) {
     val defaultOption = fieldSpec.options.firstOrNull()?.first ?: ""

@@ -3,6 +3,8 @@ package dev.zophop.plugin.ntfy
 import android.content.Context
 import dev.zophop.data.CredentialRepository
 import dev.zophop.domain.model.WorkflowNode
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ExecutionContext
 import dev.zophop.plugin.api.NodeExecutionResult
 import dev.zophop.plugin.api.NodeExecutor
@@ -10,8 +12,6 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONException
-import org.json.JSONObject
 import java.io.IOException
 
 /**
@@ -91,12 +91,7 @@ private suspend fun resolveNtfyParams(
     credentialRepository: Any?,
 ): NtfyParams {
     val credRepo = credentialRepository as? CredentialRepository
-    val config =
-        try {
-            JSONObject(node.configJson)
-        } catch (_: JSONException) {
-            JSONObject()
-        }
+    val config = parseJsonObjectSafe(node.configJson)
     val credentialId = config.optString("credentialId", "")
     val resolvedCred =
         if (credentialId.isNotBlank() && credRepo != null) {

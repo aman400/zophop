@@ -6,12 +6,16 @@ import dev.zophop.domain.engine.HttpHeaderUtils
 import dev.zophop.domain.engine.plugin.BuiltInPluginRegistry
 import dev.zophop.domain.model.Credential
 import dev.zophop.domain.model.WorkflowNode
+import dev.zophop.domain.model.optInt
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ExecutionContext
 import dev.zophop.plugin.api.NodeExecutionResult
 import dev.zophop.plugin.api.NodeExecutor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonObject
 import okhttp3.Call
 import okhttp3.FormBody
 import okhttp3.MediaType.Companion.toMediaType
@@ -20,8 +24,6 @@ import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
-import org.json.JSONException
-import org.json.JSONObject
 import java.io.IOException
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -40,11 +42,7 @@ class HttpActionExecutor(
         context: ExecutionContext,
         appContext: Context?,
     ): NodeExecutionResult = withContext(Dispatchers.IO) {
-        val config = try {
-            JSONObject(node.configJson)
-        } catch (_: JSONException) {
-            JSONObject()
-        }
+        val config = parseJsonObjectSafe(node.configJson)
 
         val credentialId = config.optString("credentialId", "")
         val resolvedCred =
@@ -131,7 +129,7 @@ class HttpActionExecutor(
     }
 
     private fun buildRequest(
-        config: JSONObject,
+        config: JsonObject,
         targetUrl: String,
         method: String,
         context: ExecutionContext,
@@ -191,7 +189,7 @@ class HttpActionExecutor(
         }
     }
 
-    private fun applyInlineAuth(builder: Request.Builder, config: JSONObject, context: ExecutionContext) {
+    private fun applyInlineAuth(builder: Request.Builder, config: JsonObject, context: ExecutionContext) {
         val authType = config.optString("authType", "NONE").uppercase()
         when (authType) {
             "BEARER" -> {

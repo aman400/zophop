@@ -1,6 +1,8 @@
 package dev.zophop.data
 
-import org.json.JSONObject
+import dev.zophop.domain.model.AppJson
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import java.security.KeyStore
 import java.security.SecureRandom
 import java.util.Base64
@@ -145,20 +147,19 @@ object DatabaseEncryption {
     private fun transformSensitiveKeys(configJson: String, transform: (String) -> String): String {
         if (configJson.isBlank()) return configJson
         return try {
-            val json = JSONObject(configJson)
+            val root = AppJson.parseToJsonElement(configJson) as? JsonObject ?: return configJson
             var modified = false
-            val keys = json.keys()
-            while (keys.hasNext()) {
-                val key = keys.next()
+            val newMap = root.toMutableMap()
+            for ((key, value) in root) {
                 if (!isSensitiveKey(key)) continue
-                val value = json.optString(key, "")
-                val transformed = transform(value)
-                if (transformed != value) {
-                    json.put(key, transformed)
+                val strVal = if (value is JsonPrimitive) value.content else continue
+                val transformed = transform(strVal)
+                if (transformed != strVal) {
+                    newMap[key] = JsonPrimitive(transformed)
                     modified = true
                 }
             }
-            if (modified) json.toString() else configJson
+            if (modified) JsonObject(newMap).toString() else configJson
         } catch (_: Exception) {
             configJson
         }

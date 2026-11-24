@@ -8,9 +8,12 @@ import dev.zophop.domain.model.PreconditionType
 import dev.zophop.domain.model.WorkflowConnection
 import dev.zophop.domain.model.WorkflowGraph
 import dev.zophop.domain.model.WorkflowNode
+import dev.zophop.domain.model.optBoolean
+import dev.zophop.domain.model.optJsonArray
+import dev.zophop.domain.model.optJsonObject
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import kotlinx.serialization.Serializable
-import org.json.JSONArray
-import org.json.JSONObject
 
 @Serializable
 @Entity(tableName = "preconditions")
@@ -171,30 +174,35 @@ private fun parseLegacyPipeline(pipelineJson: String): Pair<List<WorkflowNode>, 
     val nodesList = mutableListOf<WorkflowNode>()
     val connectionsList = mutableListOf<WorkflowConnection>()
     try {
-        val json = JSONObject(pipelineJson.ifBlank { "{}" })
-        val nodesArr = json.optJSONArray("nodes") ?: JSONArray()
-        for (i in 0 until nodesArr.length()) {
-            val nodeObj = nodesArr.getJSONObject(i)
-            nodesList.add(
-                WorkflowNode(
-                    id = nodeObj.getString("id"),
-                    name = nodeObj.getString("name"),
-                    type = nodeObj.getString("type"),
-                    isEnabled = nodeObj.optBoolean("isEnabled", true),
-                    configJson = DatabaseEncryption.decryptNodeConfig(nodeObj.optString("configJson", "{}")),
-                ),
-            )
+        val json = parseJsonObjectSafe(pipelineJson)
+        val nodesArr = json.optJsonArray("nodes")
+        if (nodesArr != null) {
+            for (i in nodesArr.indices) {
+                val nodeObj = nodesArr.optJsonObject(i) ?: continue
+                nodesList.add(
+                    WorkflowNode(
+                        id = nodeObj.optString("id"),
+                        name = nodeObj.optString("name"),
+                        type = nodeObj.optString("type"),
+                        isEnabled = nodeObj.optBoolean("isEnabled", true),
+                        configJson = DatabaseEncryption.decryptNodeConfig(nodeObj.optString("configJson", "{}")),
+                    ),
+                )
+            }
         }
-        val connArr = json.optJSONArray("connections") ?: JSONArray()
-        for (i in 0 until connArr.length()) {
-            val connObj = connArr.getJSONObject(i)
-            connectionsList.add(
-                WorkflowConnection(
-                    fromNodeId = connObj.getString("fromNodeId"),
-                    toNodeId = connObj.getString("toNodeId"),
-                    outputPort = connObj.optString("outputPort", "main"),
-                ),
-            )
+        val connArr = json.optJsonArray("connections")
+        if (connArr != null) {
+            for (i in connArr.indices) {
+                val connObj = connArr.optJsonObject(i) ?: continue
+                connectionsList.add(
+                    WorkflowConnection(
+                        fromNodeId = connObj.optString("fromNodeId"),
+                        toNodeId = connObj.optString("toNodeId"),
+                        outputPort = connObj.optString("outputPort", "main"),
+                        inputPort = connObj.optString("inputPort", "main"),
+                    ),
+                )
+            }
         }
     } catch (_: Exception) {
     }

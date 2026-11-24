@@ -16,12 +16,15 @@ import dev.zophop.domain.model.Precondition
 import dev.zophop.domain.model.PreconditionType
 import dev.zophop.domain.model.Workflow
 import dev.zophop.domain.model.calculateRetryDelaySeconds
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ExecutionContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonObject
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -627,11 +630,7 @@ open class PreconditionEvaluator(
         var capturedSteps = emptyList<NodeExecutionStep>()
 
         val triggerNode = findTriggerNode(check.nodes, check.connections)
-        val triggerConfig = try {
-            org.json.JSONObject(triggerNode?.configJson ?: "{}")
-        } catch (_: org.json.JSONException) {
-            org.json.JSONObject()
-        }
+        val triggerConfig = parseJsonObjectSafe(triggerNode?.configJson ?: "{}")
 
         val execContext = buildChainTestContext(triggerNode?.type, triggerConfig)
         val result = engine.executeWorkflowWithProgress(
@@ -671,12 +670,11 @@ open class PreconditionEvaluator(
 
     private fun buildChainTestContext(
         triggerNodeType: String?,
-        triggerConfig: org.json.JSONObject,
+        triggerConfig: JsonObject,
     ): ExecutionContext {
         val testContextMap = mutableMapOf<String, Any>()
-        val keys = triggerConfig.keys()
-        while (keys.hasNext()) {
-            populateTestContextKey(keys.next(), triggerConfig, testContextMap)
+        for (key in triggerConfig.keys) {
+            populateTestContextKey(key, triggerConfig, testContextMap)
         }
         applyDefaultTestContextValues(triggerNodeType, triggerConfig, testContextMap)
         return ExecutionContext(testContextMap)
@@ -684,7 +682,7 @@ open class PreconditionEvaluator(
 
     private fun populateTestContextKey(
         key: String,
-        triggerConfig: org.json.JSONObject,
+        triggerConfig: JsonObject,
         testContextMap: MutableMap<String, Any>,
     ) {
         if (!key.startsWith("test", ignoreCase = true) || key.length <= 4) return
@@ -714,7 +712,7 @@ open class PreconditionEvaluator(
 
     private fun applyDefaultTestContextValues(
         triggerNodeType: String?,
-        triggerConfig: org.json.JSONObject,
+        triggerConfig: JsonObject,
         testContextMap: MutableMap<String, Any>,
     ) {
         val isManual = triggerNodeType?.contains("MANUAL_TRIGGER", ignoreCase = true) == true

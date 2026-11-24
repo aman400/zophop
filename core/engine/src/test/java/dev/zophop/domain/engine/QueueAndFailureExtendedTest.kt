@@ -1034,7 +1034,7 @@ class QueueAndFailureExtendedTest {
             val executor = ConditionExecutor()
             val node = WorkflowNode("c4", "Cond", NodeType.CONDITION, configJson = "not_valid_json")
             val ctx = ExecutionContext(mapOf("code" to "hello"))
-            // Invalid JSON → JSONObject() default → variable="code", operator="NOT_EMPTY"
+            // Invalid JSON → parseJsonObjectSafe() default → variable="code", operator="NOT_EMPTY"
             val result = executor.execute(node, ctx, null)
             assertTrue(result is NodeExecutionResult.Success)
         }

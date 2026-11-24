@@ -7,6 +7,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.IBinder
 import dev.zophop.domain.model.WorkflowNode
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ConfigFieldSpec
 import dev.zophop.plugin.api.ExecutionContext
 import dev.zophop.plugin.api.INodePluginService
@@ -15,9 +17,10 @@ import dev.zophop.plugin.api.NodeExecutionResult
 import dev.zophop.plugin.api.NodeExecutor
 import dev.zophop.plugin.api.NodePluginManifest
 import dev.zophop.plugin.api.NodePluginModule
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okhttp3.OkHttpClient
-import org.json.JSONException
-import org.json.JSONObject
 import java.util.regex.Pattern
 import java.util.regex.PatternSyntaxException
 
@@ -135,12 +138,7 @@ class SmsNodePluginService : Service() {
                 configJson: String,
                 inputContextJson: String,
             ): String {
-                val typeId =
-                    try {
-                        JSONObject(configJson).optString("typeId", "")
-                    } catch (_: Exception) {
-                        ""
-                    }
+                val typeId = parseJsonObjectSafe(configJson).optString("typeId", "")
                 val permissionName =
                     when {
                         typeId.contains("SMS_TRIGGER") -> Manifest.permission.RECEIVE_SMS
@@ -151,33 +149,26 @@ class SmsNodePluginService : Service() {
                 val hasPermission = permissionName.isEmpty() || checkSelfPermission(permissionName) == PackageManager.PERMISSION_GRANTED
 
                 if (!hasPermission) {
-                    return JSONObject()
-                        .apply {
-                            put("isSuccess", false)
-                            put("errorReason", "Missing required permission '$permissionName' in SMS plugin app")
-                        }.toString()
+                    return buildJsonObject {
+                        put("isSuccess", false)
+                        put("errorReason", "Missing required permission '$permissionName' in SMS plugin app")
+                    }.toString()
                 }
 
-                return JSONObject()
-                    .apply {
-                        put("isSuccess", true)
-                        put("outputPort", "main")
-                        put("logMessage", "SMS plugin executed successfully")
-                    }.toString()
+                return buildJsonObject {
+                    put("isSuccess", true)
+                    put("outputPort", "main")
+                    put("logMessage", "SMS plugin executed successfully")
+                }.toString()
             }
         }
 
     override fun onBind(intent: Intent?): IBinder = binder
 }
 
-private fun parseJsonConfig(configJson: String): JSONObject =
-    try {
-        JSONObject(configJson)
-    } catch (_: JSONException) {
-        JSONObject()
-    }
+private fun parseJsonConfig(configJson: String): JsonObject = parseJsonObjectSafe(configJson)
 
-private fun validateSmsTriggerConfig(config: JSONObject): String? {
+private fun validateSmsTriggerConfig(config: JsonObject): String? {
     val allowlist = config.optString("allowlist", ".*").trim()
     val keywordRegex = config.optString("keywordRegex", ".*").trim()
     val allowlistError = validateRegexPattern(allowlist.replace("*", ".*"), "sender allowlist")
@@ -198,7 +189,7 @@ private fun validateRegexPattern(
     }
 }
 
-private fun validateSendSmsConfig(config: JSONObject): String? {
+private fun validateSendSmsConfig(config: JsonObject): String? {
     val recipient = config.optString("recipient", "").trim()
     val body = config.optString("body", "").trim()
     return when {

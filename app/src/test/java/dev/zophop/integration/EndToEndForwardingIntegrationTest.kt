@@ -10,6 +10,9 @@ import dev.zophop.domain.model.Precondition
 import dev.zophop.domain.model.Workflow
 import dev.zophop.domain.model.WorkflowConnection
 import dev.zophop.domain.model.WorkflowNode
+import dev.zophop.domain.model.optInt
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ExecutionContext
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
@@ -18,7 +21,6 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import okio.Buffer
-import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -211,7 +213,7 @@ class EndToEndForwardingIntegrationTest {
             val req = capturedRequests[0]
             assertEquals("https://gotify.my-domain.com/message?token=AppToken12345", req.url.toString())
 
-            val jsonObj = JSONObject(capturedBodies[0])
+            val jsonObj = parseJsonObjectSafe(capturedBodies[0])
             assertEquals("Google Verification Code", jsonObj.optString("title"))
             assertEquals("Security Code: 491028", jsonObj.optString("message"))
             assertEquals(5, jsonObj.optInt("priority"))

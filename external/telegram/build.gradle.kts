@@ -42,7 +42,6 @@ dependencies {
     implementation(project(":core:plugin-api"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.okhttp)
-    implementation(libs.json)
 
     testImplementation(libs.junit)
     testImplementation(libs.androidx.junit)

@@ -3,9 +3,12 @@ package dev.zophop.domain.engine
 import dev.zophop.domain.engine.plugin.BuiltInPluginRegistry
 import dev.zophop.domain.model.WorkflowConnection
 import dev.zophop.domain.model.WorkflowNode
+import dev.zophop.domain.model.optJsonObject
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.NodePluginManifest
-import org.json.JSONException
-import org.json.JSONObject
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 
 object WorkflowVariableResolver {
     /**
@@ -111,26 +114,23 @@ object WorkflowVariableResolver {
     private fun extractDynamicConfigVariables(configJson: String): List<String> {
         if (configJson.isBlank()) return emptyList()
         val dynamicVars = mutableListOf<String>()
-        try {
-            val json = JSONObject(configJson)
-            val dynamicKey = json.optString("outputKey", "").trim()
-            if (dynamicKey.isNotEmpty()) dynamicVars.add(dynamicKey)
+        val json = parseJsonObjectSafe(configJson)
+        val dynamicKey = json.optString("outputKey", "").trim()
+        if (dynamicKey.isNotEmpty()) dynamicVars.add(dynamicKey)
 
-            json.optJSONObject("mappings")?.keys()?.forEach {
-                if (it.isNotBlank()) dynamicVars.add(it)
-            }
-            extractMappingsArray(json, dynamicVars)
-            extractNamedRegexGroups(json.optString("regex", ""), dynamicVars)
-        } catch (_: JSONException) {
+        json.optJsonObject("mappings")?.keys?.forEach {
+            if (it.isNotBlank()) dynamicVars.add(it)
         }
+        extractMappingsArray(json, dynamicVars)
+        extractNamedRegexGroups(json.optString("regex", ""), dynamicVars)
         return dynamicVars
     }
 
-    private fun extractMappingsArray(json: JSONObject, result: MutableList<String>) {
-        val mappingsArr = json.optJSONArray("mappings") ?: json.optJSONArray("extractions") ?: return
-        for (i in 0 until mappingsArr.length()) {
-            val item = mappingsArr.optJSONObject(i)
-            val key = item?.optString("outputKey", item.optString("key", ""))?.trim()
+    private fun extractMappingsArray(json: JsonObject, result: MutableList<String>) {
+        val mappingsArr = (json["mappings"] as? JsonArray) ?: (json["extractions"] as? JsonArray) ?: return
+        for (i in 0 until mappingsArr.size) {
+            val item = mappingsArr[i] as? JsonObject
+            val key = item?.let { it.optString("outputKey", it.optString("key", "")).trim() }
             if (!key.isNullOrEmpty()) result.add(key)
         }
     }

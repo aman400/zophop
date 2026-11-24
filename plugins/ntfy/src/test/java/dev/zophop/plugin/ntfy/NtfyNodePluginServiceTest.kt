@@ -1,7 +1,9 @@
 package dev.zophop.plugin.ntfy
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import org.json.JSONObject
+import dev.zophop.domain.model.optBoolean
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -38,9 +40,9 @@ class NtfyNodePluginServiceTest {
         val configJson = """{"typeId":"dev.zophop.plugin.ntfy.NTFY_ACTION"}"""
         val resultJson = binder.executeNode("node_1", configJson, "{}")
 
-        val json = JSONObject(resultJson)
-        assertEquals(false, json.getBoolean("isSuccess"))
-        assertTrue(json.getString("errorReason").contains("serverUrl is empty"))
+        val json = parseJsonObjectSafe(resultJson)
+        assertEquals(false, json.optBoolean("isSuccess"))
+        assertTrue(json.optString("errorReason").contains("serverUrl is empty"))
     }
 
     @Test
@@ -57,7 +59,7 @@ class NtfyNodePluginServiceTest {
             "tags":"fire,🔥"
         }"""
         val resultJson = binder.executeNode("node_1", configJson, "{}")
-        val json = JSONObject(resultJson)
+        val json = parseJsonObjectSafe(resultJson)
 
         // It must NOT crash with OkHttp "Unexpected char" header exception
         val reason = json.optString("errorReason", "")

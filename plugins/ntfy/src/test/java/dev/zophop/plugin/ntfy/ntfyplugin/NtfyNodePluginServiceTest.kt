@@ -1,8 +1,10 @@
 package dev.zophop.plugin.ntfy.ntfyplugin
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import dev.zophop.domain.model.optBoolean
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.INodePluginService
-import org.json.JSONObject
 import org.junit.Assert
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -40,9 +42,9 @@ class NtfyNodePluginServiceTest {
         val configJson = """{"typeId":"dev.zophop.ntfyplugin.NTFY_ACTION"}"""
         val resultJson = binder.executeNode("node_1", configJson, "{}")
 
-        val json = JSONObject(resultJson)
-        assertEquals(false, json.getBoolean("isSuccess"))
-        assertTrue(json.getString("errorReason").contains("serverUrl is empty"))
+        val json = parseJsonObjectSafe(resultJson)
+        assertEquals(false, json.optBoolean("isSuccess"))
+        assertTrue(json.optString("errorReason").contains("serverUrl is empty"))
     }
 
     @Test
@@ -59,7 +61,7 @@ class NtfyNodePluginServiceTest {
             "tags":"fire,🔥"
         }"""
         val resultJson = binder.executeNode("node_1", configJson, "{}")
-        val json = JSONObject(resultJson)
+        val json = parseJsonObjectSafe(resultJson)
 
         val reason = json.optString("errorReason", "")
         Assert.assertFalse(

@@ -4,6 +4,8 @@ import android.app.Service
 import android.content.Intent
 import android.os.IBinder
 import dev.zophop.domain.model.WorkflowNode
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ConfigFieldSpec
 import dev.zophop.plugin.api.CredentialSpec
 import dev.zophop.plugin.api.ExecutionContext
@@ -15,12 +17,13 @@ import dev.zophop.plugin.api.NodePluginManifest
 import dev.zophop.plugin.api.NodePluginModule
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONException
-import org.json.JSONObject
 import java.io.IOException
 
 class TelegramActionExecutor(
@@ -54,7 +57,7 @@ class TelegramActionExecutor(
     ): NodeExecutionResult {
         val url = "https://api.telegram.org/bot$botToken/sendMessage"
         val jsonBody =
-            JSONObject().apply {
+            buildJsonObject {
                 put("chat_id", chatId)
                 put("text", message)
                 if (parseMode.isNotBlank()) {
@@ -88,15 +91,10 @@ class TelegramActionExecutor(
     }
 }
 
-private fun parseConfig(configJson: String): JSONObject =
-    try {
-        JSONObject(configJson)
-    } catch (_: JSONException) {
-        JSONObject()
-    }
+private fun parseConfig(configJson: String): JsonObject = parseJsonObjectSafe(configJson)
 
 private fun resolveBotToken(
-    config: JSONObject,
+    config: JsonObject,
     context: ExecutionContext,
     credentialRepository: Any?,
 ): String {
@@ -133,8 +131,6 @@ private fun resolveCredentialToken(
         }
     } catch (_: ReflectiveOperationException) {
         null
-    } catch (_: JSONException) {
-        null
     }
 }
 
@@ -156,7 +152,7 @@ private fun extractTokenFromConfigJson(cred: Any): String? =
         val jsonMethod = cred.javaClass.getMethod("getConfigJson")
         val configJson = jsonMethod.invoke(cred) as? String
         if (!configJson.isNullOrBlank()) {
-            val credJson = JSONObject(configJson)
+            val credJson = parseJsonObjectSafe(configJson)
             credJson
                 .optString("token", "")
                 .ifBlank { credJson.optString("value", "") }
@@ -166,8 +162,6 @@ private fun extractTokenFromConfigJson(cred: Any): String? =
             null
         }
     } catch (_: ReflectiveOperationException) {
-        null
-    } catch (_: JSONException) {
         null
     }
 
@@ -277,41 +271,36 @@ class TelegramNodePluginService : Service() {
                                 configJson = configJson,
                             )
                         val inputMap = mutableMapOf<String, Any>()
-                        val inputObj = JSONObject(inputContextJson)
-                        val keys = inputObj.keys()
-                        while (keys.hasNext()) {
-                            val k = keys.next()
-                            inputMap[k] = inputObj.get(k)
+                        val inputObj = parseJsonObjectSafe(inputContextJson)
+                        for ((k, v) in inputObj) {
+                            inputMap[k] = v.optString()
                         }
                         val context = ExecutionContext(inputMap)
                         val executor = TelegramActionExecutor()
                         val result = executor.execute(node, context, this@TelegramNodePluginService)
                         when (result) {
                             is NodeExecutionResult.Success -> {
-                                JSONObject()
-                                    .apply {
-                                        put("isSuccess", true)
-                                        put("outputPort", result.outputPort)
-                                        put("logMessage", result.logMessage)
-                                    }.toString()
+                                buildJsonObject {
+                                    put("isSuccess", true)
+                                    put("outputPort", result.outputPort)
+                                    put("logMessage", result.logMessage)
+                                }.toString()
                             }
                             is NodeExecutionResult.Failed -> {
-                                JSONObject()
-                                    .apply {
-                                        put("isSuccess", false)
-                                        put("errorReason", result.reason)
-                                    }.toString()
+                                buildJsonObject {
+                                    put("isSuccess", false)
+                                    put("errorReason", result.reason)
+                                }.toString()
                             }
                             is NodeExecutionResult.Ignored -> {
-                                JSONObject()
-                                    .apply {
-                                        put("isSuccess", false)
-                                        put("isIgnored", true)
-                                        put("errorReason", result.reason)
-                                    }.toString()
+                                buildJsonObject {
+                                    put("isSuccess", false)
+                                    put("isIgnored", true)
+                                    put("errorReason", result.reason)
+                                }.toString()
                             }
                         }
-                    } catch (e: JSONException) {
+                    } catch (e: kotlinx.serialization.SerializationException) {
                         failNodeExecution(e.message ?: "JSON parsing failed")
                     } catch (e: IOException) {
                         failNodeExecution(e.message ?: "Network execution failed")
@@ -324,11 +313,10 @@ class TelegramNodePluginService : Service() {
         }
 
     private fun failNodeExecution(reason: String): String =
-        JSONObject()
-            .apply {
-                put("isSuccess", false)
-                put("errorReason", reason)
-            }.toString()
+        buildJsonObject {
+            put("isSuccess", false)
+            put("errorReason", reason)
+        }.toString()
 
     override fun onBind(intent: Intent?): IBinder = binder
 }

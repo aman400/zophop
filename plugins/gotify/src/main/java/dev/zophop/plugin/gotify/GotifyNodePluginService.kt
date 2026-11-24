@@ -3,6 +3,9 @@ package dev.zophop.plugin.gotify
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
+import dev.zophop.domain.model.optInt
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ConfigFieldSpec
 import dev.zophop.plugin.api.CredentialSpec
 import dev.zophop.plugin.api.ExecutionContext
@@ -13,12 +16,13 @@ import dev.zophop.plugin.api.NodeCategory
 import dev.zophop.plugin.api.NodeExecutor
 import dev.zophop.plugin.api.NodePluginManifest
 import dev.zophop.plugin.api.NodePluginModule
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONException
-import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
@@ -230,12 +234,11 @@ class GotifyNodePluginService : Service() {
             private fun dispatchGotifyRequest(params: GotifyServiceParams): String {
                 val targetUrl = "${params.serverUrl}/message" + (if (params.appToken.isNotBlank()) "?token=${params.appToken}" else "")
                 val jsonBody =
-                    JSONObject()
-                        .apply {
-                            put("title", params.title)
-                            put("message", params.payload)
-                            put("priority", params.priority)
-                        }.toString()
+                    buildJsonObject {
+                        put("title", params.title)
+                        put("message", params.payload)
+                        put("priority", params.priority)
+                    }.toString()
 
                 return try {
                     val requestBuilder =
@@ -262,30 +265,23 @@ class GotifyNodePluginService : Service() {
             }
 
             private fun success(msg: String) =
-                JSONObject()
-                    .apply {
-                        put("isSuccess", true)
-                        put("outputPort", "main")
-                        put("logMessage", msg)
-                    }.toString()
+                buildJsonObject {
+                    put("isSuccess", true)
+                    put("outputPort", "main")
+                    put("logMessage", msg)
+                }.toString()
 
             private fun fail(reason: String) =
-                JSONObject()
-                    .apply {
-                        put("isSuccess", false)
-                        put("errorReason", reason)
-                    }.toString()
+                buildJsonObject {
+                    put("isSuccess", false)
+                    put("errorReason", reason)
+                }.toString()
         }
 
     override fun onBind(intent: Intent?): IBinder = binder
 }
 
-private fun parseConfig(configJson: String): JSONObject =
-    try {
-        JSONObject(configJson)
-    } catch (_: JSONException) {
-        JSONObject()
-    }
+private fun parseConfig(configJson: String): JsonObject = parseJsonObjectSafe(configJson)
 
 private data class GotifyServiceParams(
     val serverUrl: String,

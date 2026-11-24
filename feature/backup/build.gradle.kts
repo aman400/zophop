@@ -51,7 +51,6 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
 
     implementation(libs.kotlinx.serialization.json)
-    implementation(libs.json)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

@@ -3,6 +3,8 @@ package dev.zophop.plugin.ntfy
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ConfigFieldSpec
 import dev.zophop.plugin.api.CredentialSpec
 import dev.zophop.plugin.api.ExecutionContext
@@ -13,12 +15,13 @@ import dev.zophop.plugin.api.NodeCategory
 import dev.zophop.plugin.api.NodeExecutor
 import dev.zophop.plugin.api.NodePluginManifest
 import dev.zophop.plugin.api.NodePluginModule
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONException
-import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
@@ -280,19 +283,17 @@ class NtfyNodePluginService : Service() {
             }
 
             private fun success(msg: String) =
-                JSONObject()
-                    .apply {
-                        put("isSuccess", true)
-                        put("outputPort", "main")
-                        put("logMessage", msg)
-                    }.toString()
+                buildJsonObject {
+                    put("isSuccess", true)
+                    put("outputPort", "main")
+                    put("logMessage", msg)
+                }.toString()
 
             private fun fail(reason: String) =
-                JSONObject()
-                    .apply {
-                        put("isSuccess", false)
-                        put("errorReason", reason)
-                    }.toString()
+                buildJsonObject {
+                    put("isSuccess", false)
+                    put("errorReason", reason)
+                }.toString()
 
             private fun toSafeHeaderValue(value: String): String =
                 if (value.any { it.code !in 32..126 }) {
@@ -305,12 +306,7 @@ class NtfyNodePluginService : Service() {
     override fun onBind(intent: Intent?): IBinder = binder
 }
 
-private fun parseJsonConfig(configJson: String): JSONObject =
-    try {
-        JSONObject(configJson)
-    } catch (_: JSONException) {
-        JSONObject()
-    }
+private fun parseJsonConfig(configJson: String): JsonObject = parseJsonObjectSafe(configJson)
 
 private data class NtfyServiceParams(
     val serverUrl: String,

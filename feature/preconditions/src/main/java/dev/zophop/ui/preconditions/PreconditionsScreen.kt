@@ -42,13 +42,13 @@ import dev.zophop.data.getStepCount
 import dev.zophop.data.hasNodeType
 import dev.zophop.domain.engine.NodeExecutionStep
 import dev.zophop.domain.engine.PreconditionResult
+import dev.zophop.domain.model.AppJson
 import dev.zophop.domain.model.Credential
 import dev.zophop.domain.model.PreconditionType
 import dev.zophop.domain.model.Workflow
+import dev.zophop.domain.model.WorkflowGraph
 import dev.zophop.domain.model.WorkflowNode
 import dev.zophop.ui.workflows.WorkflowUiHelper
-import org.json.JSONArray
-import org.json.JSONObject
 import java.util.UUID
 
 private enum class PreconditionCategoryFilter {
@@ -269,24 +269,7 @@ fun PreconditionsScreen(
                         isEnabled = true,
                         configJson = defaultConfig,
                     )
-                val pipeJson =
-                    JSONObject()
-                        .apply {
-                            val arr =
-                                JSONArray().apply {
-                                    put(
-                                        JSONObject().apply {
-                                            put("id", initialNode.id)
-                                            put("name", initialNode.name)
-                                            put("type", initialNode.type)
-                                            put("isEnabled", initialNode.isEnabled)
-                                            put("configJson", initialNode.configJson)
-                                        },
-                                    )
-                                }
-                            put("nodes", arr)
-                            put("connections", JSONArray())
-                        }.toString()
+                val pipeJson = AppJson.encodeToString(WorkflowGraph(nodes = listOf(initialNode), connections = emptyList()))
 
                 val newEntity =
                     PreconditionEntity(

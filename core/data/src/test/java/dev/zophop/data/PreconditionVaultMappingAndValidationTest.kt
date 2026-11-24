@@ -1,12 +1,13 @@
 package dev.zophop.data
 
+import dev.zophop.domain.model.AppJson
 import dev.zophop.domain.model.NodeType
 import dev.zophop.domain.model.Precondition
 import dev.zophop.domain.model.PreconditionType
 import dev.zophop.domain.model.Workflow
+import dev.zophop.domain.model.WorkflowConnection
+import dev.zophop.domain.model.WorkflowGraph
 import dev.zophop.domain.model.WorkflowNode
-import org.json.JSONArray
-import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -122,44 +123,16 @@ class PreconditionVaultMappingAndValidationTest {
 
     @Test
     fun testChainedCheckPipelineSerializationAndDeserialization() {
-        val pipelineObj =
-            JSONObject().apply {
-                put(
-                    "nodes",
-                    JSONArray().apply {
-                        put(
-                            JSONObject().apply {
-                                put("id", "c_n1")
-                                put("name", "Manual Test Data")
-                                put("type", NodeType.MANUAL_TRIGGER)
-                                put("isEnabled", true)
-                                put("configJson", """{"testBody":"{\"status\":\"OK\"}"}""")
-                            },
-                        )
-                        put(
-                            JSONObject().apply {
-                                put("id", "c_n2")
-                                put("name", "Status Extractor")
-                                put("type", NodeType.JSON_PARSER)
-                                put("isEnabled", true)
-                                put("configJson", """{"jsonKey":"status","outputKey":"state"}""")
-                            },
-                        )
-                    },
-                )
-                put(
-                    "connections",
-                    JSONArray().apply {
-                        put(
-                            JSONObject().apply {
-                                put("fromNodeId", "c_n1")
-                                put("toNodeId", "c_n2")
-                                put("outputPort", "main")
-                            },
-                        )
-                    },
-                )
-            }
+        val nodes =
+            listOf(
+                WorkflowNode("c_n1", "Manual Test Data", NodeType.MANUAL_TRIGGER, true, """{"testBody":"{\"status\":\"OK\"}"}"""),
+                WorkflowNode("c_n2", "Status Extractor", NodeType.JSON_PARSER, true, """{"jsonKey":"status","outputKey":"state"}"""),
+            )
+        val connections =
+            listOf(
+                WorkflowConnection("c_n1", "c_n2", "main"),
+            )
+        val pipelineJson = AppJson.encodeToString(WorkflowGraph(nodes = nodes, connections = connections))
 
         val entity =
             PreconditionEntity(
@@ -167,7 +140,7 @@ class PreconditionVaultMappingAndValidationTest {
                 name = "Chained Pipeline Guard",
                 type = PreconditionType.CHAINED_CHECK.name,
                 isEnabled = true,
-                pipelineJson = pipelineObj.toString(),
+                pipelineJson = pipelineJson,
             )
 
         val domain = entity.toDomain()

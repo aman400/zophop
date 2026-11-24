@@ -20,23 +20,19 @@ import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
 import androidx.core.content.ContextCompat
 import dev.zophop.domain.model.WorkflowNode
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ExecutionContext
 import dev.zophop.plugin.api.NodeExecutionResult
 import dev.zophop.plugin.api.NodeExecutor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.json.JSONException
-import org.json.JSONObject
+import kotlinx.serialization.json.JsonObject
 import java.net.NetworkInterface
 
 private val VPN_IFACE_PREFIXES = listOf("tun", "ppp", "pflow", "wg", "wireguard", "tailscale")
 
-private fun parseNodeConfig(configJson: String): JSONObject =
-    try {
-        JSONObject(configJson)
-    } catch (_: JSONException) {
-        JSONObject()
-    }
+private fun parseNodeConfig(configJson: String): JsonObject = parseJsonObjectSafe(configJson)
 
 // -----------------------------------------------------------------------------
 // VPN Check

@@ -42,13 +42,16 @@ import dev.zophop.domain.engine.plugin.BuiltInPluginRegistry
 import dev.zophop.domain.model.Credential
 import dev.zophop.domain.model.NodeType
 import dev.zophop.domain.model.PreconditionType
+import dev.zophop.domain.model.optJsonObject
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ConfigFieldSpec
 import dev.zophop.plugin.api.HttpHeaderConfigHelper
 import dev.zophop.plugin.api.NodeCategory
 import dev.zophop.plugin.api.NodePluginManifest
-import org.json.JSONArray
-import org.json.JSONException
-import org.json.JSONObject
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 data class PermissionInstructionData(
     val title: String,
@@ -78,116 +81,97 @@ object WorkflowUiHelper {
     private fun getLegacyDefaultConfig(type: String): String =
         when {
             type.contains("INTERNET_CHECK", ignoreCase = true) ->
-                JSONObject()
-                    .apply {
-                        put("requireInternet", "true")
-                        put("requireConnected", "true")
-                        put("requiredNetworkType", "ANY")
-                    }.toString()
+                buildJsonObject {
+                    put("requireInternet", "true")
+                    put("requireConnected", "true")
+                    put("requiredNetworkType", "ANY")
+                }.toString()
             type.contains("VPN_CHECK", ignoreCase = true) ->
-                JSONObject()
-                    .apply {
-                        put("requireConnected", "true")
-                    }.toString()
+                buildJsonObject {
+                    put("requireConnected", "true")
+                }.toString()
             type.contains("GPS_CHECK", ignoreCase = true) || type.contains("GET_LOCATION_ACTION", ignoreCase = true) ->
-                JSONObject()
-                    .apply {
-                        put("requireGpsEnabled", "true")
-                        put("fetchCoordinates", "true")
-                        put("requireHighAccuracy", "true")
-                    }.toString()
+                buildJsonObject {
+                    put("requireGpsEnabled", "true")
+                    put("fetchCoordinates", "true")
+                    put("requireHighAccuracy", "true")
+                }.toString()
             type.contains("BATTERY_CHECK", ignoreCase = true) ->
-                JSONObject()
-                    .apply {
-                        put("minBatteryPercent", "15")
-                        put("requireCharging", "false")
-                    }.toString()
+                buildJsonObject {
+                    put("minBatteryPercent", "15")
+                    put("requireCharging", "false")
+                }.toString()
             type.contains("SIM_CHECK", ignoreCase = true) ->
-                JSONObject()
-                    .apply {
-                        put("requireSimReady", "true")
-                    }.toString()
+                buildJsonObject {
+                    put("requireSimReady", "true")
+                }.toString()
             type.contains("BLUETOOTH_CHECK", ignoreCase = true) ->
-                JSONObject()
-                    .apply {
-                        put("requireBluetoothEnabled", "true")
-                        put("requireConnected", "false")
-                    }.toString()
+                buildJsonObject {
+                    put("requireBluetoothEnabled", "true")
+                    put("requireConnected", "false")
+                }.toString()
             type.contains("CONDITION", ignoreCase = true) ->
-                JSONObject()
-                    .apply {
-                        put("variable", "status")
-                        put("operator", "EQUALS")
-                        put("value", "active")
-                    }.toString()
+                buildJsonObject {
+                    put("variable", "status")
+                    put("operator", "EQUALS")
+                    put("value", "active")
+                }.toString()
             type.contains("HTTP_ACTION", ignoreCase = true) ->
-                JSONObject()
-                    .apply {
-                        put("url", "https://example.com/health")
-                        put("method", "GET")
-                    }.toString()
+                buildJsonObject {
+                    put("url", "https://example.com/health")
+                    put("method", "GET")
+                }.toString()
             type.contains("PARSE_NOTIFICATION", ignoreCase = true) || type.contains("REGEX_PARSER", ignoreCase = true) ->
-                JSONObject()
-                    .apply {
-                        put("regex", "\\b\\d{6}\\b")
-                        put("outputKey", "code")
-                    }.toString()
+                buildJsonObject {
+                    put("regex", "\\b\\d{6}\\b")
+                    put("outputKey", "code")
+                }.toString()
             type.contains("JSON_PARSER", ignoreCase = true) ->
-                JSONObject()
-                    .apply {
-                        put("jsonKey", "data.status")
-                        put("outputKey", "parsedStatus")
-                        put("targetType", "AUTO")
-                    }.toString()
+                buildJsonObject {
+                    put("jsonKey", "data.status")
+                    put("outputKey", "parsedStatus")
+                    put("targetType", "AUTO")
+                }.toString()
             type.contains("TEMPLATE_FORMATTER", ignoreCase = true) ->
-                JSONObject()
-                    .apply {
-                        put("template", "\${body}")
-                    }.toString()
+                buildJsonObject {
+                    put("template", "\${body}")
+                }.toString()
             type.contains("SEND_NOTIFICATION_ACTION", ignoreCase = true) ->
-                JSONObject()
-                    .apply {
-                        put("title", "ZopHop Notification")
-                        put("body", "\${body}")
-                    }.toString()
+                buildJsonObject {
+                    put("title", "ZopHop Notification")
+                    put("body", "\${body}")
+                }.toString()
             type.contains("SEND_SMS_ACTION", ignoreCase = true) ->
-                JSONObject()
-                    .apply {
-                        put("recipient", "")
-                        put("body", "\${body}")
-                    }.toString()
+                buildJsonObject {
+                    put("recipient", "")
+                    put("body", "\${body}")
+                }.toString()
             type.contains("CRON_TRIGGER", ignoreCase = true) ->
-                JSONObject()
-                    .apply {
-                        put("cronExpression", "every 30m")
-                    }.toString()
+                buildJsonObject {
+                    put("cronExpression", "every 30m")
+                }.toString()
             type.contains("MANUAL_TRIGGER", ignoreCase = true) ->
-                JSONObject()
-                    .apply {
-                        put("testBody", "{\"status\":\"success\",\"message\":\"Manual test execution\"}")
-                    }.toString()
+                buildJsonObject {
+                    put("testBody", "{\"status\":\"success\",\"message\":\"Manual test execution\"}")
+                }.toString()
             type.contains("SMS_TRIGGER", ignoreCase = true) ->
-                JSONObject()
-                    .apply {
-                        put("allowlist", ".*")
-                        put("keywordRegex", ".*")
-                    }.toString()
+                buildJsonObject {
+                    put("allowlist", ".*")
+                    put("keywordRegex", ".*")
+                }.toString()
             type.contains("NOTIFICATION_TRIGGER", ignoreCase = true) ->
-                JSONObject()
-                    .apply {
-                        put("packageFilter", ".*")
-                        put("textRegex", ".*")
-                    }.toString()
+                buildJsonObject {
+                    put("packageFilter", ".*")
+                    put("textRegex", ".*")
+                }.toString()
             type.contains("CALL_TRIGGER", ignoreCase = true) ->
-                JSONObject()
-                    .apply {
-                        put("callerRegex", ".*")
-                    }.toString()
+                buildJsonObject {
+                    put("callerRegex", ".*")
+                }.toString()
             type.contains("TELEGRAM_ACTION", ignoreCase = true) ->
-                JSONObject()
-                    .apply {
-                        put("messageTemplate", "\${body}")
-                    }.toString()
+                buildJsonObject {
+                    put("messageTemplate", "\${body}")
+                }.toString()
             else -> "{}"
         }
 
@@ -326,21 +310,22 @@ object WorkflowUiHelper {
     }
 
     private fun parseChainedPipelineSummary(pipelineJson: String): Pair<ImageVector, String>? {
-        val json = JSONObject(pipelineJson)
-        val nodesArr = json.optJSONArray("nodes") ?: JSONArray()
+        val json = parseJsonObjectSafe(pipelineJson)
+        val nodesArr = json["nodes"] as? JsonArray
         return when {
-            nodesArr.length() == 1 -> {
-                val nodeObj = nodesArr.getJSONObject(0)
+            nodesArr?.size == 1 -> {
+                val nodeObj = nodesArr.optJsonObject(0) ?: return null
                 val nodeType = nodeObj.optString("type", "")
                 val nodeName = nodeObj.optString("name", getNodeTitle(nodeType))
                 getNodeIcon(nodeType) to "$nodeName (1 Step)"
             }
-            nodesArr.length() > 1 -> {
-                val names = (0 until nodesArr.length()).map { i ->
-                    val n = nodesArr.getJSONObject(i)
-                    n.optString("name", getNodeTitle(n.optString("type", "")))
-                }
-                Icons.Default.DeviceHub to "Chained Pipeline (${nodesArr.length()} Steps: ${names.joinToString(" → ")})"
+            nodesArr != null && nodesArr.size > 1 -> {
+                val names =
+                    nodesArr.indices.map { i ->
+                        val n = nodesArr.optJsonObject(i)
+                        n?.optString("name", getNodeTitle(n.optString("type", ""))) ?: ""
+                    }
+                Icons.Default.DeviceHub to "Chained Pipeline (${nodesArr.size} Steps: ${names.joinToString(" → ")})"
             }
             else -> null
         }
@@ -857,8 +842,8 @@ object WorkflowUiHelper {
         val matchesDefaultJson =
             try {
                 val defaultJson = manifest.defaultConfigJson
-                !defaultJson.isNullOrBlank() && JSONObject(defaultJson).optString(key, "") == currentVal
-            } catch (_: JSONException) {
+                !defaultJson.isNullOrBlank() && parseJsonObjectSafe(defaultJson).optString(key, "") == currentVal
+            } catch (_: Exception) {
                 false
             }
         return matchesPlaceholder || matchesDefaultJson
