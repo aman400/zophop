@@ -31,7 +31,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FabPosition
 import androidx.compose.material3.Icon
@@ -57,6 +56,8 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import dev.zophop.core.ui.components.IconPickerModalBottomSheet
+import dev.zophop.core.ui.components.IconSelectorBadge
 import dev.zophop.core.ui.components.InfoTooltipField
 import dev.zophop.data.PreconditionEntity
 import dev.zophop.data.toDomain
@@ -79,7 +80,6 @@ import java.util.UUID
  * Modernized editor screen for creating or modifying a Precondition Entity as a Chained Pipeline.
  * All preconditions are treated as chained pipelines, supporting single-node or multi-node pipelines.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PreconditionEditorScreen(
     precondition: PreconditionEntity?,
@@ -101,6 +101,8 @@ fun PreconditionEditorScreen(
         }
 
     var name by remember { mutableStateOf(precondition?.name ?: "Precondition Guard") }
+    var icon by remember { mutableStateOf(precondition?.icon ?: "") }
+    var showIconPicker by remember { mutableStateOf(false) }
     var isEnabled by remember { mutableStateOf(precondition?.isEnabled ?: true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showDiscardDialog by remember { mutableStateOf(false) }
@@ -133,6 +135,7 @@ fun PreconditionEditorScreen(
             hasNodes = chainNodes.isNotEmpty(),
             onPreconditionPresent = {
                 name = it.name
+                icon = it.icon
                 isEnabled = it.isEnabled
                 onFailureAction = it.onFailureAction
                 maxRetries = it.maxRetries.toString()
@@ -160,6 +163,7 @@ fun PreconditionEditorScreen(
         remember(
             precondition,
             name,
+            icon,
             isEnabled,
             pipelineJson,
             onFailureAction,
@@ -172,6 +176,7 @@ fun PreconditionEditorScreen(
             hasPreconditionChanges(
                 precondition = precondition,
                 name = name,
+                icon = icon,
                 isEnabled = isEnabled,
                 pipelineJson = pipelineJson,
                 onFailureAction = onFailureAction,
@@ -274,6 +279,8 @@ fun PreconditionEditorScreen(
             onDismissError = { errorMessage = null },
             name = name,
             onNameChange = { name = it },
+            icon = icon,
+            onSelectIconClick = { showIconPicker = true },
             isEnabled = isEnabled,
             onEnabledChange = { isEnabled = it },
             onFailureAction = onFailureAction,
@@ -306,6 +313,7 @@ fun PreconditionEditorScreen(
         onDismissTestStepper = { showTestStepperSheet = false },
         showSaveConfirmDialog = showSaveConfirmDialog,
         precondition = precondition,
+        icon = icon,
         isEnabled = isEnabled,
         pipelineJson = pipelineJson,
         onFailureAction = onFailureAction,
@@ -362,6 +370,16 @@ fun PreconditionEditorScreen(
             nodePendingDeletion = null
         },
     )
+
+    if (showIconPicker) {
+        IconPickerModalBottomSheet(
+            selectedIcon = icon,
+            onIconSelected = { icon = it },
+            onDismiss = { showIconPicker = false },
+            title = "Precondition Icon",
+            subtitle = "Select an icon or emoji for this precondition guard",
+        )
+    }
 }
 
 private inline fun syncPreconditionState(
@@ -491,6 +509,7 @@ private fun PreconditionEditorDialogHost(
     onDismissTestStepper: () -> Unit,
     showSaveConfirmDialog: Boolean,
     precondition: PreconditionEntity?,
+    icon: String,
     isEnabled: Boolean,
     pipelineJson: String,
     onFailureAction: String,
@@ -533,6 +552,7 @@ private fun PreconditionEditorDialogHost(
         PreconditionSaveConfirmDialogWrapper(
             precondition = precondition,
             name = name,
+            icon = icon,
             isEnabled = isEnabled,
             pipelineJson = pipelineJson,
             onFailureAction = onFailureAction,
@@ -714,6 +734,8 @@ private fun convertLegacyToNodesAndConns(
 private fun PreconditionMetaFields(
     name: String,
     onNameChange: (String) -> Unit,
+    icon: String,
+    onSelectIconClick: () -> Unit,
     isEnabled: Boolean,
     onEnabledChange: (Boolean) -> Unit,
     isTesting: Boolean,
@@ -731,15 +753,26 @@ private fun PreconditionMetaFields(
     onShowNotificationOnFailureChanged: (Boolean) -> Unit,
     onShowNotificationRationale: () -> Unit,
 ) {
-    InfoTooltipField(
-        value = name,
-        onValueChange = onNameChange,
-        label = "Precondition Name",
-        tooltipText = "Descriptive title identifying this precondition guard rule.",
+    Row(
         modifier = Modifier.fillMaxWidth(),
-        singleLine = true,
-        enabled = !isTesting,
-    )
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconSelectorBadge(
+            selectedIcon = icon,
+            onClick = onSelectIconClick,
+            enabled = !isTesting,
+        )
+        InfoTooltipField(
+            value = name,
+            onValueChange = onNameChange,
+            label = "Precondition Name",
+            tooltipText = "Descriptive title identifying this precondition guard rule.",
+            modifier = Modifier.weight(1f),
+            singleLine = true,
+            enabled = !isTesting,
+        )
+    }
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -876,7 +909,6 @@ private fun PreconditionPipelineStepsSection(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PreconditionEditorTopBar(
     isEditing: Boolean,
@@ -1065,6 +1097,7 @@ private fun buildPipelineJson(
 private fun hasPreconditionChanges(
     precondition: PreconditionEntity?,
     name: String,
+    icon: String,
     isEnabled: Boolean,
     pipelineJson: String,
     onFailureAction: String,
@@ -1077,6 +1110,7 @@ private fun hasPreconditionChanges(
 ): Boolean {
     if (precondition == null) {
         return name.isNotBlank() ||
+            icon.isNotBlank() ||
             !isEnabled ||
             onFailureAction != "FAIL_IMMEDIATELY" ||
             maxRetries != "3" ||
@@ -1087,6 +1121,7 @@ private fun hasPreconditionChanges(
             chainNodesCount > 0
     }
     return name != precondition.name ||
+        icon != precondition.icon ||
         isEnabled != precondition.isEnabled ||
         onFailureAction != precondition.onFailureAction ||
         maxRetries != precondition.maxRetries.toString() ||
@@ -1105,6 +1140,8 @@ private fun PreconditionEditorBody(
     onDismissError: () -> Unit,
     name: String,
     onNameChange: (String) -> Unit,
+    icon: String,
+    onSelectIconClick: () -> Unit,
     isEnabled: Boolean,
     onEnabledChange: (Boolean) -> Unit,
     onFailureAction: String,
@@ -1187,6 +1224,8 @@ private fun PreconditionEditorBody(
         PreconditionMetaFields(
             name = name,
             onNameChange = onNameChange,
+            icon = icon,
+            onSelectIconClick = onSelectIconClick,
             isEnabled = isEnabled,
             onEnabledChange = onEnabledChange,
             isTesting = isTesting,
@@ -1225,6 +1264,7 @@ private fun PreconditionEditorBody(
 private fun PreconditionSaveConfirmDialogWrapper(
     precondition: PreconditionEntity?,
     name: String,
+    icon: String,
     isEnabled: Boolean,
     pipelineJson: String,
     onFailureAction: String,
@@ -1241,6 +1281,7 @@ private fun PreconditionSaveConfirmDialogWrapper(
     PreconditionChangesConfirmDialog(
         precondition = precondition,
         name = name,
+        icon = icon,
         isEnabled = isEnabled,
         onFailureAction = onFailureAction,
         maxRetries = maxRetries,
@@ -1256,10 +1297,12 @@ private fun PreconditionSaveConfirmDialogWrapper(
                     precondition ?: PreconditionEntity(
                         id = UUID.randomUUID().toString(),
                         name = name,
+                        icon = icon,
                         type = PreconditionType.CHAINED_CHECK.name,
                     )
                 ).copy(
                     name = name,
+                    icon = icon,
                     type = PreconditionType.CHAINED_CHECK.name,
                     isEnabled = isEnabled,
                     pipelineJson = pipelineJson,

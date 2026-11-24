@@ -27,7 +27,8 @@ class NtfyNodePluginServiceTest {
         assertEquals("dev.zophop.ntfyplugin.NTFY_ACTION", ntfyAction.typeId)
         assertEquals("NTFY_AUTH", ntfyAction.requiredCredentialType)
         assertTrue(ntfyAction.requiredPermissions.isEmpty())
-        assertEquals(6, ntfyAction.configSchema.size)
+        assertEquals(7, ntfyAction.configSchema.size)
+        assertTrue(ntfyAction.configSchema.any { it.key == "token" })
     }
 
     @Test

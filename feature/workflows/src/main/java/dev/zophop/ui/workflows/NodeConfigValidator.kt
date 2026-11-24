@@ -1,6 +1,8 @@
 package dev.zophop.ui.workflows
 
+import dev.zophop.domain.engine.plugin.BuiltInPluginRegistry
 import dev.zophop.plugin.api.NodePluginManifest
+import org.json.JSONObject
 import java.util.regex.Pattern
 import java.util.regex.PatternSyntaxException
 
@@ -11,9 +13,9 @@ object NodeConfigValidator {
         manifest: NodePluginManifest? = null,
     ): String? {
         val schemaError = validateAgainstSchema(config, manifest)
-        if (schemaError != null) return schemaError
-
-        return validateByTypeFallback(nodeType, config)
+        val configJson = JSONObject(config).toString()
+        val pluginError = BuiltInPluginRegistry.validateConfig(nodeType, configJson)
+        return schemaError ?: pluginError ?: validateByTypeFallback(nodeType, config)
     }
 
     private fun validateAgainstSchema(
@@ -42,8 +44,6 @@ object NodeConfigValidator {
             nodeType.contains("SEND_SMS_ACTION", ignoreCase = true) -> validateSmsAction(config)
             nodeType.contains("SEND_NOTIFICATION_ACTION", ignoreCase = true) -> validateNotificationAction(config)
             nodeType.contains("HTTP_ACTION", ignoreCase = true) -> validateHttpAction(config)
-            nodeType.contains("NTFY_ACTION", ignoreCase = true) -> validateNtfyAction(config)
-            nodeType.contains("GOTIFY_ACTION", ignoreCase = true) -> validateGotifyAction(config)
             nodeType.contains("TELEGRAM_ACTION", ignoreCase = true) -> validateTelegramAction(config)
             nodeType.contains("REGEX_PARSER", ignoreCase = true) ||
                 nodeType.contains("PARSE_NOTIFICATION", ignoreCase = true) -> validateRegexParser(config)
@@ -78,32 +78,11 @@ object NodeConfigValidator {
 
     private fun validateHttpAction(config: Map<String, String>): String? {
         val url = config["url"]?.trim() ?: config["serverUrl"]?.trim() ?: ""
+        val credentialId = config["credentialId"]?.trim() ?: ""
         val isHttp = url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true)
         return when {
-            url.isBlank() -> "HTTP URL cannot be blank."
-            !isHttp -> "HTTP URL must start with http:// or https://."
-            else -> null
-        }
-    }
-
-    private fun validateNtfyAction(config: Map<String, String>): String? {
-        val serverUrl = config["serverUrl"]?.trim() ?: ""
-        val topic = config["topic"]?.trim() ?: ""
-        val credentialId = config["credentialId"]?.trim() ?: ""
-        return when {
-            serverUrl.isBlank() && credentialId.isBlank() -> "Server URL or an attached credential must be provided."
-            topic.isBlank() -> "Topic name cannot be blank."
-            else -> null
-        }
-    }
-
-    private fun validateGotifyAction(config: Map<String, String>): String? {
-        val serverUrl = config["serverUrl"]?.trim() ?: ""
-        val appToken = config["appToken"]?.trim() ?: ""
-        val credentialId = config["credentialId"]?.trim() ?: ""
-        return when {
-            serverUrl.isBlank() && credentialId.isBlank() -> "Server URL or an attached credential must be provided."
-            appToken.isBlank() && credentialId.isBlank() -> "App Token or an attached credential must be provided."
+            url.isBlank() && credentialId.isBlank() -> "HTTP URL cannot be blank."
+            url.isNotBlank() && !isHttp -> "HTTP URL must start with http:// or https://."
             else -> null
         }
     }

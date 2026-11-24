@@ -25,7 +25,7 @@ class GotifyNodePluginServiceTest {
         assertEquals("dev.zophop.plugin.gotify.GOTIFY_ACTION", gotifyAction.typeId)
         assertEquals("GOTIFY_AUTH", gotifyAction.requiredCredentialType)
         assertTrue(gotifyAction.requiredPermissions.isEmpty())
-        assertEquals(4, gotifyAction.configSchema.size)
+        assertEquals(5, gotifyAction.configSchema.size)
     }
 
     @Test

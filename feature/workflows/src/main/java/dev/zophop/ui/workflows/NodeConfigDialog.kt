@@ -6,6 +6,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -25,22 +27,27 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.InputChip
+import androidx.compose.material3.InputChipDefaults
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SuggestionChip
-import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -53,6 +60,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -61,19 +69,14 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.zophop.core.ui.components.CredentialBottomSheet
 import dev.zophop.core.ui.components.HeaderInputEditor
 import dev.zophop.core.ui.components.InfoTooltipField
+import dev.zophop.core.ui.components.QueryParamsInputEditor
 import dev.zophop.core.ui.components.SearchableDropdownSelector
 import dev.zophop.data.PreconditionEntity
-import dev.zophop.data.hasNodeType
 import dev.zophop.data.toDomain
 import dev.zophop.domain.model.Credential
-import dev.zophop.domain.model.NodeType
-import dev.zophop.domain.model.PreconditionType
 import dev.zophop.domain.model.WorkflowNode
-import org.json.JSONArray
 import org.json.JSONObject
-import java.util.UUID
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NodeConfigBottomSheet(
     node: WorkflowNode,
@@ -87,7 +90,6 @@ fun NodeConfigBottomSheet(
     onDismiss: () -> Unit,
     onSave: (WorkflowNode) -> Unit,
     onSaveCredential: ((Credential) -> Unit)? = null,
-    onSavePrecondition: ((PreconditionEntity) -> Unit)? = null,
     onRequestCreatePrecondition: ((onCreated: (PreconditionEntity) -> Unit) -> Unit)? = null,
 ) {
     val context = LocalContext.current
@@ -207,11 +209,27 @@ fun NodeConfigBottomSheet(
         }
     var configStateMap by remember(initialConfigMap) { mutableStateOf<Map<String, String>>(initialConfigMap) }
 
-    androidx.compose.runtime.LaunchedEffect(pluginManifest) {
+    androidx.compose.runtime.LaunchedEffect(pluginManifest, credentials) {
         pluginManifest?.let { manifest ->
             val updated = fillMissingDropdownDefaults(manifest, configStateMap)
             if (updated !== configStateMap) {
                 configStateMap = updated
+            }
+        }
+        val currentCredId = configStateMap["credentialId"]?.trim().orEmpty()
+        if (currentCredId.isNotBlank()) {
+            val matchedCred = credentials.find { it.id == currentCredId }
+            if (matchedCred != null) {
+                val filled =
+                    WorkflowUiHelper.fillMissingCredentialDefaults(
+                        nodeType = node.type,
+                        pluginManifest = pluginManifest,
+                        currentConfig = configStateMap,
+                        credential = matchedCred,
+                    )
+                if (filled != configStateMap) {
+                    configStateMap = filled
+                }
             }
         }
     }
@@ -321,48 +339,42 @@ fun NodeConfigBottomSheet(
 
             // Credential attachment selector for Actions
             if (isCredentialSupported(node.type, pluginManifest)) {
+                SubtleSectionDivider()
                 NodeConfigCredentialSelector(
                     credentials = credentials,
                     credentialId = credentialId,
-                    onCredentialSelected = { credentialId = it },
+                    onCredentialSelected = { selectedCred ->
+                        credentialId = selectedCred?.id.orEmpty()
+                        configStateMap =
+                            WorkflowUiHelper.applyCredentialDefaultsToConfig(
+                                nodeType = node.type,
+                                pluginManifest = pluginManifest,
+                                currentConfig = configStateMap,
+                                credential = selectedCred,
+                            )
+                    },
                     onCreateNewClick = { showCreateCredSheet = true },
                 )
             }
 
             // Dynamic Manifest-Driven Config Fields
-            if (pluginManifest != null && pluginManifest!!.configSchema.isNotEmpty()) {
-                val schema = pluginManifest!!.configSchema
-                val mainFields = schema.filter { !it.isTestField && !it.key.startsWith("test", ignoreCase = true) }
-                val testFields = schema.filter { it.isTestField || it.key.startsWith("test", ignoreCase = true) }
-
-                NodeConfigMainFieldsSection(
-                    mainFields = mainFields,
-                    configStateMap = configStateMap,
-                    availableVariables = availableVariables,
-                    onFieldChange = { key, newValue ->
-                        configStateMap = configStateMap + (key to newValue)
-                    },
-                )
-
-                // Section 2: Test Simulation Payload Inputs
-                if (testFields.isNotEmpty()) {
-                    NodeConfigTestFieldsSection(
-                        testFields = testFields,
-                        configStateMap = configStateMap,
-                        availableVariables = availableVariables,
-                        onFieldChange = { key, newValue ->
-                            configStateMap = configStateMap + (key to newValue)
-                        },
-                    )
-                }
-            }
+            val selectedCred = credentials.find { it.id == credentialId }
+            NodeConfigDynamicSchemaSections(
+                pluginManifest = pluginManifest,
+                configStateMap = configStateMap,
+                availableVariables = availableVariables,
+                selectedCredential = selectedCred,
+                onFieldChange = { key, newValue ->
+                    configStateMap = configStateMap + (key to newValue)
+                },
+            )
 
             if (canShowPreconditionsGuard) {
+                SubtleSectionDivider()
                 NodeConfigPreconditionsSection(
                     attachedVaultPrecIds = attachedVaultPrecIds,
                     vaultPreconditions = vaultPreconditions,
                     onAttachedIdsChange = { attachedVaultPrecIds = it },
-                    onSavePrecondition = onSavePrecondition,
                     onRequestCreatePrecondition = onRequestCreatePrecondition,
                 )
             }
@@ -378,6 +390,13 @@ fun NodeConfigBottomSheet(
             onSave = { newCred ->
                 onSaveCredential?.invoke(newCred)
                 credentialId = newCred.id
+                configStateMap =
+                    WorkflowUiHelper.applyCredentialDefaultsToConfig(
+                        nodeType = node.type,
+                        pluginManifest = pluginManifest,
+                        currentConfig = configStateMap,
+                        credential = newCred,
+                    )
                 showCreateCredSheet = false
             },
         )
@@ -397,6 +416,7 @@ private fun RenderDynamicConfigField(
     currentVal: String,
     onValueChange: (String) -> Unit,
     availableVariables: List<String> = emptyList(),
+    selectedCredential: Credential? = null,
 ) {
     when (field.key) {
         "packageFilter" -> {
@@ -412,98 +432,218 @@ private fun RenderDynamicConfigField(
             )
         }
         else -> {
-            when (field) {
-                is dev.zophop.plugin.api.ConfigFieldSpec.TextField -> {
-                    val isVariableField =
-                        (field.key.equals("variable", ignoreCase = true) ||
-                            field.key.equals("inputVariable", ignoreCase = true) ||
-                            field.key.endsWith("Variable", ignoreCase = true)) &&
-                            availableVariables.isNotEmpty()
+            RenderGenericField(
+                field = field,
+                currentVal = currentVal,
+                onValueChange = onValueChange,
+                availableVariables = availableVariables,
+                selectedCredential = selectedCredential,
+            )
+        }
+    }
+}
 
-                    if (isVariableField) {
-                        AutocompleteTextField(
-                            value = currentVal,
-                            onValueChange = onValueChange,
-                            label = field.label,
-                            tooltipText = field.tooltip ?: field.label,
-                            placeholder = field.placeholder,
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = field.singleLine,
-                            minLines = field.minLines,
-                            availableVariables = availableVariables,
-                            insertRawVariable = true,
-                        )
+@Composable
+private fun RenderGenericField(
+    field: dev.zophop.plugin.api.ConfigFieldSpec,
+    currentVal: String,
+    onValueChange: (String) -> Unit,
+    availableVariables: List<String>,
+    selectedCredential: Credential?,
+) {
+    when (field) {
+        is dev.zophop.plugin.api.ConfigFieldSpec.TextField -> {
+            RenderTextFieldConfig(
+                field = field,
+                currentVal = currentVal,
+                onValueChange = onValueChange,
+                availableVariables = availableVariables,
+                selectedCredential = selectedCredential,
+            )
+        }
+        is dev.zophop.plugin.api.ConfigFieldSpec.DropdownField -> {
+            RenderDropdownConfig(
+                field = field,
+                currentVal = currentVal,
+                onValueChange = onValueChange,
+            )
+        }
+        is dev.zophop.plugin.api.ConfigFieldSpec.CodeTemplateField -> {
+            RenderCodeTemplateConfig(
+                field = field,
+                currentVal = currentVal,
+                onValueChange = onValueChange,
+                availableVariables = availableVariables,
+                selectedCredential = selectedCredential,
+            )
+        }
+    }
+}
+
+@Composable
+private fun RenderTextFieldConfig(
+    field: dev.zophop.plugin.api.ConfigFieldSpec.TextField,
+    currentVal: String,
+    onValueChange: (String) -> Unit,
+    availableVariables: List<String>,
+    selectedCredential: Credential?,
+) {
+    val isVariableField =
+        (field.key.equals("variable", ignoreCase = true) ||
+            field.key.equals("inputVariable", ignoreCase = true) ||
+            field.key.endsWith("Variable", ignoreCase = true)) &&
+            availableVariables.isNotEmpty()
+
+    val isTokenField =
+        field.isSecret ||
+            field.key.equals("token", ignoreCase = true) ||
+            field.key.equals("appToken", ignoreCase = true) ||
+            field.key.equals("botToken", ignoreCase = true) ||
+            field.key.equals("password", ignoreCase = true)
+
+    val placeholder = computeEffectivePlaceholder(field, currentVal, selectedCredential, isTokenField)
+
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        AutocompleteTextField(
+            value = currentVal,
+            onValueChange = onValueChange,
+            label = field.label,
+            tooltipText = field.tooltip ?: field.label,
+            placeholder = placeholder,
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = field.singleLine,
+            minLines = field.minLines,
+            availableVariables = availableVariables,
+            insertRawVariable = isVariableField,
+            isSecret = isTokenField,
+        )
+
+        if (isTokenField && selectedCredential != null) {
+            val credToken =
+                selectedCredential.dataMap[field.key].takeUnless { it.isNullOrBlank() }
+                    ?: selectedCredential.dataMap["token"].takeUnless { it.isNullOrBlank() }
+                    ?: selectedCredential.dataMap["appToken"].takeUnless { it.isNullOrBlank() }
+                    ?: selectedCredential.dataMap["botToken"].takeUnless { it.isNullOrBlank() }
+
+            if (!credToken.isNullOrBlank()) {
+                val helperMsg =
+                    if (currentVal.isBlank()) {
+                        "🔒 Token will be used from credential: ${selectedCredential.name}. Enter value above only to override."
                     } else {
-                        InfoTooltipField(
-                            value = currentVal,
-                            onValueChange = onValueChange,
-                            label = field.label,
-                            tooltipText = field.tooltip ?: field.label,
-                            placeholder = field.placeholder,
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = field.singleLine,
-                            minLines = field.minLines,
-                        )
+                        "✏️ Custom token override active (leave blank to use credential default)."
                     }
-                }
-                is dev.zophop.plugin.api.ConfigFieldSpec.DropdownField -> {
-                    val effectiveVal = currentVal.ifBlank { field.options.firstOrNull()?.first ?: "" }
-                    androidx.compose.runtime.LaunchedEffect(field.key, currentVal) {
-                        if (currentVal.isBlank() && effectiveVal.isNotBlank()) {
-                            onValueChange(effectiveVal)
-                        }
-                    }
-                    val selectedLabel = field.options.find { it.first == effectiveVal }?.second ?: effectiveVal
-                    SearchableDropdownSelector(
-                        selectedItemText = selectedLabel,
-                        label = field.label,
-                        searchPlaceholder = "Filter ${field.label}...",
-                        items = field.options,
-                        itemText = { it.second },
-                        onItemSelected = { option ->
-                            if (option != null) {
-                                onValueChange(option.first)
-                            }
-                        },
-                        isItemSelected = { option -> option.first == effectiveVal },
-                        showNoneOption = false,
-                        tooltipText = field.tooltip ?: field.label,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                is dev.zophop.plugin.api.ConfigFieldSpec.CodeTemplateField -> {
-                    if (field.key.contains("headers", ignoreCase = true)) {
-                        HeaderInputEditor(
-                            headersString = currentVal,
-                            onHeadersChanged = onValueChange,
-                        )
-                    } else if (field.isTestField || field.key.startsWith("test", ignoreCase = true)) {
-                        InfoTooltipField(
-                            value = currentVal,
-                            onValueChange = onValueChange,
-                            label = field.label,
-                            tooltipText = field.tooltip ?: field.label,
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = false,
-                            minLines = field.minLines,
-                        )
-                    } else {
-                        AutocompleteTextField(
-                            value = currentVal,
-                            onValueChange = onValueChange,
-                            label = field.label,
-                            tooltipText = field.tooltip ?: field.label,
-                            modifier = Modifier.fillMaxWidth(),
-                            minLines = field.minLines,
-                            singleLine = field.singleLine,
-                            maxLength = field.maxLength,
-                            availableVariables = availableVariables,
-                            insertRawVariable = false,
-                        )
-                    }
-                }
+                Text(
+                    text = helperMsg,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                    modifier = Modifier.padding(start = 4.dp, top = 2.dp),
+                )
             }
         }
+    }
+}
+
+private fun computeEffectivePlaceholder(
+    field: dev.zophop.plugin.api.ConfigFieldSpec.TextField,
+    currentVal: String,
+    selectedCredential: Credential?,
+    isTokenField: Boolean,
+): String? {
+    if (currentVal.isNotBlank() || selectedCredential == null || !isTokenField) {
+        return field.placeholder
+    }
+    val credToken =
+        selectedCredential.dataMap[field.key].takeUnless { it.isNullOrBlank() }
+            ?: selectedCredential.dataMap["token"].takeUnless { it.isNullOrBlank() }
+            ?: selectedCredential.dataMap["appToken"].takeUnless { it.isNullOrBlank() }
+            ?: selectedCredential.dataMap["botToken"].takeUnless { it.isNullOrBlank() }
+
+    return if (!credToken.isNullOrBlank()) {
+        if (selectedCredential.name.isNotBlank()) {
+            "Token will be used from credential (${selectedCredential.name})"
+        } else {
+            "Token will be used from credential"
+        }
+    } else {
+        field.placeholder
+    }
+}
+
+@Composable
+private fun RenderDropdownConfig(
+    field: dev.zophop.plugin.api.ConfigFieldSpec.DropdownField,
+    currentVal: String,
+    onValueChange: (String) -> Unit,
+) {
+    val effectiveVal = currentVal.ifBlank { field.options.firstOrNull()?.first ?: "" }
+    androidx.compose.runtime.LaunchedEffect(field.key, currentVal) {
+        if (currentVal.isBlank() && effectiveVal.isNotBlank()) {
+            onValueChange(effectiveVal)
+        }
+    }
+    val selectedLabel = field.options.find { it.first == effectiveVal }?.second ?: effectiveVal
+    SearchableDropdownSelector(
+        selectedItemText = selectedLabel,
+        label = field.label,
+        searchPlaceholder = "Filter ${field.label}...",
+        items = field.options,
+        itemText = { it.second },
+        onItemSelected = { option ->
+            if (option != null) {
+                onValueChange(option.first)
+            }
+        },
+        isItemSelected = { option -> option.first == effectiveVal },
+        showNoneOption = false,
+        tooltipText = field.tooltip ?: field.label,
+        modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+@Composable
+private fun RenderCodeTemplateConfig(
+    field: dev.zophop.plugin.api.ConfigFieldSpec.CodeTemplateField,
+    currentVal: String,
+    onValueChange: (String) -> Unit,
+    availableVariables: List<String>,
+    selectedCredential: Credential? = null,
+) {
+    if (field.key.contains("headers", ignoreCase = true)) {
+        HeaderInputEditor(
+            headersString = currentVal,
+            onHeadersChanged = onValueChange,
+            availableVariables = availableVariables,
+            attachedCredential = selectedCredential,
+        )
+    } else if (field.key.contains("queryParam", ignoreCase = true) || field.key.equals("params", ignoreCase = true)) {
+        QueryParamsInputEditor(
+            queryParamsString = currentVal,
+            onQueryParamsChanged = onValueChange,
+            availableVariables = availableVariables,
+        )
+    } else if (field.isTestField || field.key.startsWith("test", ignoreCase = true)) {
+        InfoTooltipField(
+            value = currentVal,
+            onValueChange = onValueChange,
+            label = field.label,
+            tooltipText = field.tooltip ?: field.label,
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = false,
+            minLines = field.minLines,
+        )
+    } else {
+        AutocompleteTextField(
+            value = currentVal,
+            onValueChange = onValueChange,
+            label = field.label,
+            tooltipText = field.tooltip ?: field.label,
+            modifier = Modifier.fillMaxWidth(),
+            minLines = field.minLines,
+            singleLine = field.singleLine,
+            maxLength = field.maxLength,
+            availableVariables = availableVariables,
+            insertRawVariable = false,
+        )
     }
 }
 
@@ -536,37 +676,148 @@ private fun NodeConfigErrorBanner(
 }
 
 @Composable
+private fun SubtleSectionDivider() {
+    HorizontalDivider(
+        modifier = Modifier.padding(vertical = 4.dp),
+        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+        thickness = 1.dp,
+    )
+}
+
+@Composable
+private fun SectionTitleWithInfo(
+    title: String,
+    modifier: Modifier = Modifier,
+    tooltip: String? = null,
+    subtitle: String? = null,
+) {
+    var showTooltip by remember { mutableStateOf(false) }
+
+    Column(modifier = modifier) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+            )
+
+            if (!tooltip.isNullOrBlank()) {
+                Box {
+                    IconButton(
+                        onClick = { showTooltip = !showTooltip },
+                        modifier = Modifier.size(20.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = "Info for $title",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
+
+                    DropdownMenu(
+                        expanded = showTooltip,
+                        onDismissRequest = { showTooltip = false },
+                    ) {
+                        Column(
+                            modifier =
+                                Modifier
+                                    .widthIn(max = 280.dp)
+                                    .padding(12.dp),
+                        ) {
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = tooltip,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!subtitle.isNullOrBlank()) {
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun NodeConfigDynamicSchemaSections(
+    pluginManifest: dev.zophop.plugin.api.NodePluginManifest?,
+    configStateMap: Map<String, String>,
+    availableVariables: List<String>,
+    onFieldChange: (String, String) -> Unit,
+    selectedCredential: Credential? = null,
+) {
+    if (pluginManifest == null || pluginManifest.configSchema.isEmpty()) return
+
+    val schema = pluginManifest.configSchema
+    val mainFields = schema.filter { !it.isTestField && !it.key.startsWith("test", ignoreCase = true) }
+    val testFields = schema.filter { it.isTestField || it.key.startsWith("test", ignoreCase = true) }
+
+    if (mainFields.isNotEmpty()) {
+        SubtleSectionDivider()
+        NodeConfigMainFieldsSection(
+            mainFields = mainFields,
+            configStateMap = configStateMap,
+            availableVariables = availableVariables,
+            onFieldChange = onFieldChange,
+            selectedCredential = selectedCredential,
+        )
+    }
+
+    if (testFields.isNotEmpty()) {
+        SubtleSectionDivider()
+        NodeConfigTestFieldsSection(
+            testFields = testFields,
+            configStateMap = configStateMap,
+            availableVariables = availableVariables,
+            onFieldChange = onFieldChange,
+        )
+    }
+}
+
+@Composable
 private fun NodeConfigMainFieldsSection(
     mainFields: List<dev.zophop.plugin.api.ConfigFieldSpec>,
     configStateMap: Map<String, String>,
     availableVariables: List<String>,
     onFieldChange: (String, String) -> Unit,
+    selectedCredential: Credential? = null,
 ) {
     if (mainFields.isEmpty()) return
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Text(
-            text = "⚙️ Node Configuration",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary,
+        SectionTitleWithInfo(
+            title = "⚙️ Node Configuration",
+            tooltip = "Configure the parameters and inputs for this step. Tap variable chips below any field to insert workflow variables.",
+//            subtitle = if (availableVariables.isNotEmpty()) "${availableVariables.size} upstream variables available" else null,
         )
-        if (availableVariables.isNotEmpty()) {
-            Text(
-                text = "Available Upstream Variables: " + availableVariables.joinToString(", ") { "\${$it}" },
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
         mainFields.forEach { field ->
             RenderDynamicConfigField(
                 field = field,
                 currentVal = configStateMap[field.key] ?: "",
                 onValueChange = { newValue -> onFieldChange(field.key, newValue) },
                 availableVariables = availableVariables,
+                selectedCredential = selectedCredential,
             )
         }
     }
@@ -635,7 +886,7 @@ private fun NodeConfigPermissionBanner(
 private fun NodeConfigCredentialSelector(
     credentials: List<Credential>,
     credentialId: String,
-    onCredentialSelected: (String) -> Unit,
+    onCredentialSelected: (Credential?) -> Unit,
     onCreateNewClick: () -> Unit,
 ) {
     val selectedCred = credentials.find { it.id == credentialId }
@@ -647,7 +898,7 @@ private fun NodeConfigCredentialSelector(
         searchPlaceholder = "Search credentials...",
         items = credentials,
         itemText = { cred -> "${cred.name} (${cred.type})" },
-        onItemSelected = { cred -> onCredentialSelected(cred?.id ?: "") },
+        onItemSelected = { cred -> onCredentialSelected(cred) },
         isItemSelected = { cred -> cred.id == credentialId },
         showNoneOption = true,
         noneOptionText = "None",
@@ -855,11 +1106,10 @@ private fun NodeConfigTestFieldsSection(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = "🧪 Test Simulation Payload",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
+                SectionTitleWithInfo(
+                    title = "🧪 Test Simulation Payload",
+                    tooltip = "Mock input data used specifically for dry-running and testing this workflow on demand.",
+                    subtitle = "Test & dry-run inputs",
                     modifier = Modifier.weight(1f),
                 )
                 IconButton(
@@ -879,13 +1129,6 @@ private fun NodeConfigTestFieldsSection(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(
-                        text = "Mock input data used specifically for dry-running and testing this workflow on demand.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-
                     testFields.forEach { field ->
                         RenderDynamicConfigField(
                             field = field,
@@ -905,175 +1148,124 @@ private fun NodeConfigPreconditionsSection(
     attachedVaultPrecIds: Set<String>,
     vaultPreconditions: List<PreconditionEntity>,
     onAttachedIdsChange: (Set<String>) -> Unit,
-    onSavePrecondition: ((PreconditionEntity) -> Unit)?,
     onRequestCreatePrecondition: ((onCreated: (PreconditionEntity) -> Unit) -> Unit)?,
 ) {
-    Spacer(modifier = Modifier.height(4.dp))
-    Text(
-        text = "🛡️ Precondition Rules Guard",
-        style = MaterialTheme.typography.titleSmall,
-        fontWeight = FontWeight.Bold,
-        color = MaterialTheme.colorScheme.primary,
-    )
-    Text(
-        text = "Attach saved vault precondition rules that must pass before this node executes.",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        SectionTitleWithInfo(
+            title = "🛡️ Precondition Rules Guard",
+            tooltip = "Attach saved vault precondition rules that must pass before this node executes.",
+        )
 
-    if (attachedVaultPrecIds.isNotEmpty()) {
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            attachedVaultPrecIds.forEach { precId ->
-                val vaultPrec = vaultPreconditions.find { it.id == precId }
-                if (vaultPrec != null) {
-                    val isEnabled = vaultPrec.isEnabled
-                    SuggestionChip(
-                        onClick = { onAttachedIdsChange(attachedVaultPrecIds - precId) },
-                        label = { Text("🔒 ${vaultPrec.name}" + if (!isEnabled) " (Disabled)" else "" + " ✕") },
-                        colors =
-                            SuggestionChipDefaults.suggestionChipColors(
-                                containerColor = if (isEnabled) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                                labelColor =
-                                    if (isEnabled) {
-                                        MaterialTheme.colorScheme.onPrimaryContainer
+        if (attachedVaultPrecIds.isNotEmpty()) {
+            CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    attachedVaultPrecIds.forEach { precId ->
+                        val vaultPrec = vaultPreconditions.find { it.id == precId }
+                        if (vaultPrec != null) {
+                            val isEnabled = vaultPrec.isEnabled
+                            InputChip(
+                                selected = true,
+                                onClick = { onAttachedIdsChange(attachedVaultPrecIds - precId) },
+                                label = {
+                                    Text(
+                                        text = vaultPrec.name + if (!isEnabled) " (Disabled)" else "",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                    )
+                                },
+                                leadingIcon = {
+                                    if (vaultPrec.icon.isNotBlank()) {
+                                        Text(
+                                            text = vaultPrec.icon,
+                                            fontSize = 12.sp,
+                                        )
                                     } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                            .copy(
-                                                alpha = 0.6f,
-                                            )
-                                    },
-                            ),
-                    )
+                                        Icon(
+                                            imageVector = Icons.Default.Lock,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(12.dp),
+                                        )
+                                    }
+                                },
+                                trailingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Remove ${vaultPrec.name}",
+                                        modifier = Modifier.size(12.dp),
+                                    )
+                                },
+                                shape = RoundedCornerShape(16.dp),
+                                colors =
+                                    InputChipDefaults.inputChipColors(
+                                        selectedContainerColor =
+                                            if (isEnabled) {
+                                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.75f)
+                                            } else {
+                                                MaterialTheme.colorScheme.surfaceVariant
+                                            },
+                                        selectedLabelColor =
+                                            if (isEnabled) {
+                                                MaterialTheme.colorScheme.onPrimaryContainer
+                                            } else {
+                                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                            },
+                                        selectedLeadingIconColor =
+                                            if (isEnabled) {
+                                                MaterialTheme.colorScheme.onPrimaryContainer
+                                            } else {
+                                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                            },
+                                        selectedTrailingIconColor =
+                                            if (isEnabled) {
+                                                MaterialTheme.colorScheme.onPrimaryContainer
+                                            } else {
+                                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                            },
+                                    ),
+                                border = null,
+                                modifier = Modifier.height(28.dp),
+                            )
+                        }
+                    }
                 }
             }
         }
+
+        SearchableDropdownSelector(
+            selectedItemText = "Select Precondition Rules",
+            label = "Select Preconditions",
+            searchPlaceholder = "Search preconditions...",
+            items = vaultPreconditions.filter { it.isEnabled },
+            itemText = { prec ->
+                val iconPrefix = if (prec.icon.isNotBlank()) "${prec.icon} " else ""
+                val summary = WorkflowUiHelper.getPreconditionPipelineSummary(prec.type, prec.pipelineJson).second
+                "$iconPrefix${prec.name} ($summary)"
+            },
+            onItemSelected = { prec ->
+                if (prec != null) {
+                    onAttachedIdsChange(
+                        if (attachedVaultPrecIds.contains(prec.id)) attachedVaultPrecIds - prec.id else attachedVaultPrecIds + prec.id,
+                    )
+                }
+            },
+            isItemSelected = { prec -> attachedVaultPrecIds.contains(prec.id) },
+            isMultiSelect = true,
+            showNoneOption = false,
+            onCreateNewClick = {
+                onRequestCreatePrecondition?.invoke { newPrec ->
+                    onAttachedIdsChange(attachedVaultPrecIds + newPrec.id)
+                }
+            },
+            createNewText = "Add New",
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
-
-    Text(
-        text = "Quick Attach System Checks:",
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-    FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        val quickChecks =
-            listOf(
-                Triple(PreconditionType.SIM_CHECK.name, "📱 SIM Check", "Active SIM Card Check"),
-                Triple(PreconditionType.GPS_CHECK.name, "📍 GPS Check", "Device GPS Enabled Check"),
-                Triple(
-                    PreconditionType.BATTERY_CHECK.name,
-                    "🔋 Battery Check",
-                    "Battery Level >= 15% Check",
-                ),
-                Triple(
-                    PreconditionType.INTERNET_CHECK.name,
-                    "🌐 Internet Check",
-                    "Network Connectivity Check",
-                ),
-                Triple(PreconditionType.VPN_CHECK.name, "🔐 VPN Check", "Active VPN Check"),
-            )
-
-        quickChecks.forEach { (typeStr, label, defaultName) ->
-            val existing = vaultPreconditions.find { (it.type == typeStr || it.hasNodeType(typeStr)) && it.isEnabled }
-            val isAttached = existing != null && attachedVaultPrecIds.contains(existing.id)
-
-            SuggestionChip(
-                onClick = {
-                    if (existing != null) {
-                        onAttachedIdsChange(
-                            if (isAttached) attachedVaultPrecIds - existing.id else attachedVaultPrecIds + existing.id,
-                        )
-                    } else {
-                        val configJson =
-                            when (typeStr) {
-                                PreconditionType.SIM_CHECK.name -> """{"requireSimReady":"true"}"""
-                                PreconditionType.GPS_CHECK.name -> """{"requireGpsEnabled":"true"}"""
-                                PreconditionType.BATTERY_CHECK.name -> """{"minBatteryPercent":"15","requireCharging":"false"}"""
-                                PreconditionType.VPN_CHECK.name -> """{"requireConnected":"true"}"""
-                                else -> """{"requireConnected":"true"}"""
-                            }
-                        val nodeId = UUID.randomUUID().toString()
-                        val nodeType =
-                            when (typeStr) {
-                                PreconditionType.SIM_CHECK.name -> NodeType.SIM_CHECK
-                                PreconditionType.GPS_CHECK.name -> NodeType.GPS_CHECK
-                                PreconditionType.BATTERY_CHECK.name -> NodeType.BATTERY_CHECK
-                                PreconditionType.VPN_CHECK.name -> NodeType.VPN_CHECK
-                                else -> NodeType.INTERNET_CHECK
-                            }
-                        val pipeJson =
-                            JSONObject().apply {
-                                val arr =
-                                    JSONArray().apply {
-                                        put(
-                                            JSONObject().apply {
-                                                put("id", nodeId)
-                                                put("name", defaultName)
-                                                put("type", nodeType)
-                                                put("isEnabled", true)
-                                                put("configJson", configJson)
-                                            },
-                                        )
-                                    }
-                                put("nodes", arr)
-                                put("connections", JSONArray())
-                            }.toString()
-
-                        val newPrec =
-                            dev.zophop.data.PreconditionEntity(
-                                id = UUID.randomUUID().toString(),
-                                name = defaultName,
-                                type = dev.zophop.domain.model.PreconditionType.CHAINED_CHECK.name,
-                                isEnabled = true,
-                                pipelineJson = pipeJson,
-                            )
-                        onSavePrecondition?.invoke(newPrec)
-                        onAttachedIdsChange(attachedVaultPrecIds + newPrec.id)
-                    }
-                },
-                label = { Text(if (isAttached) "✓ $label" else "+ $label", fontSize = 11.sp) },
-                colors =
-                    SuggestionChipDefaults.suggestionChipColors(
-                        containerColor = if (isAttached) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        labelColor = if (isAttached) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                    ),
-            )
-        }
-    }
-
-    SearchableDropdownSelector(
-        selectedItemText = "Search & Attach Precondition Rule...",
-        label = "Search & Attach Precondition Rule",
-        searchPlaceholder = "Search preconditions...",
-        items = vaultPreconditions.filter { it.isEnabled },
-        itemText = { prec ->
-            val summary = WorkflowUiHelper.getPreconditionPipelineSummary(prec.type, prec.pipelineJson).second
-            "${prec.name} ($summary)"
-        },
-        onItemSelected = { prec ->
-            if (prec != null) {
-                onAttachedIdsChange(
-                    if (attachedVaultPrecIds.contains(prec.id)) attachedVaultPrecIds - prec.id else attachedVaultPrecIds + prec.id,
-                )
-            }
-        },
-        isItemSelected = { prec -> attachedVaultPrecIds.contains(prec.id) },
-        isMultiSelect = true,
-        showNoneOption = false,
-        onCreateNewClick = {
-            onRequestCreatePrecondition?.invoke { newPrec ->
-                onAttachedIdsChange(attachedVaultPrecIds + newPrec.id)
-            }
-        },
-        createNewText = "➕ Create New Precondition...",
-        tooltipText = "Search and attach saved vault precondition rules that must pass before executing this node.",
-        modifier = Modifier.fillMaxWidth(),
-    )
 }

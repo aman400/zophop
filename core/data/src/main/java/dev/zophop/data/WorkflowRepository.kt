@@ -24,6 +24,8 @@ interface WorkflowRepository {
 
     suspend fun saveExecutionLog(log: WorkflowExecutionLogEntity)
 
+    suspend fun getExecutionLogById(id: String): WorkflowExecutionLogEntity?
+
     fun getRecentExecutionLogsFlow(limit: Int = 50): Flow<List<WorkflowExecutionLogEntity>>
 
     fun getLogsForWorkflowFlow(
@@ -91,6 +93,9 @@ class RoomWorkflowRepository(
     override suspend fun saveExecutionLog(log: WorkflowExecutionLogEntity) {
         workflowDao.insertExecutionLog(log)
     }
+
+    override suspend fun getExecutionLogById(id: String): WorkflowExecutionLogEntity? =
+        workflowDao.getExecutionLogById(id)
 
     override fun getRecentExecutionLogsFlow(limit: Int): Flow<List<WorkflowExecutionLogEntity>> =
         workflowDao.getRecentExecutionLogsFlow(limit)

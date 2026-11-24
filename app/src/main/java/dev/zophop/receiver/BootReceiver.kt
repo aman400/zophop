@@ -29,7 +29,7 @@ class BootReceiver : BroadcastReceiver() {
                         manager.scheduleWorkManagerRetry()
                         manager.processPendingQueue()
                     } finally {
-                        pendingResult.finish()
+                        pendingResult?.finish()
                     }
                 }
             }

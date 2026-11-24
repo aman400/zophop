@@ -17,6 +17,7 @@ data class WorkflowEntity(
     val name: String,
     val description: String = "",
     val isEnabled: Boolean = true,
+    val icon: String = "",
     val graphJson: String = "{}",
     val updatedAt: Long = System.currentTimeMillis(),
 ) {
@@ -49,6 +50,7 @@ data class WorkflowEntity(
                 name = workflow.name,
                 description = workflow.description,
                 isEnabled = workflow.isEnabled,
+                icon = workflow.icon,
                 graphJson = json.toString(),
                 updatedAt = System.currentTimeMillis(),
             )
@@ -60,7 +62,7 @@ data class WorkflowEntity(
                 put("name", node.name)
                 put("type", node.type)
                 put("isEnabled", node.isEnabled)
-                put("configJson", node.configJson)
+                put("configJson", DatabaseEncryption.encryptNodeConfig(node.configJson))
 
                 val preArr = JSONArray()
                 for (prec in node.preconditions) {
@@ -73,6 +75,7 @@ data class WorkflowEntity(
             JSONObject().apply {
                 put("id", prec.id)
                 put("type", prec.type.name)
+                put("icon", prec.icon)
                 put("onFailureAction", prec.onFailureAction)
                 put("maxRetries", prec.maxRetries)
                 put("retryIntervalSeconds", prec.retryIntervalSeconds)
@@ -104,6 +107,7 @@ data class WorkflowEntity(
                         put("requireCharging", prec.requireCharging)
                     }
                     is Precondition.ChainCheck -> {
+                        put("name", prec.name)
                         put("isEnabled", prec.isEnabled)
                         put("pipelineJson", serializeChainCheck(prec))
                     }
@@ -119,7 +123,7 @@ data class WorkflowEntity(
                         put("name", cNode.name)
                         put("type", cNode.type)
                         put("isEnabled", cNode.isEnabled)
-                        put("configJson", cNode.configJson)
+                        put("configJson", DatabaseEncryption.encryptNodeConfig(cNode.configJson))
                     },
                 )
             }
@@ -175,6 +179,7 @@ fun WorkflowEntity.toDomain(): Workflow {
         name = name,
         description = description,
         isEnabled = isEnabled,
+        icon = icon,
         nodes = nodesList,
         connections = connectionsList,
     )
@@ -185,7 +190,7 @@ private fun parseWorkflowNode(nodeObj: JSONObject): WorkflowNode {
     val name = nodeObj.getString("name")
     val typeStr = nodeObj.getString("type")
     val isEnabled = nodeObj.optBoolean("isEnabled", true)
-    val configJson = nodeObj.optString("configJson", "{}")
+    val configJson = DatabaseEncryption.decryptNodeConfig(nodeObj.optString("configJson", "{}"))
 
     val preconditions = mutableListOf<Precondition>()
     val preArr = nodeObj.optJSONArray("preconditions") ?: JSONArray()
@@ -207,6 +212,7 @@ private fun parseWorkflowNode(nodeObj: JSONObject): WorkflowNode {
 private fun parsePrecondition(pObj: JSONObject): Precondition {
     val pId = pObj.optString("id", "")
     val pTypeStr = pObj.optString("type", "")
+    val pIcon = pObj.optString("icon", "")
     val isPEnabled = pObj.optBoolean("isEnabled", true)
     val pFailureAction = pObj.optString("onFailureAction", "FAIL_IMMEDIATELY")
     val pMaxRetries = pObj.optInt("maxRetries", 3)
@@ -227,6 +233,7 @@ private fun parsePrecondition(pObj: JSONObject): Precondition {
             Precondition.InternetCheck(
                 id = pId,
                 isEnabled = isPEnabled,
+                icon = pIcon,
                 onFailureAction = pFailureAction,
                 maxRetries = pMaxRetries,
                 retryIntervalSeconds = pRetryInterval,
@@ -238,6 +245,7 @@ private fun parsePrecondition(pObj: JSONObject): Precondition {
             Precondition.VpnCheck(
                 id = pId,
                 isEnabled = isPEnabled,
+                icon = pIcon,
                 onFailureAction = pFailureAction,
                 maxRetries = pMaxRetries,
                 retryIntervalSeconds = pRetryInterval,
@@ -249,6 +257,7 @@ private fun parsePrecondition(pObj: JSONObject): Precondition {
             Precondition.HealthCheck(
                 id = pId,
                 isEnabled = isPEnabled,
+                icon = pIcon,
                 targetUrl = pObj.optString("targetUrl", ""),
                 method = pObj.optString("method", "GET"),
                 headers = pObj.optString("headers", ""),
@@ -264,6 +273,7 @@ private fun parsePrecondition(pObj: JSONObject): Precondition {
             Precondition.SimCheck(
                 id = pId,
                 isEnabled = isPEnabled,
+                icon = pIcon,
                 requiredCarrier = pObj.optString("requiredCarrier", ""),
                 requiredSlot = pObj.optInt("requiredSlot", -1),
                 onFailureAction = pFailureAction,
@@ -277,6 +287,7 @@ private fun parsePrecondition(pObj: JSONObject): Precondition {
             Precondition.GpsCheck(
                 id = pId,
                 isEnabled = isPEnabled,
+                icon = pIcon,
                 requireGpsEnabled = pObj.optBoolean("requireGpsEnabled", true),
                 onFailureAction = pFailureAction,
                 maxRetries = pMaxRetries,
@@ -289,6 +300,7 @@ private fun parsePrecondition(pObj: JSONObject): Precondition {
             Precondition.BatteryCheck(
                 id = pId,
                 isEnabled = isPEnabled,
+                icon = pIcon,
                 minBatteryPercent = pObj.optInt("minBatteryPercent", 15),
                 requireCharging = pObj.optBoolean("requireCharging", false),
                 onFailureAction = pFailureAction,
@@ -302,6 +314,8 @@ private fun parsePrecondition(pObj: JSONObject): Precondition {
             parseChainedPrecondition(
                 pObj = pObj,
                 pId = pId,
+                pName = pObj.optString("name", ""),
+                pIcon = pIcon,
                 isPEnabled = isPEnabled,
                 pFailureAction = pFailureAction,
                 pMaxRetries = pMaxRetries,
@@ -316,6 +330,8 @@ private fun parsePrecondition(pObj: JSONObject): Precondition {
 private fun parseChainedPrecondition(
     pObj: JSONObject,
     pId: String,
+    pName: String = "",
+    pIcon: String = "",
     isPEnabled: Boolean,
     pFailureAction: String,
     pMaxRetries: Int,
@@ -339,7 +355,7 @@ private fun parseChainedPrecondition(
                         name = nObj.getString("name"),
                         type = nObj.getString("type"),
                         isEnabled = nObj.optBoolean("isEnabled", true),
-                        configJson = nObj.optString("configJson", "{}"),
+                        configJson = DatabaseEncryption.decryptNodeConfig(nObj.optString("configJson", "{}")),
                     ),
                 )
             }
@@ -359,6 +375,8 @@ private fun parseChainedPrecondition(
     }
     return Precondition.ChainCheck(
         id = pId,
+        name = pName,
+        icon = pIcon,
         isEnabled = isPEnabled,
         nodes = chainNodesList,
         connections = chainConnectionsList,

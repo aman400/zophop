@@ -3,6 +3,7 @@ package dev.zophop.domain.engine
 import dev.zophop.domain.engine.plugin.BuiltInPluginRegistry
 import dev.zophop.domain.engine.plugin.CoreEngineNodesModule
 import dev.zophop.domain.engine.plugin.UnifiedPluginRegistry
+import dev.zophop.plugin.api.ConfigFieldSpec
 import dev.zophop.plugin.api.NodeCategory
 import dev.zophop.plugin.api.NodePluginManifest
 import dev.zophop.plugin.api.NodePluginModule
@@ -146,5 +147,27 @@ class NodePluginModuleRegistryTest {
             val error = CoreEngineNodesModule.validateConfig(type, "{}")
             org.junit.Assert.assertNull("Expected type $type with empty config to validate with defaults, but got: $error", error)
         }
+    }
+
+    @Test
+    fun testJsonParserManifestTargetTypeIsDropdown() {
+        val manifest = BuiltInPluginRegistry.getBuiltInManifestByTypeId(CoreEngineNodesModule.JSON_PARSER)
+        assertNotNull(manifest)
+        val targetTypeField = manifest!!.configSchema.find { it.key == "targetType" }
+        assertNotNull(targetTypeField)
+        assertTrue(targetTypeField is ConfigFieldSpec.DropdownField)
+
+        val dropdown = targetTypeField as ConfigFieldSpec.DropdownField
+        assertEquals("Target Type", dropdown.label)
+        val optionKeys = dropdown.options.map { it.first }
+        assertTrue(optionKeys.contains("AUTO"))
+        assertTrue(optionKeys.contains("STRING"))
+        assertTrue(optionKeys.contains("NUMBER"))
+        assertTrue(optionKeys.contains("DOUBLE"))
+        assertTrue(optionKeys.contains("BOOLEAN"))
+        assertTrue(optionKeys.contains("JSON_STRING"))
+        assertTrue(optionKeys.contains("COUNT"))
+        assertTrue(optionKeys.contains("ARRAY"))
+        assertEquals("AUTO", dropdown.options.first().first)
     }
 }

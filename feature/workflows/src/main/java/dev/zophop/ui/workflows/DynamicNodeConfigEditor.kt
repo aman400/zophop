@@ -15,12 +15,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import dev.zophop.core.ui.components.HeaderInputEditor
 import dev.zophop.core.ui.components.InfoTooltipField
+import dev.zophop.core.ui.components.QueryParamsInputEditor
 import dev.zophop.plugin.api.ConfigFieldSpec
 import dev.zophop.plugin.api.NodePluginManifest
 import org.json.JSONObject
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DynamicNodeConfigEditor(
     manifest: NodePluginManifest,
@@ -31,33 +32,7 @@ fun DynamicNodeConfigEditor(
 ) {
     val currentConfig =
         remember(configJson, manifest.typeId) {
-            val defaultConfig =
-                try {
-                    JSONObject(WorkflowUiHelper.getDefaultConfigForType(manifest.typeId))
-                } catch (_: Exception) {
-                    JSONObject()
-                }
-            val userConfig =
-                try {
-                    JSONObject(configJson)
-                } catch (_: Exception) {
-                    JSONObject()
-                }
-            val merged = JSONObject()
-            val defaultKeys = defaultConfig.keys()
-            while (defaultKeys.hasNext()) {
-                val k = defaultKeys.next()
-                merged.put(k, defaultConfig.opt(k))
-            }
-            val userKeys = userConfig.keys()
-            while (userKeys.hasNext()) {
-                val k = userKeys.next()
-                val v = userConfig.opt(k)
-                if (v != null && v.toString().isNotBlank()) {
-                    merged.put(k, v)
-                }
-            }
-            merged
+            mergeConfigJson(configJson, manifest.typeId)
         }
 
     fun updateConfigKey(
@@ -76,82 +51,164 @@ fun DynamicNodeConfigEditor(
 
     Column(modifier = modifier.fillMaxWidth()) {
         manifest.configSchema.forEach { fieldSpec ->
-            when (fieldSpec) {
-                is ConfigFieldSpec.TextField -> {
-                    val value = currentConfig.optString(fieldSpec.key, "")
-                    InfoTooltipField(
-                        value = value,
-                        onValueChange = { updateConfigKey(fieldSpec.key, it) },
-                        label = fieldSpec.label,
-                        tooltipText = fieldSpec.tooltip ?: fieldSpec.label,
-                        placeholder = fieldSpec.placeholder,
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = fieldSpec.singleLine,
-                        minLines = fieldSpec.minLines,
-                    )
-                }
-                is ConfigFieldSpec.DropdownField -> {
-                    val defaultOption = fieldSpec.options.firstOrNull()?.first ?: ""
-                    val rawVal = currentConfig.optString(fieldSpec.key, "")
-                    val selectedVal = if (rawVal.isNotBlank()) rawVal else defaultOption
-                    val selectedLabel = fieldSpec.options.find { it.first == selectedVal }?.second ?: selectedVal
-                    var expanded by remember { mutableStateOf(false) }
+            RenderDynamicField(
+                fieldSpec = fieldSpec,
+                currentConfig = currentConfig,
+                updateConfigKey = ::updateConfigKey,
+                availableVariables = availableVariables,
+            )
+        }
+    }
+}
 
-                    androidx.compose.runtime.LaunchedEffect(fieldSpec.key, rawVal) {
-                        if (rawVal.isBlank() && defaultOption.isNotBlank()) {
-                            updateConfigKey(fieldSpec.key, defaultOption)
-                        }
-                    }
+private fun mergeConfigJson(configJson: String, typeId: String): JSONObject {
+    val defaultConfig =
+        try {
+            JSONObject(WorkflowUiHelper.getDefaultConfigForType(typeId))
+        } catch (_: Exception) {
+            JSONObject()
+        }
+    val userConfig =
+        try {
+            JSONObject(configJson)
+        } catch (_: Exception) {
+            JSONObject()
+        }
+    val merged = JSONObject()
+    val defaultKeys = defaultConfig.keys()
+    while (defaultKeys.hasNext()) {
+        val k = defaultKeys.next()
+        merged.put(k, defaultConfig.opt(k))
+    }
+    val userKeys = userConfig.keys()
+    while (userKeys.hasNext()) {
+        val k = userKeys.next()
+        val v = userConfig.opt(k)
+        if (v != null && v.toString().isNotBlank()) {
+            merged.put(k, v)
+        }
+    }
+    return merged
+}
 
-                    ExposedDropdownMenuBox(
-                        expanded = expanded,
-                        onExpandedChange = { expanded = !expanded },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        InfoTooltipField(
-                            value = selectedLabel,
-                            onValueChange = {},
-                            readOnly = true,
-                            label = fieldSpec.label,
-                            tooltipText = fieldSpec.tooltip ?: fieldSpec.label,
-                            modifier =
-                                Modifier
-                                    .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
-                                    .fillMaxWidth(),
-                            singleLine = true,
-                            additionalTrailingIcon = {
-                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
-                            },
-                        )
+@Composable
+private fun RenderDynamicField(
+    fieldSpec: ConfigFieldSpec,
+    currentConfig: JSONObject,
+    updateConfigKey: (String, Any) -> Unit,
+    availableVariables: List<String>,
+) {
+    when (fieldSpec) {
+        is ConfigFieldSpec.TextField -> {
+            val value = currentConfig.optString(fieldSpec.key, "")
+            val isSecret =
+                fieldSpec.isSecret ||
+                    fieldSpec.key.equals("token", ignoreCase = true) ||
+                    fieldSpec.key.equals("appToken", ignoreCase = true) ||
+                    fieldSpec.key.equals("botToken", ignoreCase = true) ||
+                    fieldSpec.key.equals("password", ignoreCase = true)
+            AutocompleteTextField(
+                value = value,
+                onValueChange = { updateConfigKey(fieldSpec.key, it) },
+                label = fieldSpec.label,
+                tooltipText = fieldSpec.tooltip ?: fieldSpec.label,
+                placeholder = fieldSpec.placeholder,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = fieldSpec.singleLine,
+                minLines = fieldSpec.minLines,
+                availableVariables = availableVariables,
+                insertRawVariable = false,
+                isSecret = isSecret,
+            )
+        }
+        is ConfigFieldSpec.DropdownField -> {
+            DynamicDropdownField(
+                fieldSpec = fieldSpec,
+                currentConfig = currentConfig,
+                updateConfigKey = updateConfigKey,
+            )
+        }
+        is ConfigFieldSpec.CodeTemplateField -> {
+            val value = currentConfig.optString(fieldSpec.key, "")
+            if (fieldSpec.key.contains("headers", ignoreCase = true)) {
+                HeaderInputEditor(
+                    headersString = value,
+                    onHeadersChanged = { updateConfigKey(fieldSpec.key, it) },
+                    availableVariables = availableVariables,
+                )
+            } else if (fieldSpec.key.contains("queryParam", ignoreCase = true) || fieldSpec.key.equals("params", ignoreCase = true)) {
+                QueryParamsInputEditor(
+                    queryParamsString = value,
+                    onQueryParamsChanged = { updateConfigKey(fieldSpec.key, it) },
+                    availableVariables = availableVariables,
+                )
+            } else {
+                AutocompleteTextField(
+                    value = value,
+                    onValueChange = { updateConfigKey(fieldSpec.key, it) },
+                    label = fieldSpec.label,
+                    tooltipText = fieldSpec.tooltip ?: fieldSpec.label,
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = fieldSpec.minLines,
+                    availableVariables = availableVariables,
+                )
+            }
+        }
+    }
+}
 
-                        ExposedDropdownMenu(
-                            expanded = expanded,
-                            onDismissRequest = { expanded = false },
-                        ) {
-                            fieldSpec.options.forEach { (optionVal, optionLabel) ->
-                                DropdownMenuItem(
-                                    text = { Text(optionLabel) },
-                                    onClick = {
-                                        updateConfigKey(fieldSpec.key, optionVal)
-                                        expanded = false
-                                    },
-                                )
-                            }
-                        }
-                    }
-                }
-                is ConfigFieldSpec.CodeTemplateField -> {
-                    val value = currentConfig.optString(fieldSpec.key, "")
-                    AutocompleteTextField(
-                        value = value,
-                        onValueChange = { updateConfigKey(fieldSpec.key, it) },
-                        label = fieldSpec.label,
-                        tooltipText = fieldSpec.tooltip ?: fieldSpec.label,
-                        modifier = Modifier.fillMaxWidth(),
-                        minLines = fieldSpec.minLines,
-                        availableVariables = availableVariables,
-                    )
-                }
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DynamicDropdownField(
+    fieldSpec: ConfigFieldSpec.DropdownField,
+    currentConfig: JSONObject,
+    updateConfigKey: (String, Any) -> Unit,
+) {
+    val defaultOption = fieldSpec.options.firstOrNull()?.first ?: ""
+    val rawVal = currentConfig.optString(fieldSpec.key, "")
+    val selectedVal = if (rawVal.isNotBlank()) rawVal else defaultOption
+    val selectedLabel = fieldSpec.options.find { it.first == selectedVal }?.second ?: selectedVal
+    var expanded by remember { mutableStateOf(false) }
+
+    androidx.compose.runtime.LaunchedEffect(fieldSpec.key, rawVal) {
+        if (rawVal.isBlank() && defaultOption.isNotBlank()) {
+            updateConfigKey(fieldSpec.key, defaultOption)
+        }
+    }
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = !expanded },
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        InfoTooltipField(
+            value = selectedLabel,
+            onValueChange = {},
+            readOnly = true,
+            label = fieldSpec.label,
+            tooltipText = fieldSpec.tooltip ?: fieldSpec.label,
+            modifier =
+                Modifier
+                    .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                    .fillMaxWidth(),
+            singleLine = true,
+            additionalTrailingIcon = {
+                ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+            },
+        )
+
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            fieldSpec.options.forEach { (optionVal, optionLabel) ->
+                DropdownMenuItem(
+                    text = { Text(optionLabel) },
+                    onClick = {
+                        updateConfigKey(fieldSpec.key, optionVal)
+                        expanded = false
+                    },
+                )
             }
         }
     }

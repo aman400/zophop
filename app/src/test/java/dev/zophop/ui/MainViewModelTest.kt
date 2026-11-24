@@ -6,6 +6,11 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.work.testing.WorkManagerTestInitHelper
 import dev.zophop.data.DeliveryNode
 import dev.zophop.data.PreconditionEntity
+import dev.zophop.data.WorkflowExecutionLogEntity
+import dev.zophop.domain.engine.NodeExecutionStep
+import dev.zophop.domain.engine.NodeStepState
+import dev.zophop.domain.engine.toJsonString
+import dev.zophop.domain.engine.toNodeExecutionSteps
 import dev.zophop.domain.model.Credential
 import dev.zophop.domain.model.CredentialType
 import dev.zophop.domain.model.NodeType
@@ -210,5 +215,114 @@ class MainViewModelTest {
             viewModel.cancelWorkflowExecution("wf_unit_1")
             viewModel.clearActiveExecutionState()
             assertNull(viewModel.activeExecutionState.value)
+        }
+
+    @Test
+    fun testWorkflowAndPreconditionSaveWithCustomIcons() =
+        runTest {
+            val workflow =
+                Workflow(
+                    id = "wf_icon_test",
+                    name = "Iconized Workflow",
+                    icon = "🚀",
+                )
+            viewModel.saveWorkflow(workflow)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            val prec =
+                PreconditionEntity(
+                    id = "prec_icon_test",
+                    name = "Iconized Precondition",
+                    type = "CHAINED_CHECK",
+                    icon = "🛡️",
+                )
+            viewModel.savePrecondition(prec)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            viewModel.deleteWorkflow("wf_icon_test")
+            viewModel.deletePrecondition("prec_icon_test")
+            testDispatcher.scheduler.advanceUntilIdle()
+        }
+
+    @Test
+    fun testRetryWorkflowFromFailedNodeUpdatesOriginalLogWithRetriedInExecutionId() =
+        runTest {
+            val workflow =
+                Workflow(
+                    id = "wf_retry_test",
+                    name = "Retry Test Workflow",
+                    isEnabled = true,
+                    nodes =
+                        listOf(
+                            WorkflowNode(
+                                id = "trigger_1",
+                                name = "SMS Trigger",
+                                type = NodeType.SMS_TRIGGER,
+                            ),
+                            WorkflowNode(
+                                id = "node_fail",
+                                name = "Formatter Node",
+                                type = NodeType.TEMPLATE_FORMATTER,
+                                configJson = "{\"template\":\"Hello\"}",
+                            ),
+                        ),
+                )
+            viewModel.saveWorkflow(workflow)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            val failedSteps =
+                listOf(
+                    NodeExecutionStep(
+                        nodeId = "trigger_1",
+                        nodeName = "SMS Trigger",
+                        nodeType = NodeType.SMS_TRIGGER,
+                        state = NodeStepState.SUCCESS,
+                        executedAt = System.currentTimeMillis() - 2000,
+                        durationMs = 15,
+                    ),
+                    NodeExecutionStep(
+                        nodeId = "node_fail",
+                        nodeName = "Formatter Node",
+                        nodeType = NodeType.TEMPLATE_FORMATTER,
+                        state = NodeStepState.FAILED,
+                        errorReason = "Network error",
+                        executedAt = System.currentTimeMillis() - 1000,
+                        durationMs = 50,
+                    ),
+                )
+
+            val originalLog =
+                WorkflowExecutionLogEntity(
+                    id = "original_log_123",
+                    workflowId = "wf_retry_test",
+                    status = "FAILED",
+                    timestamp = System.currentTimeMillis() - 1000,
+                    messageId = null,
+                    logs = failedSteps.toJsonString(),
+                    errorReason = "Network error",
+                )
+            viewModel.workflowRepository.saveExecutionLog(originalLog)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            // Retry from failed node
+            val job =
+                viewModel.retryWorkflowFromFailedNode(
+                    workflow = workflow,
+                    failedNodeId = "node_fail",
+                    originalLogId = "original_log_123",
+                    onProgressUpdate = {},
+                    onResult = {},
+                )
+            job.join()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            val updatedOriginalLog = viewModel.workflowRepository.getExecutionLogById("original_log_123")
+            assertNotNull(updatedOriginalLog)
+            val updatedSteps = updatedOriginalLog?.logs?.toNodeExecutionSteps()
+            assertNotNull(updatedSteps)
+            val retriedStep = updatedSteps?.find { it.nodeId == "node_fail" }
+            assertNotNull(retriedStep)
+            assertNotNull(retriedStep?.retriedInExecutionId)
+            assertTrue(retriedStep?.retriedInExecutionId?.isNotBlank() == true)
         }
 }

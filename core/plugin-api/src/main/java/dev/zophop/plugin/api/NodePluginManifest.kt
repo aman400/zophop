@@ -46,6 +46,7 @@ sealed class ConfigFieldSpec(
         val singleLine: Boolean = true,
         val minLines: Int = 1,
         override val isTestField: Boolean = false,
+        val isSecret: Boolean = false,
     ) : ConfigFieldSpec(key, label, tooltip, isTestField)
 
     @Parcelize
@@ -125,7 +126,7 @@ data class NodePluginManifest(
     private fun extractRegexNamedGroups(json: JSONObject, vars: MutableSet<String>) {
         val regexStr = json.optString("regex", "")
         if (regexStr.isBlank()) return
-        val namedGroupRegex = Regex("""\(\?<([a-zA-Z][a-zA-Z0-9]*)>""")
+        val namedGroupRegex = Regex("""[(][?][<]([a-zA-Z][a-zA-Z0-9_]*)[>]""")
         namedGroupRegex.findAll(regexStr).forEach {
             val name = it.groupValues[1]
             if (name.isNotBlank()) vars.add(name)

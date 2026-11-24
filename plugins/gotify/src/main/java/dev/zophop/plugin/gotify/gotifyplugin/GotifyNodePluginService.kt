@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.IBinder
 import dev.zophop.plugin.api.ConfigFieldSpec
 import dev.zophop.plugin.api.CredentialSpec
+import dev.zophop.plugin.api.HttpCredentialAdapter
 import dev.zophop.plugin.api.INodePluginService
 import dev.zophop.plugin.api.NodeCategory
 import dev.zophop.plugin.api.NodePluginManifest
@@ -44,6 +45,7 @@ object GotifyPluginModule : NodePluginModule {
                                 ConfigFieldSpec.TextField(
                                     key = "appToken",
                                     label = "Gotify Application Token",
+                                    isSecret = true,
                                 ),
                             ),
                     ),
@@ -53,6 +55,14 @@ object GotifyPluginModule : NodePluginModule {
                             key = "serverUrl",
                             label = "Gotify Server URL (Leave blank for credential default)",
                             placeholder = "https://gotify.example.com",
+                        ),
+                        ConfigFieldSpec.TextField(
+                            key = "appToken",
+                            label = "Gotify Application Token (Optional)",
+                            placeholder = "Leave blank to use credential default",
+                            tooltip = "Application token to authenticate with Gotify server",
+                            singleLine = true,
+                            isSecret = true,
                         ),
                         ConfigFieldSpec.TextField(
                             key = "title",
@@ -79,6 +89,9 @@ object GotifyPluginModule : NodePluginModule {
         )
 
     override fun getCredentialSpecs(): List<CredentialSpec> = getManifests().mapNotNull { it.credentialSpec }
+
+    override fun getHttpCredentialAdapters(): List<HttpCredentialAdapter> =
+        listOf(dev.zophop.plugin.gotify.GotifyHttpCredentialAdapter)
 }
 
 class GotifyNodePluginService : Service() {

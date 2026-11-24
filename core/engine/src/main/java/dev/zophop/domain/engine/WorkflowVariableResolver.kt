@@ -137,7 +137,7 @@ object WorkflowVariableResolver {
 
     private fun extractNamedRegexGroups(regexStr: String, result: MutableList<String>) {
         if (regexStr.isBlank()) return
-        val namedGroupRegex = Regex("""\(\?<([a-zA-Z][a-zA-Z0-9]*)>""")
+        val namedGroupRegex = Regex("""[(][?][<]([a-zA-Z][a-zA-Z0-9_]*)[>]""")
         namedGroupRegex.findAll(regexStr).forEach {
             val name = it.groupValues[1]
             if (name.isNotBlank()) result.add(name)

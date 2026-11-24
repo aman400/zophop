@@ -56,6 +56,7 @@ data class Workflow(
     val name: String,
     val description: String = "",
     val isEnabled: Boolean = true,
+    val icon: String = "",
     val nodes: List<WorkflowNode> = emptyList(),
     val connections: List<WorkflowConnection> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),

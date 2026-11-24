@@ -365,9 +365,11 @@ private fun CredentialFieldsList(
             val currentVal = credentialDataMap[field.key] ?: ""
             when (field) {
                 is dev.zophop.plugin.api.ConfigFieldSpec.TextField -> {
-                    val isSensitive = field.key.contains("token", true) ||
+                    val isSensitive = field.isSecret ||
+                        field.key.contains("token", true) ||
                         field.key.contains("password", true) ||
-                        field.key.contains("secret", true)
+                        field.key.contains("secret", true) ||
+                        field.key.contains("apiKey", true)
                     if (isSensitive) {
                         SensitiveTextField(
                             value = currentVal,

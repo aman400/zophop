@@ -27,8 +27,6 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.HourglassTop
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -58,7 +56,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -67,9 +64,7 @@ import dev.zophop.core.ui.components.NoSwipeBottomSheet
 import dev.zophop.data.MessageEntity
 import dev.zophop.data.WorkflowExecutionLogEntity
 import dev.zophop.domain.engine.NodeExecutionStep
-import dev.zophop.domain.engine.NodeStepState
 import dev.zophop.domain.engine.WorkflowExecutionResult
-import dev.zophop.domain.engine.toNodeExecutionSteps
 import dev.zophop.domain.model.NodeType
 import dev.zophop.domain.model.Workflow
 import dev.zophop.domain.model.WorkflowNode
@@ -95,6 +90,7 @@ fun WorkflowsListScreen(
     onRetryWorkflowFromFailedNode: (
         (
             Workflow,
+            String?,
             String?,
             (List<NodeExecutionStep>) -> Unit,
             (WorkflowExecutionResult) -> Unit,
@@ -358,12 +354,19 @@ fun WorkflowCardItem(
                             modifier = Modifier.size(32.dp),
                         ) {
                             Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = triggerIcon,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(16.dp),
-                                )
+                                if (workflow.icon.isNotBlank()) {
+                                    Text(
+                                        text = workflow.icon,
+                                        fontSize = 16.sp,
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = triggerIcon,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
                             }
                         }
 
@@ -662,6 +665,7 @@ fun WorkflowLogsBottomSheet(
         (
             Workflow,
             String?,
+            String?,
             (List<NodeExecutionStep>) -> Unit,
             (WorkflowExecutionResult) -> Unit,
         ) -> Unit
@@ -735,116 +739,28 @@ fun WorkflowLogsBottomSheet(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     logs.forEachIndexed { index, log ->
-                        OutlinedCard(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                val isSuccess = log.status == "SUCCESS"
-                                val steps =
-                                    try {
-                                        log.logs.toNodeExecutionSteps() ?: listOf(
-                                            NodeExecutionStep(
-                                                nodeId = "legacy",
-                                                nodeName = "Execution History",
-                                                nodeType = NodeType.MANUAL_TRIGGER,
-                                                state = if (isSuccess) NodeStepState.SUCCESS else NodeStepState.FAILED,
-                                                logMessage = log.logs,
-                                            ),
-                                        )
-                                    } catch (_: Exception) {
-                                        listOf(
-                                            NodeExecutionStep(
-                                                nodeId = "legacy",
-                                                nodeName = "Execution History",
-                                                nodeType = NodeType.MANUAL_TRIGGER,
-                                                state = if (isSuccess) NodeStepState.SUCCESS else NodeStepState.FAILED,
-                                                logMessage = log.logs,
-                                            ),
+                        WorkflowExecutionCard(
+                            log = log,
+                            isInitiallyExpanded = index == 0,
+                            onRetryWorkflowFromFailedNode =
+                                if (onRetryWorkflowFromFailedNode != null) {
+                                    { failedNodeId ->
+                                        retryingNodeId = failedNodeId
+                                        showRetryStepperSheet = true
+                                        retrySteps = emptyList()
+                                        retryResult = null
+                                        onRetryWorkflowFromFailedNode(
+                                            workflow,
+                                            failedNodeId,
+                                            log.id,
+                                            { steps -> retrySteps = steps },
+                                            { res -> retryResult = res },
                                         )
                                     }
-                                var expanded by remember { mutableStateOf(index == 0) }
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                            contentDescription = "Expand",
-                                            modifier = Modifier.size(20.dp).padding(end = 4.dp),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                        val isQueued = log.status == "QUEUED"
-                                        val chipContainerColor =
-                                            when {
-                                                isSuccess -> MaterialTheme.colorScheme.primaryContainer
-                                                isQueued -> MaterialTheme.colorScheme.tertiaryContainer
-                                                else -> MaterialTheme.colorScheme.errorContainer
-                                            }
-                                        val chipContentColor =
-                                            when {
-                                                isSuccess -> MaterialTheme.colorScheme.onPrimaryContainer
-                                                isQueued -> MaterialTheme.colorScheme.onTertiaryContainer
-                                                else -> MaterialTheme.colorScheme.onErrorContainer
-                                            }
-                                        Surface(
-                                            color = chipContainerColor,
-                                            shape = RoundedCornerShape(4.dp),
-                                        ) {
-                                            Text(
-                                                text = if (isSuccess) "SUCCESS" else log.status,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                                style = MaterialTheme.typography.labelSmall,
-                                                fontWeight = FontWeight.Bold,
-                                                color = chipContentColor,
-                                            )
-                                        }
-                                    }
-
-                                    Text(
-                                        text =
-                                            java.text
-                                                .SimpleDateFormat(
-                                                    "MMM dd, HH:mm:ss",
-                                                    LocalLocale.current.platformLocale,
-                                                ).format(java.util.Date(log.timestamp)),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-
-                                if (expanded) {
-                                    Box(modifier = Modifier.padding(top = 8.dp)) {
-                                        NodeExecutionStepper(
-                                            steps = steps,
-                                            onRetryFromNode =
-                                                if (onRetryWorkflowFromFailedNode != null) {
-                                                    { failedNodeId ->
-                                                        retryingNodeId = failedNodeId
-                                                        showRetryStepperSheet = true
-                                                        retrySteps = emptyList()
-                                                        retryResult = null
-                                                        onRetryWorkflowFromFailedNode(
-                                                            workflow,
-                                                            failedNodeId,
-                                                            { steps -> retrySteps = steps },
-                                                            { res -> retryResult = res },
-                                                        )
-                                                    }
-                                                } else {
-                                                    null
-                                                },
-                                        )
-                                    }
-                                }
-                            }
-                        }
+                                } else {
+                                    null
+                                },
+                        )
                     }
                 }
             }

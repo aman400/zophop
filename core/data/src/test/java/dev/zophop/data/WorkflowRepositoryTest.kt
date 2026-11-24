@@ -37,6 +37,8 @@ class WorkflowRepositoryTest {
             logs.add(log)
         }
 
+        override suspend fun getExecutionLogById(id: String): WorkflowExecutionLogEntity? = logs.find { it.id == id }
+
         override fun getRecentExecutionLogsFlow(limit: Int) = flowOf(logs.takeLast(limit))
 
         override fun getLogsForWorkflowFlow(

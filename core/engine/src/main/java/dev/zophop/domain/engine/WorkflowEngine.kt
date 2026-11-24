@@ -75,6 +75,9 @@ data class NodeExecutionStep(
     val state: NodeStepState = NodeStepState.PENDING,
     val logMessage: String = "",
     val errorReason: String? = null,
+    val executedAt: Long? = null,
+    val durationMs: Long? = null,
+    val retriedInExecutionId: String? = null,
 )
 
 fun List<NodeExecutionStep>.toJsonString(): String {
@@ -88,6 +91,15 @@ fun List<NodeExecutionStep>.toJsonString(): String {
         obj.put("logMessage", step.logMessage)
         if (step.errorReason != null) {
             obj.put("errorReason", step.errorReason)
+        }
+        if (step.executedAt != null) {
+            obj.put("executedAt", step.executedAt)
+        }
+        if (step.durationMs != null) {
+            obj.put("durationMs", step.durationMs)
+        }
+        if (step.retriedInExecutionId != null) {
+            obj.put("retriedInExecutionId", step.retriedInExecutionId)
         }
         arr.put(obj)
     }
@@ -109,6 +121,9 @@ fun String.toNodeExecutionSteps(): List<NodeExecutionStep>? {
                     state = NodeStepState.valueOf(obj.getString("state")),
                     logMessage = obj.optString("logMessage", ""),
                     errorReason = if (obj.has("errorReason")) obj.getString("errorReason") else null,
+                    executedAt = if (obj.has("executedAt")) obj.optLong("executedAt") else null,
+                    durationMs = if (obj.has("durationMs")) obj.optLong("durationMs") else null,
+                    retriedInExecutionId = if (obj.has("retriedInExecutionId")) obj.optString("retriedInExecutionId") else null,
                 ),
             )
         }
@@ -394,7 +409,15 @@ open class WorkflowEngine(
         onStepUpdate: (List<NodeExecutionStep>) -> Unit,
         queue: ArrayDeque<Pair<WorkflowNode, String>>,
     ): WorkflowExecutionResult? {
-        updateStep(steps, currentNode.id, NodeStepState.EXECUTING, message = "Executing node...", onStepUpdate = onStepUpdate)
+        val nodeStartTime = System.currentTimeMillis()
+        updateStep(
+            steps = steps,
+            nodeId = currentNode.id,
+            newState = NodeStepState.EXECUTING,
+            message = "Executing node...",
+            executedAt = nodeStartTime,
+            onStepUpdate = onStepUpdate,
+        )
         postProgressNotification(
             appContext,
             context,
@@ -406,18 +429,47 @@ open class WorkflowEngine(
         delay(200.milliseconds)
 
         if (!currentNode.isEnabled) {
+            val duration = (System.currentTimeMillis() - nodeStartTime).coerceAtLeast(0L)
             logs.add("Node '${currentNode.name}' is disabled, skipping.")
-            updateStep(steps, currentNode.id, NodeStepState.SKIPPED, message = "Node disabled", onStepUpdate = onStepUpdate)
+            updateStep(
+                steps = steps,
+                nodeId = currentNode.id,
+                newState = NodeStepState.SKIPPED,
+                message = "Node disabled",
+                durationMs = duration,
+                onStepUpdate = onStepUpdate,
+            )
             enqueueOutgoingNodes(workflow, currentNode.id, "main", queue)
             return null
         }
 
-        val precFailure = evaluateNodePreconditions(currentNode, workflow, context, appContext, notifId, logs, steps, onStepUpdate)
+        val precFailure = evaluateNodePreconditions(
+            currentNode = currentNode,
+            workflow = workflow,
+            context = context,
+            appContext = appContext,
+            notifId = notifId,
+            logs = logs,
+            steps = steps,
+            nodeStartTime = nodeStartTime,
+            onStepUpdate = onStepUpdate,
+        )
         return if (precFailure != null) {
             precFailure
         } else {
             currentCoroutineContext().ensureActive()
-            executeNodeLogic(currentNode, workflow, context, appContext, notifId, logs, steps, onStepUpdate, queue)
+            executeNodeLogic(
+                currentNode = currentNode,
+                workflow = workflow,
+                context = context,
+                appContext = appContext,
+                notifId = notifId,
+                logs = logs,
+                steps = steps,
+                nodeStartTime = nodeStartTime,
+                onStepUpdate = onStepUpdate,
+                queue = queue,
+            )
         }
     }
 
@@ -429,6 +481,7 @@ open class WorkflowEngine(
         notifId: Int,
         logs: MutableList<String>,
         steps: MutableList<NodeExecutionStep>,
+        nodeStartTime: Long,
         onStepUpdate: (List<NodeExecutionStep>) -> Unit,
     ): WorkflowExecutionResult? {
         val precResult = preconditionEvaluator.evaluateAll(currentNode.preconditions) { chainSteps ->
@@ -446,11 +499,20 @@ open class WorkflowEngine(
         }
 
         if (precResult is PreconditionResult.Failed) {
+            val duration = (System.currentTimeMillis() - nodeStartTime).coerceAtLeast(0L)
             val failReason = precResult.reason
             val logPrefix = if (precResult.shouldQueue) "⏸️ Precondition Queued" else "⏳ Precondition Failed"
             logs.add("$logPrefix for node '${currentNode.name}': $failReason")
             val stepMessage = if (precResult.shouldQueue) "Precondition queued: $failReason" else "Precondition failed: $failReason"
-            updateStep(steps, currentNode.id, NodeStepState.FAILED, error = failReason, message = stepMessage, onStepUpdate = onStepUpdate)
+            updateStep(
+                steps = steps,
+                nodeId = currentNode.id,
+                newState = NodeStepState.FAILED,
+                error = failReason,
+                message = stepMessage,
+                durationMs = duration,
+                onStepUpdate = onStepUpdate,
+            )
 
             steps.forEachIndexed { i, s ->
                 if ((s.state == NodeStepState.PENDING || s.state == NodeStepState.EXECUTING) && s.nodeId != currentNode.id) {
@@ -494,14 +556,24 @@ open class WorkflowEngine(
         notifId: Int,
         logs: MutableList<String>,
         steps: MutableList<NodeExecutionStep>,
+        nodeStartTime: Long,
         onStepUpdate: (List<NodeExecutionStep>) -> Unit,
         queue: ArrayDeque<Pair<WorkflowNode, String>>,
     ): WorkflowExecutionResult? {
         val executor = try {
             executorFactory.getExecutor(currentNode.type)
         } catch (e: IllegalArgumentException) {
+            val duration = (System.currentTimeMillis() - nodeStartTime).coerceAtLeast(0L)
             logs.add("❌ Node '${currentNode.name}' failed: ${e.message}")
-            updateStep(steps, currentNode.id, NodeStepState.FAILED, error = e.message, message = e.message.orEmpty(), onStepUpdate = onStepUpdate)
+            updateStep(
+                steps = steps,
+                nodeId = currentNode.id,
+                newState = NodeStepState.FAILED,
+                error = e.message,
+                message = e.message.orEmpty(),
+                durationMs = duration,
+                onStepUpdate = onStepUpdate,
+            )
             markPendingStepsSkipped(steps, "Skipped due to disabled or unknown node type")
             onStepUpdate(steps.toList())
             postProgressNotification(
@@ -523,17 +595,33 @@ open class WorkflowEngine(
         }
 
         val result = executor.execute(currentNode, context, appContext)
+        val duration = (System.currentTimeMillis() - nodeStartTime).coerceAtLeast(0L)
         return when (result) {
             is NodeExecutionResult.Ignored -> {
                 logs.add("ℹ️ Node '${currentNode.name}' ignored: ${result.reason}")
-                updateStep(steps, currentNode.id, NodeStepState.SKIPPED, message = result.reason, onStepUpdate = onStepUpdate)
+                updateStep(
+                    steps = steps,
+                    nodeId = currentNode.id,
+                    newState = NodeStepState.SKIPPED,
+                    message = result.reason,
+                    durationMs = duration,
+                    onStepUpdate = onStepUpdate,
+                )
                 markPendingStepsSkipped(steps, "Skipped due to filtered-out trigger")
                 onStepUpdate(steps.toList())
                 WorkflowExecutionResult.Success(workflowId = workflow.id, logs = logs, steps = steps.toList())
             }
             is NodeExecutionResult.Failed -> {
                 logs.add("❌ Node '${currentNode.name}' failed: ${result.reason}")
-                updateStep(steps, currentNode.id, NodeStepState.FAILED, error = result.reason, message = result.reason, onStepUpdate = onStepUpdate)
+                updateStep(
+                    steps = steps,
+                    nodeId = currentNode.id,
+                    newState = NodeStepState.FAILED,
+                    error = result.reason,
+                    message = result.reason,
+                    durationMs = duration,
+                    onStepUpdate = onStepUpdate,
+                )
                 markPendingStepsSkipped(steps, "Skipped due to upstream failure")
                 onStepUpdate(steps.toList())
                 postProgressNotification(
@@ -555,7 +643,14 @@ open class WorkflowEngine(
             }
             is NodeExecutionResult.Success -> {
                 logs.add("✅ Node '${currentNode.name}': ${result.logMessage}")
-                updateStep(steps, currentNode.id, NodeStepState.SUCCESS, message = result.logMessage, onStepUpdate = onStepUpdate)
+                updateStep(
+                    steps = steps,
+                    nodeId = currentNode.id,
+                    newState = NodeStepState.SUCCESS,
+                    message = result.logMessage,
+                    durationMs = duration,
+                    onStepUpdate = onStepUpdate,
+                )
                 enqueueOutgoingNodes(workflow, currentNode.id, result.outputPort, queue)
                 null
             }
@@ -593,11 +688,22 @@ open class WorkflowEngine(
         newState: NodeStepState,
         message: String = "",
         error: String? = null,
+        executedAt: Long? = null,
+        durationMs: Long? = null,
+        retriedInExecutionId: String? = null,
         onStepUpdate: (List<NodeExecutionStep>) -> Unit,
     ) {
         val idx = steps.indexOfFirst { it.nodeId == nodeId }
         if (idx != -1) {
-            steps[idx] = steps[idx].copy(state = newState, logMessage = message, errorReason = error)
+            val existing = steps[idx]
+            steps[idx] = existing.copy(
+                state = newState,
+                logMessage = message,
+                errorReason = error ?: existing.errorReason,
+                executedAt = executedAt ?: existing.executedAt,
+                durationMs = durationMs ?: existing.durationMs,
+                retriedInExecutionId = retriedInExecutionId ?: existing.retriedInExecutionId,
+            )
             onStepUpdate(steps.toList())
         }
     }
@@ -614,11 +720,15 @@ open class WorkflowEngine(
         logs.add("🛑 Workflow execution manually cancelled by user.")
         steps.forEachIndexed { i, s ->
             when (s.state) {
-                NodeStepState.EXECUTING -> steps[i] = s.copy(
-                    state = NodeStepState.FAILED,
-                    logMessage = "Execution manually cancelled by user",
-                    errorReason = "Cancelled",
-                )
+                NodeStepState.EXECUTING -> {
+                    val duration = s.executedAt?.let { (System.currentTimeMillis() - it).coerceAtLeast(0L) }
+                    steps[i] = s.copy(
+                        state = NodeStepState.FAILED,
+                        logMessage = "Execution manually cancelled by user",
+                        errorReason = "Cancelled",
+                        durationMs = duration,
+                    )
+                }
                 NodeStepState.PENDING -> steps[i] = s.copy(
                     state = NodeStepState.SKIPPED,
                     logMessage = "Skipped due to cancellation",

@@ -39,10 +39,12 @@ fun PreconditionChangesConfirmDialog(
     showNotificationOnFailure: Boolean,
     chainNodes: List<WorkflowNode>,
     linkedWorkflows: List<Workflow>,
+    icon: String = "",
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val nameChanged = name != (precondition?.name ?: "")
+    val iconChanged = icon != (precondition?.icon ?: "")
     val enabledChanged = isEnabled != (precondition?.isEnabled ?: true)
     val retryPolicyChanged =
         onFailureAction != (precondition?.onFailureAction ?: "FAIL_IMMEDIATELY") ||
@@ -74,6 +76,8 @@ fun PreconditionChangesConfirmDialog(
                     precondition = precondition,
                     name = name,
                     nameChanged = nameChanged,
+                    icon = icon,
+                    iconChanged = iconChanged,
                     isEnabled = isEnabled,
                     enabledChanged = enabledChanged,
                     retryPolicyChanged = retryPolicyChanged,
@@ -144,6 +148,8 @@ private fun PreconditionChangesSummaryList(
     precondition: PreconditionEntity?,
     name: String,
     nameChanged: Boolean,
+    icon: String,
+    iconChanged: Boolean,
     isEnabled: Boolean,
     enabledChanged: Boolean,
     retryPolicyChanged: Boolean,
@@ -157,6 +163,13 @@ private fun PreconditionChangesSummaryList(
     removedSteps: List<WorkflowNode>,
 ) {
     Text("Here is a summary of new changes to be saved:")
+    if (iconChanged) {
+        val origIcon = precondition?.icon.orEmpty()
+        Text(
+            "• Icon: ${if (origIcon.isNotBlank()) origIcon else "(None)"} → ${if (icon.isNotBlank()) icon else "(None)"}",
+            fontWeight = FontWeight.Bold,
+        )
+    }
     if (nameChanged) {
         Text("• Name: '${precondition?.name ?: ""}' → '$name'", fontWeight = FontWeight.Bold)
     }

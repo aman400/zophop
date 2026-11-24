@@ -20,7 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.util.UUID
 
-class NtfyNotificationListenerService : NotificationListenerService() {
+class ZopHopNotificationListenerService : NotificationListenerService() {
     private data class NotificationData(
         val packageName: String,
         val title: String,
@@ -36,7 +36,7 @@ class NtfyNotificationListenerService : NotificationListenerService() {
     }
 
     private fun extractNotificationData(sbn: StatusBarNotification?): NotificationData? {
-        if (sbn == null || sbn.packageName == packageName) return null
+        if (sbn == null || (sbn.packageName == packageName)) return null
         val enabled = EncryptedSettingsRepository(applicationContext).getSettings().globalWorkflowsEnabled
         val extras = if (enabled) sbn.notification?.extras else null
         val rawTitle = extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString()
@@ -58,25 +58,30 @@ class NtfyNotificationListenerService : NotificationListenerService() {
         val credentialRepository = RoomCredentialRepository(db.credentialDao())
 
         DefaultWorkflowInitializer(workflowRepository).checkAndInitialize()
+        dev.zophop.domain.engine.plugin.BuiltInPluginRegistry.discoverBundledModules()
 
         val activeWorkflows = workflowRepository.getActiveWorkflows()
+        val notifWorkflows = activeWorkflows.filter { workflow ->
+            workflow.nodes.any { it.type.contains("NOTIFICATION_TRIGGER", ignoreCase = true) }
+        }
+        if (notifWorkflows.isEmpty()) return
+
         val evaluator = PreconditionEvaluator(applicationContext)
         val engine = WorkflowEngine(evaluator, credentialRepository)
 
-        val execContext = ExecutionContext(
-            mapOf(
-                "package_name" to data.packageName,
-                "title" to data.title,
-                "text" to data.text,
-                "sender" to data.sender,
-                "body" to data.text,
-                "received_at" to System.currentTimeMillis(),
-            ),
+        val baseContextMap = mapOf(
+            "package_name" to data.packageName,
+            "title" to data.title,
+            "text" to data.text,
+            "sender" to data.sender,
+            "body" to data.text,
+            "received_at" to System.currentTimeMillis(),
         )
 
-        for (workflow in activeWorkflows) {
+        for (workflow in notifWorkflows) {
+            val workflowContext = ExecutionContext(baseContextMap)
             val job = CoroutineScope(Dispatchers.IO).launch {
-                val result = engine.executeWorkflow(workflow, execContext, applicationContext)
+                val result = engine.executeWorkflow(workflow, workflowContext, applicationContext)
                 val logEntity = createLogEntity(workflow.id, result)
                 workflowRepository.saveExecutionLog(logEntity)
             }

@@ -67,7 +67,6 @@ import dev.zophop.core.ui.components.dashedBorder
 import dev.zophop.domain.model.Precondition
 import dev.zophop.domain.model.WorkflowNode
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorkflowNodeCardItem(
     node: WorkflowNode,
@@ -450,18 +449,34 @@ private fun WorkflowNodePreconditionsBadges(
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         preconditions.forEach { prec ->
-            val badgeText =
-                (
-                    when (prec) {
-                        is Precondition.InternetCheck -> "🌐 Internet"
-                        is Precondition.VpnCheck -> "🔐 VPN"
-                        is Precondition.HealthCheck -> "🩺 Healthcheck"
-                        is Precondition.SimCheck -> "📱 SIM"
-                        is Precondition.GpsCheck -> "📍 GPS"
-                        is Precondition.BatteryCheck -> "🔋 Battery (>= ${prec.minBatteryPercent}%)"
-                        is Precondition.ChainCheck -> "⛓️ Chained"
+            val defaultIcon =
+                when (prec) {
+                    is Precondition.InternetCheck -> "🌐"
+                    is Precondition.VpnCheck -> "🔐"
+                    is Precondition.HealthCheck -> "🩺"
+                    is Precondition.SimCheck -> "📱"
+                    is Precondition.GpsCheck -> "📍"
+                    is Precondition.BatteryCheck -> "🔋"
+                    is Precondition.ChainCheck -> "⛓️"
+                }
+            val effectiveIcon = prec.icon.ifBlank { defaultIcon }
+            val badgeLabel =
+                when (prec) {
+                    is Precondition.InternetCheck -> "Internet"
+                    is Precondition.VpnCheck -> "VPN"
+                    is Precondition.HealthCheck -> "Healthcheck"
+                    is Precondition.SimCheck -> "SIM"
+                    is Precondition.GpsCheck -> "GPS"
+                    is Precondition.BatteryCheck -> "Battery (>= ${prec.minBatteryPercent}%)"
+                    is Precondition.ChainCheck -> {
+                        val rawName =
+                            prec.name.ifBlank {
+                                if (prec.nodes.size == 1) prec.nodes[0].name else "Chained"
+                            }
+                        rawName.removePrefix("⛓️").removePrefix("🔒").removePrefix("🛡️").trim()
                     }
-                ) + if (!prec.isEnabled) " (Disabled)" else ""
+                }
+            val badgeText = "$effectiveIcon $badgeLabel" + if (!prec.isEnabled) " (Disabled)" else ""
 
             Surface(
                 color = if (prec.isEnabled) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant,

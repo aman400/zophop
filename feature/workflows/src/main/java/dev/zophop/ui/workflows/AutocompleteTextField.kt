@@ -1,5 +1,7 @@
 package dev.zophop.ui.workflows
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -8,161 +10,472 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenu
-import androidx.compose.material3.ExposedDropdownMenuAnchorType
-import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.SuggestionChipDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.zophop.core.ui.components.rememberAlwaysFloatingInteractionSource
 
-@OptIn(ExperimentalMaterial3Api::class)
+private const val MAX_DIRECT_QUICK_CHIPS = 5
+private const val QUICK_CHIPS_PREVIEW_COUNT = 4
+
+/**
+ * Inserts or sets a variable at the current cursor/selection position.
+ * Preserves all surrounding text and correctly handles incomplete placeholders like "$" or "${var".
+ */
+internal fun insertVariableAtCursor(
+    currentText: String,
+    selectionStart: Int,
+    selectionEnd: Int,
+    variable: String,
+    insertRaw: Boolean,
+    maxLength: Int? = null,
+): Pair<String, Int> =
+    if (insertRaw) {
+        insertRawVariableAtCursor(currentText, selectionStart, selectionEnd, variable, maxLength)
+    } else {
+        insertTemplateVariableAtCursor(currentText, selectionStart, selectionEnd, variable, maxLength)
+    }
+
+private fun insertRawVariableAtCursor(
+    currentText: String,
+    selectionStart: Int,
+    selectionEnd: Int,
+    variable: String,
+    maxLength: Int?,
+): Pair<String, Int> {
+    val trimmed = currentText.trim()
+    val isSingleIdentifier = trimmed.matches(Regex("^[a-zA-Z0-9_]+$"))
+    val (candidate, newCursor) =
+        if (currentText.isBlank() || isSingleIdentifier) {
+            val res = if (maxLength != null && variable.length > maxLength) variable.take(maxLength) else variable
+            res to res.length
+        } else {
+            val start = selectionStart.coerceIn(0, currentText.length)
+            val end = selectionEnd.coerceIn(start, currentText.length)
+            val prefix = currentText.substring(0, start)
+            val suffix = currentText.substring(end)
+            val rawCandidate = prefix + variable + suffix
+            val res = if (maxLength != null && rawCandidate.length > maxLength) rawCandidate.take(maxLength) else rawCandidate
+            val cursor = (start + variable.length).coerceAtMost(res.length)
+            res to cursor
+        }
+    return candidate to newCursor
+}
+
+private fun insertTemplateVariableAtCursor(
+    currentText: String,
+    selectionStart: Int,
+    selectionEnd: Int,
+    variable: String,
+    maxLength: Int?,
+): Pair<String, Int> {
+    val token = "\${$variable}"
+    val start = selectionStart.coerceIn(0, currentText.length)
+    val end = selectionEnd.coerceIn(start, currentText.length)
+
+    val textBeforeCursor = currentText.substring(0, start)
+    val lastDollar = textBeforeCursor.lastIndexOf('$')
+    val isCompletingPlaceholder =
+        if (lastDollar >= 0) {
+            val snippet = textBeforeCursor.substring(lastDollar)
+            snippet == "$" || (snippet.startsWith("\${") && !snippet.contains('}') && !snippet.contains(' ') && !snippet.contains('\n'))
+        } else {
+            false
+        }
+
+    val (prefix, suffix) =
+        if (isCompletingPlaceholder) {
+            val p = currentText.substring(0, lastDollar)
+            val after = currentText.substring(end)
+            val s = if (after.startsWith("}")) after.substring(1) else after
+            p to s
+        } else {
+            currentText.substring(0, start) to currentText.substring(end)
+        }
+
+    val rawCandidate = prefix + token + suffix
+    val candidate = if (maxLength != null && rawCandidate.length > maxLength) rawCandidate.take(maxLength) else rawCandidate
+    val newCursor = (prefix.length + token.length).coerceAtMost(candidate.length)
+    return candidate to newCursor
+}
+
+@Suppress("DEPRECATION")
 @Composable
 fun AutocompleteTextField(
     value: String,
     onValueChange: (String) -> Unit,
     label: String,
+    modifier: Modifier = Modifier,
     tooltipText: String? = null,
     placeholder: String? = null,
-    modifier: Modifier = Modifier,
     minLines: Int = 1,
     singleLine: Boolean = false,
     maxLength: Int? = null,
     availableVariables: List<String> = emptyList(),
     insertRawVariable: Boolean = false,
+    isSecret: Boolean = false,
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    var filterQuery by remember { mutableStateOf("") }
     val interactionSource = rememberAlwaysFloatingInteractionSource()
+    var showSearchSheet by remember { mutableStateOf(value = false) }
+    var passwordVisible by remember { mutableStateOf(!isSecret) }
 
-    val filteredVars =
-        remember(filterQuery, availableVariables) {
-            if (filterQuery.isBlank()) {
-                availableVariables
-            } else {
-                availableVariables.filter { it.contains(filterQuery, ignoreCase = true) }
-            }
+    // Maintain cursor-aware state for precise, non-destructive insertion
+    var textFieldValue by remember {
+        mutableStateOf(TextFieldValue(text = value, selection = TextRange(value.length)))
+    }
+
+    LaunchedEffect(value) {
+        if (value != textFieldValue.text) {
+            val newSelection = TextRange(value.length.coerceAtMost(value.length))
+            textFieldValue = textFieldValue.copy(text = value, selection = newSelection)
         }
+    }
 
-    Column(modifier = modifier) {
-        ExposedDropdownMenuBox(
-            expanded = expanded && filteredVars.isNotEmpty(),
-            onExpandedChange = { expanded = it },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            OutlinedTextField(
-                value = value,
-                onValueChange = { newValue ->
-                    val constrained = if (maxLength != null && newValue.length > maxLength) newValue.take(maxLength) else newValue
-                    onValueChange(constrained)
-                    val (shouldExpand, query) = extractFilterQuery(constrained, insertRawVariable)
-                    expanded = shouldExpand
-                    filterQuery = query
-                },
-                label = { Text(label) },
-                placeholder =
-                    if (!placeholder.isNullOrBlank()) {
-                        { Text(placeholder) }
+    val onInsertVar: (String) -> Unit = { v ->
+        val (newText, newCursor) =
+            insertVariableAtCursor(
+                currentText = textFieldValue.text,
+                selectionStart = textFieldValue.selection.start,
+                selectionEnd = textFieldValue.selection.end,
+                variable = v,
+                insertRaw = insertRawVariable,
+                maxLength = maxLength,
+            )
+        textFieldValue = TextFieldValue(text = newText, selection = TextRange(newCursor))
+        onValueChange(newText)
+    }
+
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        AutocompleteFieldHeader(
+            label = label,
+            tooltipText = tooltipText,
+            hasVariables = availableVariables.isNotEmpty(),
+            isRawVariable = insertRawVariable,
+        )
+
+        OutlinedTextField(
+            value = textFieldValue,
+            onValueChange = { newTfv ->
+                val constrainedText =
+                    if (maxLength != null && newTfv.text.length > maxLength) {
+                        newTfv.text.take(maxLength)
                     } else {
-                        null
-                    },
-                interactionSource = interactionSource,
-                modifier =
-                    Modifier
-                        .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryEditable)
-                        .fillMaxWidth(),
-                minLines = minLines,
-                singleLine = singleLine,
-                trailingIcon = {
-                    AutocompleteTrailingIcons(
-                        hasVariables = availableVariables.isNotEmpty(),
-                        hasText = value.isNotEmpty(),
-                        label = label,
-                        tooltipText = tooltipText,
-                        onClear = { onValueChange("") },
-                        onToggleVariables = {
-                            filterQuery = ""
-                            expanded = !expanded
-                        },
-                    )
+                        newTfv.text
+                    }
+
+                val adjustedTfv =
+                    if (constrainedText != newTfv.text) {
+                        newTfv.copy(text = constrainedText, selection = TextRange(constrainedText.length))
+                    } else {
+                        newTfv
+                    }
+
+                textFieldValue = adjustedTfv
+                onValueChange(constrainedText)
+            },
+            placeholder =
+                if (!placeholder.isNullOrBlank()) {
+                    {
+                        Text(
+                            text = placeholder,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        )
+                    }
+                } else {
+                    null
                 },
+            interactionSource = interactionSource,
+            modifier = Modifier.fillMaxWidth(),
+            minLines = minLines,
+            singleLine = singleLine,
+            visualTransformation =
+                if (isSecret && !passwordVisible) {
+                    PasswordVisualTransformation()
+                } else {
+                    VisualTransformation.None
+                },
+            keyboardOptions =
+                if (isSecret) {
+                    KeyboardOptions(keyboardType = KeyboardType.Password)
+                } else {
+                    KeyboardOptions.Default
+                },
+            textStyle =
+                if (!insertRawVariable && availableVariables.isNotEmpty()) {
+                    TextStyle(fontFamily = FontFamily.Monospace, fontSize = 14.sp)
+                } else {
+                    MaterialTheme.typography.bodyMedium
+                },
+            shape = RoundedCornerShape(10.dp),
+            colors =
+                OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                ),
+            trailingIcon =
+                if (isSecret || textFieldValue.text.isNotEmpty()) {
+                    {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (isSecret) {
+                                IconButton(
+                                    onClick = { passwordVisible = !passwordVisible },
+                                    modifier = Modifier.size(28.dp),
+                                ) {
+                                    Icon(
+                                        imageVector =
+                                            if (passwordVisible) {
+                                                Icons.Default.VisibilityOff
+                                            } else {
+                                                Icons.Default.Visibility
+                                            },
+                                        contentDescription = if (passwordVisible) "Hide password" else "Show password",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+                            }
+                            if (textFieldValue.text.isNotEmpty()) {
+                                IconButton(
+                                    onClick = {
+                                        textFieldValue = TextFieldValue(text = "", selection = TextRange.Zero)
+                                        onValueChange("")
+                                    },
+                                    modifier = Modifier.size(28.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Clear,
+                                        contentDescription = "Clear input",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    null
+                },
+        )
+
+        if (availableVariables.isNotEmpty() || maxLength != null) {
+            VariableQuickInsertRow(
+                availableVariables = availableVariables,
+                insertRawVariable = insertRawVariable,
+                currentText = textFieldValue.text,
+                maxLength = maxLength,
+                onVariableSelected = onInsertVar,
+                onOpenSearch = { showSearchSheet = true },
+            )
+        }
+    }
+
+    if (showSearchSheet && availableVariables.isNotEmpty()) {
+        VariableSearchBottomSheet(
+            variables = availableVariables,
+            insertRaw = insertRawVariable,
+            currentText = textFieldValue.text,
+            onVariableSelected = { selectedVar ->
+                onInsertVar(selectedVar)
+                showSearchSheet = false
+            },
+            onDismiss = { showSearchSheet = false },
+        )
+    }
+}
+
+@Composable
+private fun AutocompleteFieldHeader(
+    label: String,
+    tooltipText: String?,
+    hasVariables: Boolean,
+    isRawVariable: Boolean,
+) {
+    var showTooltip by remember { mutableStateOf(value = false) }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.weight(1f, fill = false),
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
             )
 
-            ExposedDropdownMenu(
-                expanded = expanded && filteredVars.isNotEmpty(),
-                onDismissRequest = { expanded = false },
-            ) {
-                filteredVars.forEach { v ->
-                    DropdownMenuItem(
-                        text = {
+            if (!tooltipText.isNullOrBlank() && !tooltipText.equals(label, ignoreCase = true)) {
+                Box {
+                    IconButton(
+                        onClick = { showTooltip = !showTooltip },
+                        modifier = Modifier.size(20.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = "Info for $label",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
+
+                    DropdownMenu(
+                        expanded = showTooltip,
+                        onDismissRequest = { showTooltip = false },
+                    ) {
+                        Column(
+                            modifier =
+                                Modifier
+                                    .widthIn(max = 280.dp)
+                                    .padding(12.dp),
+                        ) {
                             Text(
-                                if (insertRawVariable) v else "\${$v}",
-                                fontFamily = FontFamily.Monospace,
+                                text = label,
+                                style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
                             )
-                        },
-                        onClick = {
-                            val newVal = computeVariableInsertion(value, v, insertRawVariable, maxLength)
-                            onValueChange(newVal)
-                            expanded = false
-                            filterQuery = ""
-                        },
-                    )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = tooltipText,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                 }
             }
         }
 
-        // Quick-insert horizontal chips for high-friction mobile variable selection
+        if (hasVariables) {
+            Text(
+                text = if (isRawVariable) "{ } Variable" else "{ } Template",
+                style = MaterialTheme.typography.labelSmall,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun VariableQuickInsertRow(
+    availableVariables: List<String>,
+    insertRawVariable: Boolean,
+    currentText: String,
+    maxLength: Int?,
+    onVariableSelected: (String) -> Unit,
+    onOpenSearch: () -> Unit,
+) {
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 2.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         if (availableVariables.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(4.dp))
+            val isLargeList = availableVariables.size > MAX_DIRECT_QUICK_CHIPS
+            val displayedVars =
+                if (isLargeList) {
+                    availableVariables.take(QUICK_CHIPS_PREVIEW_COUNT)
+                } else {
+                    availableVariables
+                }
+
             Row(
                 modifier =
                     Modifier
-                        .fillMaxWidth()
+                        .weight(1f, fill = false)
                         .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "Insert:",
+                    text = if (insertRawVariable) "Select:" else "Insert:",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
-                availableVariables.forEach { v ->
-                    val isSelected = insertRawVariable && value.trim() == v
+
+                displayedVars.forEach { v ->
+                    val isSelected = insertRawVariable && currentText.trim() == v
                     SuggestionChip(
-                        onClick = {
-                            val newVal = computeVariableInsertion(value, v, insertRawVariable, maxLength)
-                            onValueChange(newVal)
+                        onClick = { onVariableSelected(v) },
+                        icon = {
+                            Icon(
+                                imageVector = if (isSelected) Icons.Default.Check else Icons.Default.Add,
+                                contentDescription = null,
+                                tint =
+                                    if (isSelected) {
+                                        MaterialTheme.colorScheme.onPrimaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.primary
+                                    },
+                                modifier = Modifier.size(13.dp),
+                            )
                         },
                         label = {
                             Text(
@@ -191,140 +504,296 @@ fun AutocompleteTextField(
                         shape = RoundedCornerShape(8.dp),
                     )
                 }
+
+                if (isLargeList) {
+                    AssistChip(
+                        onClick = onOpenSearch,
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "Search all variables",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(13.dp),
+                            )
+                        },
+                        label = {
+                            Text(
+                                text = "All (${availableVariables.size})",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        },
+                        colors =
+                            AssistChipDefaults.assistChipColors(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                labelColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                            ),
+                        border = null,
+                        shape = RoundedCornerShape(8.dp),
+                    )
+                }
             }
+        } else {
+            Spacer(modifier = Modifier.weight(1f))
         }
 
         if (maxLength != null) {
+            Spacer(modifier = Modifier.padding(horizontal = 4.dp))
+            Text(
+                text = "${currentText.length} / $maxLength",
+                style = MaterialTheme.typography.labelSmall,
+                fontSize = 10.sp,
+                color =
+                    if (currentText.length >= maxLength) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun VariableSearchBottomSheet(
+    variables: List<String>,
+    insertRaw: Boolean,
+    currentText: String,
+    onVariableSelected: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var searchQuery by remember { mutableStateOf("") }
+    val filteredVars =
+        remember(searchQuery, variables) {
+            if (searchQuery.isBlank()) {
+                variables
+            } else {
+                variables.filter { it.contains(searchQuery.trim(), ignoreCase = true) }
+            }
+        }
+
+    val sheetState =
+        rememberModalBottomSheetState(
+            skipPartiallyExpanded = true,
+            confirmValueChange = { it != SheetValue.Hidden },
+        )
+
+    BackHandler(enabled = true) {
+        onDismiss()
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = {},
+        sheetState = sheetState,
+        dragHandle = null,
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        tonalElevation = 6.dp,
+    ) {
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(top = 8.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
             Row(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 4.dp, vertical = 2.dp),
-                horizontalArrangement = Arrangement.End,
+                        .padding(horizontal = 20.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = "${value.length} / $maxLength",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontSize = 10.sp,
-                    color = if (value.length >= maxLength) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-}
-
-private fun extractFilterQuery(
-    text: String,
-    insertRawVariable: Boolean,
-): Pair<Boolean, String> {
-    if (insertRawVariable) {
-        return false to ""
-    }
-    val lastDollarIdx = text.lastIndexOf('$')
-    return when {
-        lastDollarIdx < 0 -> false to ""
-        lastDollarIdx == text.length - 1 -> true to ""
-        text.length > lastDollarIdx + 1 && text[lastDollarIdx + 1] == '{' -> {
-            true to text.substring(lastDollarIdx + 2).trimEnd('}')
-        }
-        text.substring(lastDollarIdx).startsWith("\${") -> {
-            val braceIdx = text.indexOf('}', lastDollarIdx)
-            val query =
-                if (braceIdx > lastDollarIdx + 2) {
-                    text.substring(lastDollarIdx + 2, braceIdx)
-                } else {
-                    text.substring(lastDollarIdx + 2)
-                }
-            true to query
-        }
-        else -> false to ""
-    }
-}
-
-private fun computeVariableInsertion(
-    value: String,
-    variable: String,
-    insertRaw: Boolean,
-    maxLength: Int?,
-): String {
-    val newVal =
-        if (insertRaw) {
-            variable
-        } else {
-            val lastDollarIdx = value.lastIndexOf('$')
-            if (lastDollarIdx >= 0 && (lastDollarIdx == value.length - 1 || value.substring(lastDollarIdx).startsWith("\${"))) {
-                val prefix = value.substring(0, lastDollarIdx)
-                "$prefix\${$variable}"
-            } else {
-                val spacer = if (value.isNotBlank() && !value.endsWith(" ")) " " else ""
-                "$value$spacer\${$variable}"
-            }
-        }
-    return if (maxLength != null && newVal.length > maxLength) newVal.take(maxLength) else newVal
-}
-
-@Composable
-private fun AutocompleteTrailingIcons(
-    hasVariables: Boolean,
-    hasText: Boolean,
-    label: String,
-    tooltipText: String?,
-    onClear: () -> Unit,
-    onToggleVariables: () -> Unit,
-) {
-    var showTooltip by remember { mutableStateOf(false) }
-
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        if (hasText) {
-            IconButton(onClick = onClear, modifier = Modifier.size(28.dp)) {
-                Icon(
-                    imageVector = Icons.Default.Clear,
-                    contentDescription = "Clear input",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-        }
-        if (hasVariables) {
-            IconButton(onClick = onToggleVariables) {
-                Icon(
-                    imageVector = Icons.Default.Code,
-                    contentDescription = "Insert Variable",
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            }
-        }
-        if (!tooltipText.isNullOrBlank()) {
-            Box {
-                IconButton(onClick = { showTooltip = !showTooltip }) {
-                    Icon(
-                        imageVector = Icons.Default.Info,
-                        contentDescription = "Field Information",
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                }
-                DropdownMenu(
-                    expanded = showTooltip,
-                    onDismissRequest = { showTooltip = false },
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Column(
-                        modifier =
-                            Modifier
-                                .widthIn(max = 280.dp)
-                                .padding(12.dp),
+                    Text(
+                        text = if (insertRaw) "Select Variable" else "Insert Variable",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer,
                     ) {
                         Text(
-                            text = label,
-                            style = MaterialTheme.typography.titleSmall,
+                            text = "${variables.size} available",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                }
+
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(32.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp),
+                placeholder = { Text("Filter variables...") },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                },
+                trailingIcon =
+                    if (searchQuery.isNotEmpty()) {
+                        {
+                            IconButton(
+                                onClick = { searchQuery = "" },
+                                modifier = Modifier.size(24.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Clear,
+                                    contentDescription = "Clear search",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                        }
+                    } else {
+                        null
+                    },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                colors =
+                    OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surface,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                    ),
+            )
+
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                thickness = 0.5.dp,
+            )
+
+            if (filteredVars.isEmpty()) {
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 36.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                            modifier = Modifier.size(36.dp),
+                        )
                         Text(
-                            text = tooltipText,
-                            style = MaterialTheme.typography.bodySmall,
+                            text = "No variables matching \"$searchQuery\"",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = false)
+                            .heightIn(max = 420.dp)
+                            .padding(horizontal = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    items(filteredVars, key = { it }) { v ->
+                        val isSelected = insertRaw && currentText.trim() == v
+                        Surface(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onVariableSelected(v) },
+                            shape = RoundedCornerShape(12.dp),
+                            color =
+                                if (isSelected) {
+                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+                                } else {
+                                    MaterialTheme.colorScheme.surface
+                                },
+                            tonalElevation = if (isSelected) 2.dp else 0.dp,
+                        ) {
+                            Row(
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Icon(
+                                        imageVector = if (isSelected) Icons.Default.Check else Icons.Default.Add,
+                                        contentDescription = null,
+                                        tint =
+                                            if (isSelected) {
+                                                MaterialTheme.colorScheme.onPrimaryContainer
+                                            } else {
+                                                MaterialTheme.colorScheme.primary
+                                            },
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                    Text(
+                                        text = if (insertRaw) v else "\${$v}",
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color =
+                                            if (isSelected) {
+                                                MaterialTheme.colorScheme.onPrimaryContainer
+                                            } else {
+                                                MaterialTheme.colorScheme.onSurface
+                                            },
+                                    )
+                                }
+
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = "Selected",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }

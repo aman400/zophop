@@ -178,7 +178,7 @@ class RegexParserExecutor : NodeExecutor {
         val pattern = Pattern.compile(regexStr, flags)
         val matcher = pattern.matcher(inputText)
 
-        val namedGroupRegex = Regex("""\(\?<([a-zA-Z][a-zA-Z0-9]*)>""")
+        val namedGroupRegex = Regex("""[(][?][<]([a-zA-Z][a-zA-Z0-9_]*)[>]""")
         val declaredGroupNames = namedGroupRegex.findAll(regexStr).map { it.groupValues[1] }.toList()
 
         val matches = mutableListOf<MatchRecord>()

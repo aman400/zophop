@@ -2,6 +2,7 @@ package dev.zophop.domain.engine.plugin
 
 import dev.zophop.data.CredentialRepository
 import dev.zophop.plugin.api.CredentialSpec
+import dev.zophop.plugin.api.HttpCredentialAdapter
 import dev.zophop.plugin.api.NodeExecutor
 import dev.zophop.plugin.api.NodePluginManifest
 import dev.zophop.plugin.api.NodePluginModule
@@ -10,6 +11,16 @@ import java.util.ServiceLoader
 import java.util.concurrent.CopyOnWriteArrayList
 
 object BuiltInPluginRegistry {
+    private val KNOWN_BUNDLED_MODULE_CLASSES =
+        listOf(
+            "dev.zophop.plugin.sms.SmsPluginModule",
+            "dev.zophop.plugin.notification.NotificationPluginModule",
+            "dev.zophop.plugin.ntfy.NtfyPluginModule",
+            "dev.zophop.plugin.gotify.GotifyPluginModule",
+            "dev.zophop.plugin.call.CallPluginModule",
+            "dev.zophop.plugin.gps.GpsPluginModule",
+        )
+
     private val registeredModules =
         CopyOnWriteArrayList<NodePluginModule>().apply {
             add(CoreEngineNodesModule)
@@ -43,6 +54,17 @@ object BuiltInPluginRegistry {
             ClassLoader.getSystemClassLoader(),
         ).distinct()
 
+        // 1. Direct class-based discovery for bundled modules in the application DEX
+        for (loader in loaders) {
+            for (className in KNOWN_BUNDLED_MODULE_CLASSES) {
+                val module = tryLoadModuleClass(className, loader)
+                if (module != null) {
+                    registerModule(module)
+                }
+            }
+        }
+
+        // 2. ServiceLoader fallback for standard JVM environments
         for (classLoader in loaders) {
             try {
                 val loader = ServiceLoader.load(NodePluginModule::class.java, classLoader)
@@ -54,6 +76,7 @@ object BuiltInPluginRegistry {
             }
         }
 
+        // 3. META-INF/services resource stream parsing fallback
         discoverViaMetaInfServices(loaders)
     }
 
@@ -145,4 +168,21 @@ object BuiltInPluginRegistry {
                 it.typeId.endsWith(".$typeId", ignoreCase = true) ||
                 typeId.endsWith(".${it.typeId}", ignoreCase = true)
         }
+
+    fun getHttpCredentialAdapter(credentialType: String): HttpCredentialAdapter? =
+        registeredModules
+            .asSequence()
+            .flatMap { it.getHttpCredentialAdapters().asSequence() }
+            .firstOrNull { it.supportedCredentialType.equals(credentialType, ignoreCase = true) }
+
+    fun validateConfig(
+        typeId: String,
+        configJson: String,
+    ): String? {
+        for (module in registeredModules) {
+            val error = module.validateConfig(typeId, configJson)
+            if (error != null) return error
+        }
+        return null
+    }
 }

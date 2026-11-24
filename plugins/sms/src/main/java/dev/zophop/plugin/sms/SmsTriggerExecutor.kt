@@ -49,13 +49,14 @@ class SmsTriggerExecutor : NodeExecutor {
     }
 }
 
-private fun hasReceiveSmsPermission(appContext: Context?): Boolean {
-    if (appContext == null) return true
-    return ContextCompat.checkSelfPermission(
-        appContext,
-        Manifest.permission.RECEIVE_SMS,
-    ) == PackageManager.PERMISSION_GRANTED
-}
+private fun hasReceiveSmsPermission(appContext: Context?): Boolean =
+    appContext == null ||
+        (
+            ContextCompat.checkSelfPermission(
+                appContext,
+                Manifest.permission.RECEIVE_SMS,
+            ) == PackageManager.PERMISSION_GRANTED
+        )
 
 private fun extractSender(context: ExecutionContext): String =
     context.getString("sender", "").ifEmpty {

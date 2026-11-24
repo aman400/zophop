@@ -16,9 +16,9 @@ android {
     defaultConfig {
         applicationId = "dev.zophop"
         minSdk = 26
-        targetSdk = 37
-        versionCode = 2
-        versionName = "2.0.0"
+        targetSdk = 36
+        versionCode = 3
+        versionName = "3.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -43,6 +43,7 @@ android {
         }
         release {
             manifestPlaceholders["appName"] = "ZopHop"
+            isDebuggable = false
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -72,6 +73,13 @@ android {
     packaging {
         resources {
             merges += "META-INF/services/dev.zophop.plugin.api.NodePluginModule"
+            excludes += setOf(
+                "/META-INF/{AL2.0,LGPL2.1}",
+                "/META-INF/INDEX.LIST",
+                "/META-INF/DEPENDENCIES",
+                "/META-INF/LICENSE*",
+                "/META-INF/NOTICE*",
+            )
         }
     }
 }
@@ -109,6 +117,7 @@ dependencies {
     implementation(project(":core:ui"))
     implementation(project(":feature:workflows"))
     implementation(project(":feature:preconditions"))
+    implementation(project(":feature:backup"))
 
     implementation(project(":plugins:call"))
     implementation(project(":plugins:sms"))
@@ -144,12 +153,6 @@ dependencies {
     testImplementation(libs.androidx.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.robolectric)
-    testImplementation(project(":plugins:call"))
-    testImplementation(project(":plugins:sms"))
-    testImplementation(project(":plugins:gps"))
-    testImplementation(project(":plugins:ntfy"))
-    testImplementation(project(":plugins:gotify"))
-    testImplementation(project(":plugins:notification"))
     testImplementation(libs.androidx.work.testing)
     testImplementation(libs.json)
     testImplementation(libs.androidx.compose.ui.test.junit4)

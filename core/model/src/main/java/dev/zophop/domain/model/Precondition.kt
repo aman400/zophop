@@ -71,9 +71,13 @@ sealed class Precondition(
     open val queueTimeoutMinutes: Int = 10,
     open val showNotificationOnFailure: Boolean = false,
 ) {
+    open val name: String get() = ""
+    open val icon: String get() = ""
+
     data class InternetCheck(
         override val id: String = "",
         override val isEnabled: Boolean = true,
+        override val icon: String = "",
         override val onFailureAction: String = "FAIL_IMMEDIATELY",
         override val maxRetries: Int = 3,
         override val retryIntervalSeconds: Int = 30,
@@ -95,6 +99,7 @@ sealed class Precondition(
     data class VpnCheck(
         override val id: String = "",
         override val isEnabled: Boolean = true,
+        override val icon: String = "",
         override val onFailureAction: String = "FAIL_IMMEDIATELY",
         override val maxRetries: Int = 3,
         override val retryIntervalSeconds: Int = 30,
@@ -116,6 +121,7 @@ sealed class Precondition(
     data class HealthCheck(
         override val id: String = "",
         override val isEnabled: Boolean = true,
+        override val icon: String = "",
         val targetUrl: String = "",
         val method: String = "GET",
         val headers: String = "",
@@ -141,6 +147,7 @@ sealed class Precondition(
     data class SimCheck(
         override val id: String = "",
         override val isEnabled: Boolean = true,
+        override val icon: String = "",
         val requiredCarrier: String = "",
         val requiredSlot: Int = -1,
         override val onFailureAction: String = "FAIL_IMMEDIATELY",
@@ -164,6 +171,7 @@ sealed class Precondition(
     data class GpsCheck(
         override val id: String = "",
         override val isEnabled: Boolean = true,
+        override val icon: String = "",
         val requireGpsEnabled: Boolean = true,
         override val onFailureAction: String = "FAIL_IMMEDIATELY",
         override val maxRetries: Int = 3,
@@ -186,6 +194,7 @@ sealed class Precondition(
     data class BatteryCheck(
         override val id: String = "",
         override val isEnabled: Boolean = true,
+        override val icon: String = "",
         val minBatteryPercent: Int = 15,
         val requireCharging: Boolean = false,
         override val onFailureAction: String = "FAIL_IMMEDIATELY",
@@ -208,7 +217,9 @@ sealed class Precondition(
 
     data class ChainCheck(
         override val id: String = "",
+        override val name: String = "",
         override val isEnabled: Boolean = true,
+        override val icon: String = "",
         val nodes: List<WorkflowNode> = emptyList(),
         val connections: List<WorkflowConnection> = emptyList(),
         override val onFailureAction: String = "FAIL_IMMEDIATELY",

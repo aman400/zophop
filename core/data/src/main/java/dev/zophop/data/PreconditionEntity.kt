@@ -16,6 +16,7 @@ data class PreconditionEntity(
     val name: String,
     val type: String, // "INTERNET_CHECK", "VPN_CHECK", "HEALTH_CHECK", "SIM_CHECK", "GPS_CHECK", "CHAINED_CHECK"
     val isEnabled: Boolean = true,
+    val icon: String = "",
     val targetUrl: String = "",
     val method: String = "GET",
     val headers: String = "",
@@ -41,6 +42,7 @@ fun PreconditionEntity.toDomain(): Precondition =
             Precondition.InternetCheck(
                 id = id,
                 isEnabled = isEnabled,
+                icon = icon,
                 onFailureAction = onFailureAction,
                 maxRetries = maxRetries,
                 retryIntervalSeconds = retryIntervalSeconds,
@@ -52,6 +54,7 @@ fun PreconditionEntity.toDomain(): Precondition =
             Precondition.VpnCheck(
                 id = id,
                 isEnabled = isEnabled,
+                icon = icon,
                 onFailureAction = onFailureAction,
                 maxRetries = maxRetries,
                 retryIntervalSeconds = retryIntervalSeconds,
@@ -63,6 +66,7 @@ fun PreconditionEntity.toDomain(): Precondition =
             Precondition.HealthCheck(
                 id = id,
                 isEnabled = isEnabled,
+                icon = icon,
                 targetUrl = targetUrl,
                 method = method,
                 headers = headers,
@@ -78,6 +82,7 @@ fun PreconditionEntity.toDomain(): Precondition =
             Precondition.SimCheck(
                 id = id,
                 isEnabled = isEnabled,
+                icon = icon,
                 requiredCarrier = requiredCarrier,
                 onFailureAction = onFailureAction,
                 maxRetries = maxRetries,
@@ -90,6 +95,7 @@ fun PreconditionEntity.toDomain(): Precondition =
             Precondition.GpsCheck(
                 id = id,
                 isEnabled = isEnabled,
+                icon = icon,
                 requireGpsEnabled = true,
                 onFailureAction = onFailureAction,
                 maxRetries = maxRetries,
@@ -102,6 +108,7 @@ fun PreconditionEntity.toDomain(): Precondition =
             Precondition.BatteryCheck(
                 id = id,
                 isEnabled = isEnabled,
+                icon = icon,
                 minBatteryPercent = minBatteryPercent,
                 requireCharging = requireCharging,
                 onFailureAction = onFailureAction,
@@ -125,7 +132,7 @@ fun PreconditionEntity.toDomain(): Precondition =
                             name = nodeObj.getString("name"),
                             type = nodeObj.getString("type"),
                             isEnabled = nodeObj.optBoolean("isEnabled", true),
-                            configJson = nodeObj.optString("configJson", "{}"),
+                            configJson = DatabaseEncryption.decryptNodeConfig(nodeObj.optString("configJson", "{}")),
                         ),
                     )
                 }
@@ -144,6 +151,8 @@ fun PreconditionEntity.toDomain(): Precondition =
             }
             Precondition.ChainCheck(
                 id = id,
+                name = name,
+                icon = icon,
                 isEnabled = isEnabled,
                 nodes = nodesList,
                 connections = connectionsList,
@@ -159,6 +168,7 @@ fun PreconditionEntity.toDomain(): Precondition =
             Precondition.InternetCheck(
                 id = id,
                 isEnabled = isEnabled,
+                icon = icon,
                 onFailureAction = onFailureAction,
                 maxRetries = maxRetries,
                 retryIntervalSeconds = retryIntervalSeconds,

@@ -30,6 +30,9 @@ interface WorkflowDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertExecutionLog(log: WorkflowExecutionLogEntity)
 
+    @Query("SELECT * FROM workflow_execution_logs WHERE id = :id")
+    suspend fun getExecutionLogById(id: String): WorkflowExecutionLogEntity?
+
     @Query("SELECT * FROM workflow_execution_logs ORDER BY timestamp DESC LIMIT :limit")
     fun getRecentExecutionLogsFlow(limit: Int = 50): Flow<List<WorkflowExecutionLogEntity>>
 

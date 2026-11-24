@@ -56,18 +56,29 @@ class RoomMigrationTest {
 
         MIGRATION_4_5.migrate(fakeDb)
 
-        assertEquals(4, executedSql.size)
-        assertTrue(executedSql.any { it.contains("ADD COLUMN `minBatteryPercent`") })
-        assertTrue(executedSql.any { it.contains("ADD COLUMN `requireCharging`") })
-        assertTrue(executedSql.any { it.contains("ADD COLUMN `retryStrategy`") })
-        assertTrue(executedSql.any { it.contains("ADD COLUMN `queueTimeoutMinutes`") })
+        assertEquals(6, executedSql.size)
+        assertTrue(executedSql.any { it.contains("ALTER TABLE `preconditions` ADD COLUMN `minBatteryPercent`") })
+        assertTrue(executedSql.any { it.contains("ALTER TABLE `preconditions` ADD COLUMN `requireCharging`") })
+        assertTrue(executedSql.any { it.contains("ALTER TABLE `preconditions` ADD COLUMN `retryStrategy`") })
+        assertTrue(executedSql.any { it.contains("ALTER TABLE `preconditions` ADD COLUMN `queueTimeoutMinutes`") })
+        assertTrue(executedSql.any { it.contains("ALTER TABLE `preconditions` ADD COLUMN `icon`") })
+        assertTrue(executedSql.any { it.contains("ALTER TABLE `workflows` ADD COLUMN `icon`") })
     }
 
     @Test
     fun testMigration4to5SkipsAltersWhenColumnsAlreadyPresent() {
         val executedSql = mutableListOf<String>()
-        val columns = listOf("id", "name", "minBatteryPercent", "requireCharging", "retryStrategy", "queueTimeoutMinutes")
-        var cursorIndex = -1
+        val columns =
+            listOf(
+                "id",
+                "name",
+                "minBatteryPercent",
+                "requireCharging",
+                "retryStrategy",
+                "queueTimeoutMinutes",
+                "icon",
+            )
+        var cursorIndex: Int
 
         val fakeDbHandler =
             InvocationHandler { _, method, args ->
@@ -77,6 +88,7 @@ class RoomMigrationTest {
                         null
                     }
                     "query" -> {
+                        cursorIndex = -1
                         Proxy.newProxyInstance(
                             android.database.Cursor::class.java.classLoader,
                             arrayOf(android.database.Cursor::class.java),

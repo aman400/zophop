@@ -139,6 +139,7 @@ class PreconditionModelAndTypeTest {
                 id = "single_node_prec",
                 name = "GPS Guard",
                 type = PreconditionType.CHAINED_CHECK.name,
+                icon = "📍",
                 pipelineJson = pipeJson,
             )
 
@@ -148,6 +149,7 @@ class PreconditionModelAndTypeTest {
         assertEquals(1, chain.nodes.size)
         assertEquals("GPS_CHECK", chain.nodes[0].type)
         assertEquals(0, chain.connections.size)
+        assertEquals("📍", chain.icon)
 
         // Test helper extensions
         assertTrue(entity.hasNodeType("GPS_CHECK"))

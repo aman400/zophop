@@ -24,13 +24,18 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -65,6 +70,8 @@ import dev.zophop.data.PreconditionEntity
 import dev.zophop.domain.model.Credential
 import dev.zophop.domain.model.NodeType
 import dev.zophop.domain.model.Workflow
+import dev.zophop.feature.backup.ExportBackupDialog
+import dev.zophop.feature.backup.ImportBackupDialog
 import dev.zophop.ui.credentials.CredentialsScreen
 import dev.zophop.ui.preconditions.PreconditionEditorScreen
 import dev.zophop.ui.preconditions.PreconditionsScreen
@@ -119,6 +126,8 @@ fun MainAppScreen(
     val queuedMessages by viewModel.queuedMessages.collectAsState()
     var showActiveExecutionSheet by remember { mutableStateOf(false) }
     var showPendingQueueSheet by remember { mutableStateOf(false) }
+    var showExportBackupDialog by remember { mutableStateOf(false) }
+    var showImportBackupDialog by remember { mutableStateOf(false) }
 
     androidx.compose.runtime.LaunchedEffect(uiState.selectedWorkflowForLogs) {
         if (uiState.selectedWorkflowForLogs != null) {
@@ -191,9 +200,6 @@ fun MainAppScreen(
                     onSaveCredential = { newCred ->
                         viewModel.saveCredential(newCred)
                     },
-                    onSavePrecondition = { newPrec ->
-                        viewModel.savePrecondition(newPrec)
-                    },
                     onRequestCreatePrecondition = { onCreated ->
                         activeCreatePreconditionCallback = onCreated
                     },
@@ -204,8 +210,8 @@ fun MainAppScreen(
                     workflow = destination.workflow,
                     logsFlow = viewModel.getLogsForWorkflow(destination.workflow.id),
                     onClearLogs = { viewModel.clearLogsForWorkflow(destination.workflow.id) },
-                    onRetryWorkflowFromFailedNode = { wf, failedNodeId, onProgress, onResult ->
-                        viewModel.retryWorkflowFromFailedNode(wf, failedNodeId, onProgress, onResult)
+                    onRetryWorkflowFromFailedNode = { wf, failedNodeId, originalLogId, onProgress, onResult ->
+                        viewModel.retryWorkflowFromFailedNode(wf, failedNodeId, originalLogId, onProgress, onResult)
                     },
                     onDismiss = { activeLogsWorkflow = null },
                 )
@@ -238,6 +244,8 @@ fun MainAppScreen(
                             credentials = credentials,
                             isEngineEnabled = uiState.isEnabled,
                             queuedCount = queuedMessages.size,
+                            onExportBackup = { showExportBackupDialog = true },
+                            onImportBackup = { showImportBackupDialog = true },
                         )
                     },
                     bottomBar = {
@@ -330,6 +338,23 @@ fun MainAppScreen(
             },
         )
     }
+
+    if (showExportBackupDialog) {
+        ExportBackupDialog(
+            backupService = viewModel.backupService,
+            workflowsCount = workflows.size,
+            credentialsCount = credentials.size,
+            preconditionsCount = preconditions.size,
+            onDismiss = { showExportBackupDialog = false },
+        )
+    }
+
+    if (showImportBackupDialog) {
+        ImportBackupDialog(
+            backupService = viewModel.backupService,
+            onDismiss = { showImportBackupDialog = false },
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -341,7 +366,11 @@ private fun MainTopAppBar(
     credentials: List<Credential>,
     isEngineEnabled: Boolean,
     queuedCount: Int = 0,
+    onExportBackup: () -> Unit,
+    onImportBackup: () -> Unit,
 ) {
+    var showMenu by remember { mutableStateOf(false) }
+
     TopAppBar(
         title = {
             Column {
@@ -412,8 +441,52 @@ private fun MainTopAppBar(
                             containerColor = MaterialTheme.colorScheme.primaryContainer,
                             labelColor = MaterialTheme.colorScheme.onPrimaryContainer,
                         ),
-                    modifier = Modifier.padding(end = 12.dp),
+                    modifier = Modifier.padding(end = 4.dp),
                 )
+            }
+
+            Box {
+                IconButton(onClick = { showMenu = true }) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "Backup and Data Options",
+                    )
+                }
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false },
+                ) {
+                    DropdownMenuItem(
+                        text = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Text("Export Backup")
+                            }
+                        },
+                        onClick = {
+                            showMenu = false
+                            onExportBackup()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Text("Import Backup")
+                            }
+                        },
+                        onClick = {
+                            showMenu = false
+                            onImportBackup()
+                        },
+                    )
+                }
             }
         },
         colors =
@@ -809,8 +882,8 @@ private fun MainTabContent(
                 onClearLogsForWorkflow = { id -> viewModel.clearLogsForWorkflow(id) },
                 onViewPendingQueue = onViewPendingQueue,
                 onProcessQueueNow = onProcessQueueNow,
-                onRetryWorkflowFromFailedNode = { wf, failedNodeId, onProgress, onResult ->
-                    viewModel.retryWorkflowFromFailedNode(wf, failedNodeId, onProgress, onResult)
+                onRetryWorkflowFromFailedNode = { wf, failedNodeId, originalLogId, onProgress, onResult ->
+                    viewModel.retryWorkflowFromFailedNode(wf, failedNodeId, originalLogId, onProgress, onResult)
                 },
             )
         }

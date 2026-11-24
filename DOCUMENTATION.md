@@ -32,7 +32,7 @@ Built for self-hosters, home lab enthusiasts, and privacy-conscious users, ZopHo
                        ┌──────────────────────┴──────────────────────┐
                        ▼                                             ▼
              ┌──────────────────┐                           ┌──────────────────┐
-             │   SmsReceiver    │                           │ NtfyNotification │
+             │   SmsReceiver    │                           │ZopHopNotification│
              │  (SMS PDU / OTP) │                           │ Listener Service │
              └─────────┬────────┘                           └────────┬─────────┘
                        │                                             │
@@ -62,7 +62,7 @@ When an event arrives on your device:
 
 1. **Event Capture**:
    - **SMS Receiver (`SmsReceiver`)**: Captures SMS PDUs, sender address, timestamp, and message body.
-   - **Notification Listener (`NtfyNotificationListenerService`)**: Intercepts notifications from selected apps (e.g., WhatsApp, Telegram, Banking apps).
+   - **Notification Listener (`ZopHopNotificationListenerService`)**: Intercepts notifications from selected apps (e.g., WhatsApp, Telegram, Banking apps).
 2. **Precondition Evaluation (`PreconditionEvaluator`)**: Verifies required environmental state (active VPN interface, internet capability, carrier SIM status, or HTTP health endpoint probes).
 3. **Workflow Engine (`WorkflowEngine`)**: Processes the event through active visual workflows consisting of Triggers, Parsers, Condition Evaluators, and Action Nodes.
 4. **Encrypted Vault (`CredentialRepository`)**: Injects hardware-encrypted Bearer tokens, API keys, or Basic Auth headers into outgoing HTTP actions.
@@ -161,7 +161,7 @@ Preconditions evaluate environmental state before executing workflow nodes or tr
 ## 6. First-Time App Setup & Installation
 
 ### Step 1: Install Signed APK
-Download and install `ZopHop-v2.0.0.apk` (or latest release build) on Android 8.0 (API 26) or higher.
+Download and install `ZopHop-v3.0.0.apk` (or latest release build) on Android 8.0 (API 26) or higher.
 
 > [!NOTE]
 > **Bypassing Play Protect on Sideloaded Builds**  

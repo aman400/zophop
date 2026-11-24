@@ -29,16 +29,19 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountTree
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SuggestionChip
@@ -67,6 +70,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.zophop.BuildConfig
 import dev.zophop.domain.engine.plugin.ExternalPluginServiceInfo
+import dev.zophop.feature.backup.ExportBackupDialog
+import dev.zophop.feature.backup.ImportBackupDialog
 
 @Composable
 fun SettingsScreen(
@@ -82,6 +87,12 @@ fun SettingsScreen(
 
     var pendingToggleState by remember { mutableStateOf<Boolean?>(null) }
     var showNotificationPermissionRationaleDialog by remember { mutableStateOf(false) }
+    var showExportBackupDialog by remember { mutableStateOf(false) }
+    var showImportBackupDialog by remember { mutableStateOf(false) }
+
+    val workflows by viewModel.workflows.collectAsState()
+    val credentials by viewModel.credentials.collectAsState()
+    val preconditions by viewModel.preconditions.collectAsState()
 
     val permissionsState = rememberSettingsPermissions(context)
 
@@ -258,6 +269,13 @@ fun SettingsScreen(
             }
 
             item {
+                BackupAndRestoreCard(
+                    onExport = { showExportBackupDialog = true },
+                    onImport = { showImportBackupDialog = true },
+                )
+            }
+
+            item {
                 InstalledNodePluginsCard(discoveredPlugins = discoveredPlugins)
             }
 
@@ -275,6 +293,23 @@ fun SettingsScreen(
 
             item { Spacer(modifier = Modifier.height(32.dp)) }
         }
+    }
+
+    if (showExportBackupDialog) {
+        ExportBackupDialog(
+            backupService = viewModel.backupService,
+            workflowsCount = workflows.size,
+            credentialsCount = credentials.size,
+            preconditionsCount = preconditions.size,
+            onDismiss = { showExportBackupDialog = false },
+        )
+    }
+
+    if (showImportBackupDialog) {
+        ImportBackupDialog(
+            backupService = viewModel.backupService,
+            onDismiss = { showImportBackupDialog = false },
+        )
     }
 
     if (showNotificationPermissionRationaleDialog) {
@@ -296,6 +331,66 @@ fun SettingsScreen(
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun BackupAndRestoreCard(
+    onExport: () -> Unit,
+    onImport: () -> Unit,
+) {
+    OutlinedCard(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Upload,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    text = "Backup & Data Management",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            Text(
+                text = "Export workflows, credentials (optionally protected with a PIN/password), and preconditions to a portable JSON backup file, or restore from an existing backup.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Button(
+                    onClick = onExport,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Export")
+                }
+                OutlinedButton(
+                    onClick = onImport,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Import")
+                }
+            }
+        }
     }
 }
 

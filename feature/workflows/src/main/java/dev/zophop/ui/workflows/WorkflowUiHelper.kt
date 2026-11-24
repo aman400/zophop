@@ -39,11 +39,15 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.core.content.ContextCompat
 import dev.zophop.domain.engine.plugin.BuiltInPluginRegistry
+import dev.zophop.domain.model.Credential
 import dev.zophop.domain.model.NodeType
 import dev.zophop.domain.model.PreconditionType
+import dev.zophop.plugin.api.ConfigFieldSpec
+import dev.zophop.plugin.api.HttpHeaderConfigHelper
 import dev.zophop.plugin.api.NodeCategory
 import dev.zophop.plugin.api.NodePluginManifest
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
 
 data class PermissionInstructionData(
@@ -179,23 +183,6 @@ object WorkflowUiHelper {
                     .apply {
                         put("callerRegex", ".*")
                     }.toString()
-            type.contains("NTFY_ACTION", ignoreCase = true) ->
-                JSONObject()
-                    .apply {
-                        put("serverUrl", "https://ntfy.sh")
-                        put("topic", "my-topic")
-                        put("priority", "3")
-                        put("title", "ZopHop Notification")
-                        put("template", "\${body}")
-                    }.toString()
-            type.contains("GOTIFY_ACTION", ignoreCase = true) ->
-                JSONObject()
-                    .apply {
-                        put("serverUrl", "https://gotify.example.com")
-                        put("priority", "5")
-                        put("title", "ZopHop Notification")
-                        put("template", "\${body}")
-                    }.toString()
             type.contains("TELEGRAM_ACTION", ignoreCase = true) ->
                 JSONObject()
                     .apply {
@@ -294,8 +281,6 @@ object WorkflowUiHelper {
             type.contains("BLUETOOTH_CHECK", ignoreCase = true) -> Icons.Default.Bluetooth
             type.contains("SIM_CHECK", ignoreCase = true) -> Icons.Default.PhoneAndroid
             type.contains("BATTERY_CHECK", ignoreCase = true) -> Icons.Default.BatteryChargingFull
-            type.contains("NTFY_ACTION", ignoreCase = true) -> Icons.Default.DeviceHub
-            type.contains("GOTIFY_ACTION", ignoreCase = true) -> Icons.Default.NotificationImportant
             type.contains("HTTP_ACTION", ignoreCase = true) -> Icons.Default.Http
             type.contains("SEND_NOTIFICATION_ACTION", ignoreCase = true) -> Icons.Default.Notifications
             type.contains("SEND_SMS_ACTION", ignoreCase = true) -> Icons.Default.Sms
@@ -702,5 +687,200 @@ object WorkflowUiHelper {
                 }
             },
         )
+    }
+
+    fun applyCredentialDefaultsToConfig(
+        nodeType: String,
+        pluginManifest: NodePluginManifest?,
+        currentConfig: Map<String, String>,
+        credential: Credential?,
+    ): Map<String, String> {
+        val updated = currentConfig.toMutableMap()
+        if (credential == null) {
+            updated["credentialId"] = ""
+            return updated
+        }
+
+        updated["credentialId"] = credential.id
+        if (isHttpNodeType(nodeType)) {
+            applyHttpCredential(updated, credential)
+        } else {
+            applyPluginCredential(updated, pluginManifest, credential.dataMap)
+        }
+        return updated
+    }
+
+    fun fillMissingCredentialDefaults(
+        nodeType: String,
+        pluginManifest: NodePluginManifest?,
+        currentConfig: Map<String, String>,
+        credential: Credential,
+    ): Map<String, String> {
+        val updated = currentConfig.toMutableMap()
+        if (isHttpNodeType(nodeType)) {
+            fillMissingHttpCredential(updated, credential)
+        } else {
+            fillMissingPluginCredential(updated, pluginManifest, credential.dataMap)
+        }
+        return updated
+    }
+
+    private fun isHttpNodeType(nodeType: String): Boolean =
+        nodeType.contains("HTTP_ACTION", ignoreCase = true) || nodeType.equals("HTTP", ignoreCase = true)
+
+    private fun applyHttpCredential(
+        updated: MutableMap<String, String>,
+        credential: Credential,
+    ) {
+        val adapter = BuiltInPluginRegistry.getHttpCredentialAdapter(credential.type)
+        if (adapter != null) {
+            val mapped = adapter.configureHttpNode(credential.dataMap, updated)
+            updated.putAll(mapped)
+        } else {
+            applyGenericToHttp(updated, credential.dataMap)
+        }
+    }
+
+    private fun applyGenericToHttp(
+        updated: MutableMap<String, String>,
+        data: Map<String, String>,
+    ) {
+        val credUrl = data["url"] ?: data["serverUrl"]
+        if (!credUrl.isNullOrBlank()) {
+            updated["url"] = credUrl
+        }
+        val token = data["token"] ?: data["appToken"] ?: data["botToken"]
+        if (!token.isNullOrBlank()) {
+            updated["headers"] = HttpHeaderConfigHelper.ensureHeaderPresent(updated["headers"], "Authorization")
+        }
+    }
+
+    private fun isSecretCredentialKey(key: String): Boolean {
+        val lower = key.lowercase()
+        return lower == "token" ||
+            lower == "apptoken" ||
+            lower == "bottoken" ||
+            lower == "password" ||
+            lower == "secret" ||
+            lower == "apikey" ||
+            lower == "api_key" ||
+            lower.endsWith("token") ||
+            lower.endsWith("secret") ||
+            lower.endsWith("password")
+    }
+
+    private fun shouldMapServerUrlToUrl(
+        sUrl: String?,
+        manifest: NodePluginManifest?,
+    ): Boolean {
+        if (sUrl.isNullOrBlank()) return false
+        val schema = manifest?.configSchema ?: return false
+        return schema.any { it.key == "url" } && schema.none { it.key == "serverUrl" }
+    }
+
+    private fun shouldMapUrlToServerUrl(
+        url: String?,
+        manifest: NodePluginManifest?,
+    ): Boolean {
+        if (url.isNullOrBlank()) return false
+        val schema = manifest?.configSchema ?: return false
+        return schema.any { it.key == "serverUrl" } && schema.none { it.key == "url" }
+    }
+
+    private fun applyPluginCredential(
+        updated: MutableMap<String, String>,
+        manifest: NodePluginManifest?,
+        data: Map<String, String>,
+    ) {
+        data.forEach { (key, value) ->
+            if (value.isNotBlank() && !isSecretCredentialKey(key)) {
+                updated[key] = value
+            }
+        }
+        val sUrl = data["serverUrl"]
+        if (shouldMapServerUrlToUrl(sUrl, manifest)) {
+            updated["url"] = sUrl.orEmpty()
+        }
+        val url = data["url"]
+        if (shouldMapUrlToServerUrl(url, manifest)) {
+            updated["serverUrl"] = url.orEmpty()
+        }
+    }
+
+    private fun fillMissingHttpCredential(
+        updated: MutableMap<String, String>,
+        credential: Credential,
+    ) {
+        val adapter = BuiltInPluginRegistry.getHttpCredentialAdapter(credential.type)
+        if (adapter != null) {
+            val mapped = adapter.fillMissingHttpNodeConfig(credential.dataMap, updated)
+            mapped.forEach { (k, v) ->
+                if (updated[k].isNullOrBlank()) {
+                    updated[k] = v
+                }
+            }
+        }
+    }
+
+    private fun fillMissingPluginCredential(
+        updated: MutableMap<String, String>,
+        manifest: NodePluginManifest?,
+        data: Map<String, String>,
+    ) {
+        data.forEach { (key, value) ->
+            if (value.isNotBlank() && !isSecretCredentialKey(key)) {
+                val currentVal = updated[key]?.trim().orEmpty()
+                val isDefaultValue = isFieldAtDefaultValue(key, currentVal, manifest)
+                if (currentVal.isBlank() || isDefaultValue) {
+                    updated[key] = value
+                }
+            }
+        }
+        val sUrl = data["serverUrl"]
+        if (shouldMapServerUrlToUrl(sUrl, manifest) && updated["url"].isNullOrBlank()) {
+            updated["url"] = sUrl.orEmpty()
+        }
+        val url = data["url"]
+        if (shouldMapUrlToServerUrl(url, manifest) && updated["serverUrl"].isNullOrBlank()) {
+            updated["serverUrl"] = url.orEmpty()
+        }
+    }
+
+    private fun isFieldAtDefaultValue(
+        key: String,
+        currentVal: String,
+        manifest: NodePluginManifest?,
+    ): Boolean {
+        if (manifest == null) return false
+        val field = manifest.configSchema.find { it.key == key }
+        val matchesPlaceholder = field is ConfigFieldSpec.TextField && field.placeholder == currentVal
+        val matchesDefaultJson =
+            try {
+                val defaultJson = manifest.defaultConfigJson
+                !defaultJson.isNullOrBlank() && JSONObject(defaultJson).optString(key, "") == currentVal
+            } catch (_: JSONException) {
+                false
+            }
+        return matchesPlaceholder || matchesDefaultJson
+    }
+
+    fun formatDuration(durationMs: Long?): String {
+        if (durationMs == null) return ""
+        return when {
+            durationMs < 1 -> "<1 ms"
+            durationMs < 1000 -> "$durationMs ms"
+            durationMs < 60_000 -> String.format(java.util.Locale.getDefault(), "%.1f s", durationMs / 1000.0)
+            else -> {
+                val mins = durationMs / 60_000
+                val secs = (durationMs % 60_000) / 1000
+                "${mins}m ${secs}s"
+            }
+        }
+    }
+
+    fun formatExecutionTime(epochMillis: Long?): String {
+        if (epochMillis == null || epochMillis <= 0) return ""
+        val sdf = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
+        return sdf.format(java.util.Date(epochMillis))
     }
 }

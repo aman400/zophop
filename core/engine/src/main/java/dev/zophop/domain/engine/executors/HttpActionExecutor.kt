@@ -1,11 +1,10 @@
 package dev.zophop.domain.engine.executors
 
 import android.content.Context
-import android.util.Base64
 import dev.zophop.data.CredentialRepository
 import dev.zophop.domain.engine.HttpHeaderUtils
+import dev.zophop.domain.engine.plugin.BuiltInPluginRegistry
 import dev.zophop.domain.model.Credential
-import dev.zophop.domain.model.CredentialType
 import dev.zophop.domain.model.WorkflowNode
 import dev.zophop.plugin.api.ExecutionContext
 import dev.zophop.plugin.api.NodeExecutionResult
@@ -47,23 +46,46 @@ class HttpActionExecutor(
             JSONObject()
         }
 
+        val credentialId = config.optString("credentialId", "")
+        val resolvedCred =
+            if (credentialId.isNotBlank() && credentialRepository != null) {
+                credentialRepository.getCredentialById(credentialId)
+            } else {
+                null
+            }
+
+        val adapter = resolvedCred?.let { BuiltInPluginRegistry.getHttpCredentialAdapter(it.type) }
+        val configured = resolvedCred?.let { adapter?.configureHttpNode(it.dataMap, emptyMap()) }
+
         val rawUrl = config.optString("url", "")
-        val method = config.optString("method", "GET").uppercase()
+        val effectiveRawUrl =
+            if (rawUrl.isNotBlank()) {
+                rawUrl
+            } else if (resolvedCred != null) {
+                configured?.get("url") ?: resolvedCred.dataMap["url"] ?: resolvedCred.dataMap["serverUrl"] ?: ""
+            } else {
+                ""
+            }
+
+        val rawMethod = config.optString("method", "").uppercase()
+        val method =
+            if (rawMethod.isNotBlank()) {
+                rawMethod
+            } else {
+                configured?.get("method")?.uppercase() ?: "GET"
+            }
         val queryParams = config.optString("queryParams", "")
         val expectedStatus = config.optInt("expectedStatus", 200)
 
-        var targetUrl = context.interpolate(rawUrl).trim()
-        if (targetUrl.isBlank()) {
+        val rawTargetUrl = context.interpolate(effectiveRawUrl).trim()
+        if (rawTargetUrl.isBlank()) {
             return@withContext NodeExecutionResult.Failed("HTTP URL is empty")
         }
 
-        if (queryParams.isNotBlank()) {
-            val interpolatedQuery = context.interpolate(queryParams)
-            targetUrl = if (targetUrl.contains("?")) "$targetUrl&$interpolatedQuery" else "$targetUrl?$interpolatedQuery"
-        }
+        val targetUrl = appendQueryParams(rawTargetUrl, queryParams, context)
 
         try {
-            val requestBuilder = buildRequest(config, targetUrl, method, context)
+            val requestBuilder = buildRequest(config, targetUrl, method, context, resolvedCred)
             val response = okHttpClient.newCall(requestBuilder.build()).await()
             response.use { resp ->
                 handleHttpResponse(resp, method, targetUrl, expectedStatus, context)
@@ -77,11 +99,43 @@ class HttpActionExecutor(
         }
     }
 
-    private suspend fun buildRequest(
+    private fun appendQueryParams(
+        targetUrl: String,
+        queryParams: String,
+        context: ExecutionContext,
+    ): String {
+        if (queryParams.isBlank()) return targetUrl
+        val interpolatedQuery = context.interpolate(queryParams)
+        val normalizedQuery =
+            interpolatedQuery
+                .lines()
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .flatMap { it.split("&") }
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .map { part ->
+                    if (part.contains("=") || !part.contains(":")) {
+                        part
+                    } else {
+                        part.substringBefore(':').trim() + "=" + part.substringAfter(':').trim()
+                    }
+                }
+                .joinToString("&")
+        if (normalizedQuery.isBlank()) return targetUrl
+        return when {
+            targetUrl.endsWith("?") || targetUrl.endsWith("&") -> "$targetUrl$normalizedQuery"
+            targetUrl.contains("?") -> "$targetUrl&$normalizedQuery"
+            else -> "$targetUrl?$normalizedQuery"
+        }
+    }
+
+    private fun buildRequest(
         config: JSONObject,
         targetUrl: String,
         method: String,
         context: ExecutionContext,
+        resolvedCred: Credential?,
     ): Request.Builder {
         val requestBuilder = Request.Builder().url(targetUrl)
 
@@ -91,24 +145,19 @@ class HttpActionExecutor(
         val requestBody = buildRequestBody(bodyType, interpolatedBody)
         applyMethod(requestBuilder, method, requestBody)
 
-        val headers = config.optString("headers", "")
-        if (headers.isNotBlank()) {
-            HttpHeaderUtils.parseHeaders(context.interpolate(headers)).forEach { (k, v) ->
-                requestBuilder.addHeader(k, v)
-            }
-        }
-
-        val credentialId = config.optString("credentialId", "")
-        val resolvedCred = if (credentialId.isNotBlank() && credentialRepository != null) {
-            credentialRepository.getCredentialById(credentialId)
-        } else {
-            null
-        }
-
         if (resolvedCred != null) {
             applyCredentialToRequest(requestBuilder, resolvedCred, context)
         } else {
             applyInlineAuth(requestBuilder, config, context)
+        }
+
+        val headers = config.optString("headers", "")
+        if (headers.isNotBlank()) {
+            HttpHeaderUtils.parseHeaders(context.interpolate(headers)).forEach { (k, v) ->
+                if (v.isNotBlank()) {
+                    requestBuilder.header(k, v)
+                }
+            }
         }
 
         return requestBuilder
@@ -152,8 +201,7 @@ class HttpActionExecutor(
             "BASIC" -> {
                 val user = context.interpolate(config.optString("basicUser", "")).trim()
                 val pass = context.interpolate(config.optString("basicPassword", "")).trim()
-                val credentials = "$user:$pass"
-                val authHeader = "Basic " + Base64.encodeToString(credentials.toByteArray(), Base64.NO_WRAP)
+                val authHeader = okhttp3.Credentials.basic(user, pass)
                 builder.addHeader("Authorization", authHeader)
             }
         }
@@ -196,32 +244,14 @@ class HttpActionExecutor(
         credential: Credential,
         context: ExecutionContext,
     ) {
-        val data = credential.dataMap
-        when (credential.type) {
-            CredentialType.BEARER_TOKEN, CredentialType.NTFY_AUTH -> {
-                val token = context.interpolate(data["token"] ?: "").trim()
-                if (token.isNotBlank()) {
-                    builder.addHeader("Authorization", "Bearer $token")
-                }
-            }
-            CredentialType.BASIC_AUTH -> {
-                val user = context.interpolate(data["username"] ?: "").trim()
-                val pass = context.interpolate(data["password"] ?: "").trim()
-                val authHeader = okhttp3.Credentials.basic(user, pass)
-                builder.addHeader("Authorization", authHeader)
-            }
-            CredentialType.HEADER_SET -> {
-                val headers = data["headers"] ?: ""
-                HttpHeaderUtils.parseHeaders(context.interpolate(headers)).forEach { (k, v) ->
-                    builder.addHeader(k, v)
-                }
-            }
-            CredentialType.GOTIFY_AUTH -> {
-                val appToken = context.interpolate(data["appToken"] ?: "").trim()
-                if (appToken.isNotBlank()) {
-                    builder.addHeader("X-Gotify-Key", appToken)
-                }
-            }
+        val adapter = BuiltInPluginRegistry.getHttpCredentialAdapter(credential.type)
+        if (adapter != null) {
+            adapter.applyToRequest(builder, credential.dataMap, context)
+            return
+        }
+        val token = context.interpolate(credential.dataMap["token"] ?: "").trim()
+        if (token.isNotBlank()) {
+            builder.addHeader("Authorization", "Bearer $token")
         }
     }
 }

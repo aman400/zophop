@@ -47,6 +47,8 @@ class DefaultWorkflowInitializerTest {
 
         override suspend fun saveExecutionLog(log: WorkflowExecutionLogEntity) {}
 
+        override suspend fun getExecutionLogById(id: String): WorkflowExecutionLogEntity? = null
+
         override suspend fun clearLogsForWorkflow(workflowId: String) {}
     }
 

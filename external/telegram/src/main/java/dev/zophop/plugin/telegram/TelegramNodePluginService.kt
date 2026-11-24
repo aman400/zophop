@@ -225,6 +225,7 @@ object TelegramPluginModule : NodePluginModule {
                                     label = "Bot Token",
                                     placeholder = "123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ",
                                     singleLine = true,
+                                    isSecret = true,
                                 ),
                             ),
                     ),
@@ -235,6 +236,7 @@ object TelegramPluginModule : NodePluginModule {
                             label = "Telegram Bot Token (Leave blank if credential attached)",
                             tooltip = "Bot token provided by @BotFather or attach saved credential",
                             singleLine = true,
+                            isSecret = true,
                         ),
                         ConfigFieldSpec.TextField(
                             key = "chatId",

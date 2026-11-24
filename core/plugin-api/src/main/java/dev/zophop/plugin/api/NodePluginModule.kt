@@ -19,4 +19,6 @@ interface NodePluginModule {
         typeId: String,
         configJson: String,
     ): String? = null
+
+    fun getHttpCredentialAdapters(): List<HttpCredentialAdapter> = emptyList()
 }

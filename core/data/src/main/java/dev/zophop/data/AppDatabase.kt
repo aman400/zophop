@@ -10,27 +10,44 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 val MIGRATION_4_5 =
     object : Migration(4, 5) {
         override fun migrate(db: SupportSQLiteDatabase) {
-            val cursor = db.query("PRAGMA table_info(`preconditions`)")
-            val existingColumns = mutableSetOf<String>()
-            cursor.use {
+            val cursorPrec = db.query("PRAGMA table_info(`preconditions`)")
+            val existingPrecColumns = mutableSetOf<String>()
+            cursorPrec.use {
                 val nameIndex = it.getColumnIndex("name")
                 while (it.moveToNext()) {
                     if (nameIndex != -1) {
-                        existingColumns.add(it.getString(nameIndex))
+                        existingPrecColumns.add(it.getString(nameIndex))
                     }
                 }
             }
-            if ("minBatteryPercent" !in existingColumns) {
+            if ("minBatteryPercent" !in existingPrecColumns) {
                 db.execSQL("ALTER TABLE `preconditions` ADD COLUMN `minBatteryPercent` INTEGER NOT NULL DEFAULT 15")
             }
-            if ("requireCharging" !in existingColumns) {
+            if ("requireCharging" !in existingPrecColumns) {
                 db.execSQL("ALTER TABLE `preconditions` ADD COLUMN `requireCharging` INTEGER NOT NULL DEFAULT 0")
             }
-            if ("retryStrategy" !in existingColumns) {
+            if ("retryStrategy" !in existingPrecColumns) {
                 db.execSQL("ALTER TABLE `preconditions` ADD COLUMN `retryStrategy` TEXT NOT NULL DEFAULT 'FIXED'")
             }
-            if ("queueTimeoutMinutes" !in existingColumns) {
+            if ("queueTimeoutMinutes" !in existingPrecColumns) {
                 db.execSQL("ALTER TABLE `preconditions` ADD COLUMN `queueTimeoutMinutes` INTEGER NOT NULL DEFAULT 10")
+            }
+            if ("icon" !in existingPrecColumns) {
+                db.execSQL("ALTER TABLE `preconditions` ADD COLUMN `icon` TEXT NOT NULL DEFAULT ''")
+            }
+
+            val cursorWf = db.query("PRAGMA table_info(`workflows`)")
+            val existingWfColumns = mutableSetOf<String>()
+            cursorWf.use {
+                val nameIndex = it.getColumnIndex("name")
+                while (it.moveToNext()) {
+                    if (nameIndex != -1) {
+                        existingWfColumns.add(it.getString(nameIndex))
+                    }
+                }
+            }
+            if ("icon" !in existingWfColumns) {
+                db.execSQL("ALTER TABLE `workflows` ADD COLUMN `icon` TEXT NOT NULL DEFAULT ''")
             }
         }
     }

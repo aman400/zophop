@@ -159,12 +159,19 @@ fun PreconditionCardItem(
                             modifier = Modifier.size(32.dp),
                         ) {
                             Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = iconVector,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(16.dp),
-                                )
+                                if (precondition.icon.isNotBlank()) {
+                                    Text(
+                                        text = precondition.icon,
+                                        fontSize = 16.sp,
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = iconVector,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
                             }
                         }
 

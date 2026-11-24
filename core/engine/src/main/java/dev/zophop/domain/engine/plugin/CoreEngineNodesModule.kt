@@ -1,6 +1,7 @@
 package dev.zophop.domain.engine.plugin
 
 import dev.zophop.data.CredentialRepository
+import dev.zophop.domain.engine.HttpHeaderUtils
 import dev.zophop.domain.engine.executors.BatteryCheckExecutor
 import dev.zophop.domain.engine.executors.BluetoothCheckExecutor
 import dev.zophop.domain.engine.executors.ConditionExecutor
@@ -18,11 +19,15 @@ import dev.zophop.domain.engine.executors.VpnCheckExecutor
 import dev.zophop.domain.model.CredentialType
 import dev.zophop.plugin.api.ConfigFieldSpec
 import dev.zophop.plugin.api.CredentialSpec
+import dev.zophop.plugin.api.ExecutionContext
+import dev.zophop.plugin.api.HttpCredentialAdapter
+import dev.zophop.plugin.api.HttpHeaderConfigHelper
 import dev.zophop.plugin.api.NodeCategory
 import dev.zophop.plugin.api.NodeExecutor
 import dev.zophop.plugin.api.NodePluginManifest
 import dev.zophop.plugin.api.NodePluginModule
 import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.json.JSONException
 import org.json.JSONObject
 import java.util.regex.Pattern
@@ -205,11 +210,21 @@ object CoreEngineNodesModule : NodePluginModule {
                             tooltip = "Variable containing JSON to parse. Defaults to http_response or body.",
                             singleLine = true,
                         ),
-                        ConfigFieldSpec.TextField(
+                        ConfigFieldSpec.DropdownField(
                             key = "targetType",
-                            label = "Target Type (AUTO, STRING, NUMBER, BOOLEAN, JSON_STRING, COUNT, ARRAY)",
-                            placeholder = "AUTO",
-                            singleLine = true,
+                            label = "Target Type",
+                            tooltip = "Expected data type to cast or extract",
+                            options =
+                                listOf(
+                                    "AUTO" to "AUTO (Automatic / Inferred)",
+                                    "STRING" to "STRING (Text)",
+                                    "NUMBER" to "NUMBER (Integer / Number)",
+                                    "DOUBLE" to "DOUBLE (Floating Point)",
+                                    "BOOLEAN" to "BOOLEAN (True / False)",
+                                    "JSON_STRING" to "JSON_STRING (Raw JSON String)",
+                                    "COUNT" to "COUNT (Array Size / Length)",
+                                    "ARRAY" to "ARRAY (JSON Array)",
+                                ),
                         ),
                         ConfigFieldSpec.TextField(
                             key = "defaultValue",
@@ -303,7 +318,8 @@ object CoreEngineNodesModule : NodePluginModule {
                         ),
                         ConfigFieldSpec.CodeTemplateField(
                             key = "queryParams",
-                            label = "Query Parameters (key=value, one per line)",
+                            label = "Query Parameters",
+                            tooltip = "Key-value query parameters appended to the URL (e.g. limit=10&page=1)",
                             minLines = 2,
                         ),
                         ConfigFieldSpec.CodeTemplateField(
@@ -573,6 +589,7 @@ object CoreEngineNodesModule : NodePluginModule {
                             key = "token",
                             label = "Token / API Key",
                             singleLine = true,
+                            isSecret = true,
                         ),
                     ),
             ),
@@ -591,6 +608,7 @@ object CoreEngineNodesModule : NodePluginModule {
                             key = "password",
                             label = "Password",
                             singleLine = true,
+                            isSecret = true,
                         ),
                     ),
             ),
@@ -705,5 +723,137 @@ object CoreEngineNodesModule : NodePluginModule {
     private fun validateCronTrigger(config: JSONObject): String? {
         val cronExpression = config.optString("cronExpression", "").trim().ifEmpty { "every 30m" }
         return if (cronExpression.isBlank()) "Schedule interval or cron expression cannot be blank." else null
+    }
+
+    override fun getHttpCredentialAdapters(): List<HttpCredentialAdapter> =
+        listOf(
+            BearerHttpCredentialAdapter,
+            BasicAuthHttpCredentialAdapter,
+            HeaderSetHttpCredentialAdapter,
+        )
+}
+
+object BearerHttpCredentialAdapter : HttpCredentialAdapter {
+    override val supportedCredentialType: String = CredentialType.BEARER_TOKEN
+
+    override fun getSecretHeaderName(dataMap: Map<String, String>): String? =
+        if (!dataMap["token"].isNullOrBlank()) "Authorization" else null
+
+    override fun configureHttpNode(
+        dataMap: Map<String, String>,
+        currentConfig: Map<String, String>,
+    ): Map<String, String> {
+        val token = dataMap["token"]?.trim().orEmpty()
+        return if (token.isNotBlank()) {
+            mapOf("headers" to HttpHeaderConfigHelper.ensureHeaderPresent(currentConfig["headers"], "Authorization"))
+        } else {
+            emptyMap()
+        }
+    }
+
+    override fun fillMissingHttpNodeConfig(
+        dataMap: Map<String, String>,
+        currentConfig: Map<String, String>,
+    ): Map<String, String> {
+        val token = dataMap["token"]?.trim().orEmpty()
+        return if (token.isNotBlank() && currentConfig["headers"].isNullOrBlank()) {
+            mapOf("headers" to "Authorization: ")
+        } else {
+            emptyMap()
+        }
+    }
+
+    override fun applyToRequest(
+        builder: Request.Builder,
+        dataMap: Map<String, String>,
+        context: ExecutionContext,
+    ) {
+        val token = context.interpolate(dataMap["token"] ?: "").trim()
+        if (token.isNotBlank()) {
+            builder.addHeader("Authorization", "Bearer $token")
+        }
+    }
+}
+
+object BasicAuthHttpCredentialAdapter : HttpCredentialAdapter {
+    override val supportedCredentialType: String = CredentialType.BASIC_AUTH
+
+    override fun getSecretHeaderName(dataMap: Map<String, String>): String? =
+        if (!dataMap["username"].isNullOrBlank() || !dataMap["password"].isNullOrBlank()) "Authorization" else null
+
+    override fun configureHttpNode(
+        dataMap: Map<String, String>,
+        currentConfig: Map<String, String>,
+    ): Map<String, String> {
+        val user = dataMap["username"]?.trim().orEmpty()
+        val pass = dataMap["password"]?.trim().orEmpty()
+        return if (user.isNotBlank() || pass.isNotBlank()) {
+            mapOf("headers" to HttpHeaderConfigHelper.ensureHeaderPresent(currentConfig["headers"], "Authorization"))
+        } else {
+            emptyMap()
+        }
+    }
+
+    override fun fillMissingHttpNodeConfig(
+        dataMap: Map<String, String>,
+        currentConfig: Map<String, String>,
+    ): Map<String, String> {
+        val user = dataMap["username"]?.trim().orEmpty()
+        val pass = dataMap["password"]?.trim().orEmpty()
+        return if ((user.isNotBlank() || pass.isNotBlank()) && currentConfig["headers"].isNullOrBlank()) {
+            mapOf("headers" to "Authorization: ")
+        } else {
+            emptyMap()
+        }
+    }
+
+    override fun applyToRequest(
+        builder: Request.Builder,
+        dataMap: Map<String, String>,
+        context: ExecutionContext,
+    ) {
+        val user = context.interpolate(dataMap["username"] ?: "").trim()
+        val pass = context.interpolate(dataMap["password"] ?: "").trim()
+        val authHeader = okhttp3.Credentials.basic(user, pass)
+        builder.addHeader("Authorization", authHeader)
+    }
+}
+
+object HeaderSetHttpCredentialAdapter : HttpCredentialAdapter {
+    override val supportedCredentialType: String = CredentialType.HEADER_SET
+
+    override fun configureHttpNode(
+        dataMap: Map<String, String>,
+        currentConfig: Map<String, String>,
+    ): Map<String, String> {
+        val headers = dataMap["headers"]?.trim().orEmpty()
+        return if (headers.isNotBlank()) {
+            mapOf("headers" to headers)
+        } else {
+            emptyMap()
+        }
+    }
+
+    override fun fillMissingHttpNodeConfig(
+        dataMap: Map<String, String>,
+        currentConfig: Map<String, String>,
+    ): Map<String, String> {
+        val headers = dataMap["headers"]?.trim().orEmpty()
+        return if (headers.isNotBlank() && currentConfig["headers"].isNullOrBlank()) {
+            mapOf("headers" to headers)
+        } else {
+            emptyMap()
+        }
+    }
+
+    override fun applyToRequest(
+        builder: Request.Builder,
+        dataMap: Map<String, String>,
+        context: ExecutionContext,
+    ) {
+        val headers = dataMap["headers"] ?: ""
+        HttpHeaderUtils.parseHeaders(context.interpolate(headers)).forEach { (k, v) ->
+            builder.addHeader(k, v)
+        }
     }
 }

@@ -21,7 +21,13 @@ data class CredentialEntity(
             val keys = json.keys()
             while (keys.hasNext()) {
                 val k = keys.next()
-                map[k] = json.optString(k, "")
+                val rawVal = json.optString(k, "")
+                map[k] =
+                    if (DatabaseEncryption.isSensitiveKey(k)) {
+                        DatabaseEncryption.decrypt(rawVal)
+                    } else {
+                        rawVal
+                    }
             }
         } catch (_: Exception) {
         }
@@ -40,7 +46,11 @@ data class CredentialEntity(
         fun fromDomain(credential: Credential): CredentialEntity {
             val json = JSONObject()
             for ((k, v) in credential.dataMap) {
-                json.put(k, v)
+                if (DatabaseEncryption.isSensitiveKey(k) && v.isNotBlank()) {
+                    json.put(k, DatabaseEncryption.encrypt(v))
+                } else {
+                    json.put(k, v)
+                }
             }
             return CredentialEntity(
                 id = credential.id,

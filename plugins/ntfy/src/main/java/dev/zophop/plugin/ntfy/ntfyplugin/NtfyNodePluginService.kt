@@ -6,6 +6,7 @@ import android.os.IBinder
 import android.util.Base64
 import dev.zophop.plugin.api.ConfigFieldSpec
 import dev.zophop.plugin.api.CredentialSpec
+import dev.zophop.plugin.api.HttpCredentialAdapter
 import dev.zophop.plugin.api.INodePluginService
 import dev.zophop.plugin.api.NodeCategory
 import dev.zophop.plugin.api.NodePluginManifest
@@ -65,6 +66,14 @@ object NtfyPluginModule : NodePluginModule {
                             label = "Topic",
                         ),
                         ConfigFieldSpec.TextField(
+                            key = "token",
+                            label = "Access Token (Optional)",
+                            placeholder = "Leave blank to use credential default",
+                            tooltip = "Override access token. If left blank, token from attached credential is used.",
+                            singleLine = true,
+                            isSecret = true,
+                        ),
+                        ConfigFieldSpec.TextField(
                             key = "title",
                             label = "Title",
                         ),
@@ -93,6 +102,9 @@ object NtfyPluginModule : NodePluginModule {
         )
 
     override fun getCredentialSpecs(): List<CredentialSpec> = getManifests().mapNotNull { it.credentialSpec }
+
+    override fun getHttpCredentialAdapters(): List<HttpCredentialAdapter> =
+        listOf(dev.zophop.plugin.ntfy.NtfyHttpCredentialAdapter)
 }
 
 class NtfyNodePluginService : Service() {

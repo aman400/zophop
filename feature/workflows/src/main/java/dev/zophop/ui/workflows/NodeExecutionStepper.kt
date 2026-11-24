@@ -33,6 +33,9 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RemoveCircleOutline
+import androidx.compose.material.icons.filled.Replay
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -43,6 +46,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.SuggestionChipDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -194,6 +198,7 @@ private fun NodeExecutionStepRow(
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.weight(1f, fill = false),
                     ) {
                         Icon(
                             imageVector = WorkflowUiHelper.getNodeIcon(step.nodeType),
@@ -212,9 +217,7 @@ private fun NodeExecutionStepRow(
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color =
-                                if (step.state ==
-                                    NodeStepState.SKIPPED
-                                ) {
+                                if (step.state == NodeStepState.SKIPPED) {
                                     MaterialTheme.colorScheme.onSurfaceVariant
                                 } else {
                                     MaterialTheme.colorScheme.onSurface
@@ -222,68 +225,10 @@ private fun NodeExecutionStepRow(
                         )
                     }
 
-                    val (statusText, statusBg, statusFg) =
-                        when {
-                            isRetryStep -> {
-                                val label = if (secRemaining != null) "Waiting (${secRemaining}s)" else "Waiting"
-                                Triple(
-                                    label,
-                                    MaterialTheme.colorScheme.primaryContainer,
-                                    MaterialTheme.colorScheme.onPrimaryContainer,
-                                )
-                            }
-                            step.state == NodeStepState.EXECUTING ->
-                                Triple(
-                                    "In Progress...",
-                                    MaterialTheme.colorScheme.primaryContainer,
-                                    MaterialTheme.colorScheme.onPrimaryContainer,
-                                )
-                            step.state == NodeStepState.PENDING ->
-                                Triple(
-                                    "Pending",
-                                    MaterialTheme.colorScheme.surfaceVariant,
-                                    MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            step.state == NodeStepState.SUCCESS ->
-                                Triple(
-                                    "Success",
-                                    MaterialTheme.colorScheme.primaryContainer,
-                                    MaterialTheme.colorScheme.onPrimaryContainer,
-                                )
-                            step.state == NodeStepState.FAILED ->
-                                Triple(
-                                    "Failed",
-                                    MaterialTheme.colorScheme.errorContainer,
-                                    MaterialTheme.colorScheme.onErrorContainer,
-                                )
-                            step.state == NodeStepState.SKIPPED ->
-                                Triple(
-                                    "Skipped",
-                                    MaterialTheme.colorScheme.secondaryContainer,
-                                    MaterialTheme.colorScheme.onSecondaryContainer,
-                                )
-                            else ->
-                                Triple(
-                                    "Pending",
-                                    MaterialTheme.colorScheme.surfaceVariant,
-                                    MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                        }
-
-                    SuggestionChip(
-                        onClick = {},
-                        label = {
-                            Text(
-                                text = statusText,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        },
-                        colors =
-                            SuggestionChipDefaults.suggestionChipColors(
-                                containerColor = statusBg,
-                                labelColor = statusFg,
-                            ),
+                    NodeStepStatusChip(
+                        step = step,
+                        isRetryStep = isRetryStep,
+                        secRemaining = secRemaining,
                     )
                 }
 
@@ -293,54 +238,225 @@ private fun NodeExecutionStepRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
-                if (step.logMessage.isNotBlank()) {
-                    Box(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .background(
-                                    color = MaterialTheme.colorScheme.surfaceContainer,
-                                    shape = RoundedCornerShape(6.dp),
-                                ).clickable { onShowErrorLog(step.logMessage) }
-                                .padding(8.dp),
-                    ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(
-                                text = step.logMessage,
-                                style = MaterialTheme.typography.bodySmall,
-                                fontFamily = FontFamily.Monospace,
-                                maxLines = 3,
-                                overflow = TextOverflow.Ellipsis,
-                                color =
-                                    when {
-                                        step.state == NodeStepState.FAILED -> MaterialTheme.colorScheme.error
-                                        step.state == NodeStepState.EXECUTING -> MaterialTheme.colorScheme.primary
-                                        else -> MaterialTheme.colorScheme.onSurface
-                                    },
-                            )
-                            Text(
-                                text = "Tap to view complete log",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontSize = 10.sp,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                    }
-                }
+                NodeStepTimingRow(step = step)
 
-                if (step.state == NodeStepState.FAILED && onRetryFromNode != null) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Button(
-                        onClick = { onRetryFromNode(step.nodeId) },
-                        modifier = Modifier.align(Alignment.End).height(28.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                    ) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(12.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Retry From This Step", fontSize = 11.sp)
-                    }
+                NodeStepLogBox(step = step, onShowErrorLog = onShowErrorLog)
+
+                NodeStepActionRow(step = step, onRetryFromNode = onRetryFromNode)
+            }
+        }
+    }
+}
+
+@Composable
+private fun NodeStepTimingRow(step: NodeExecutionStep) {
+    val timeStr = WorkflowUiHelper.formatExecutionTime(step.executedAt)
+    val durationStr = WorkflowUiHelper.formatDuration(step.durationMs)
+    if (timeStr.isNotBlank() || durationStr.isNotBlank()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (timeStr.isNotBlank()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Schedule,
+                        contentDescription = null,
+                        modifier = Modifier.size(12.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = timeStr,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
+            }
+            if (durationStr.isNotBlank()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Timer,
+                        contentDescription = null,
+                        modifier = Modifier.size(12.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = durationStr,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NodeStepStatusChip(
+    step: NodeExecutionStep,
+    isRetryStep: Boolean,
+    secRemaining: String?,
+) {
+    val (statusText, statusBg, statusFg) =
+        when {
+            isRetryStep -> {
+                val label = if (secRemaining != null) "Waiting (${secRemaining}s)" else "Waiting"
+                Triple(
+                    label,
+                    MaterialTheme.colorScheme.primaryContainer,
+                    MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
+            step.state == NodeStepState.EXECUTING ->
+                Triple(
+                    "In Progress...",
+                    MaterialTheme.colorScheme.primaryContainer,
+                    MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            step.state == NodeStepState.PENDING ->
+                Triple(
+                    "Pending",
+                    MaterialTheme.colorScheme.surfaceVariant,
+                    MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            step.state == NodeStepState.SUCCESS ->
+                Triple(
+                    "Success",
+                    MaterialTheme.colorScheme.primaryContainer,
+                    MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            step.state == NodeStepState.FAILED ->
+                Triple(
+                    "Failed",
+                    MaterialTheme.colorScheme.errorContainer,
+                    MaterialTheme.colorScheme.onErrorContainer,
+                )
+            step.state == NodeStepState.SKIPPED ->
+                Triple(
+                    "Skipped",
+                    MaterialTheme.colorScheme.secondaryContainer,
+                    MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            else ->
+                Triple(
+                    "Pending",
+                    MaterialTheme.colorScheme.surfaceVariant,
+                    MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+        }
+
+    SuggestionChip(
+        onClick = {},
+        label = {
+            Text(
+                text = statusText,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+            )
+        },
+        colors =
+            SuggestionChipDefaults.suggestionChipColors(
+                containerColor = statusBg,
+                labelColor = statusFg,
+            ),
+    )
+}
+
+@Composable
+private fun NodeStepLogBox(
+    step: NodeExecutionStep,
+    onShowErrorLog: (String) -> Unit,
+) {
+    if (step.logMessage.isNotBlank()) {
+        Box(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .background(
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                        shape = RoundedCornerShape(6.dp),
+                    ).clickable { onShowErrorLog(step.logMessage) }
+                    .padding(8.dp),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = step.logMessage,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                    color =
+                        when {
+                            step.state == NodeStepState.FAILED -> MaterialTheme.colorScheme.error
+                            step.state == NodeStepState.EXECUTING -> MaterialTheme.colorScheme.primary
+                            else -> MaterialTheme.colorScheme.onSurface
+                        },
+                )
+                Text(
+                    text = "Tap to view complete log",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NodeStepActionRow(
+    step: NodeExecutionStep,
+    onRetryFromNode: ((nodeId: String) -> Unit)?,
+) {
+    if (step.state == NodeStepState.FAILED) {
+        if (!step.retriedInExecutionId.isNullOrBlank()) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Surface(
+                modifier = Modifier.padding(top = 4.dp),
+                color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(6.dp),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Replay,
+                        contentDescription = null,
+                        modifier = Modifier.size(12.dp),
+                        tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                    )
+                    Text(
+                        text = "Retried in ${step.retriedInExecutionId}",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    )
+                }
+            }
+        } else if (onRetryFromNode != null) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Button(
+                onClick = { onRetryFromNode(step.nodeId) },
+                modifier = Modifier.height(28.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+            ) {
+                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(12.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Retry From This Step", fontSize = 11.sp)
             }
         }
     }

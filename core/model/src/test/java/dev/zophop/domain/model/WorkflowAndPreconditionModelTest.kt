@@ -17,18 +17,21 @@ class WorkflowAndPreconditionModelTest {
                 name = "Test Workflow",
                 description = "Desc",
                 isEnabled = true,
+                icon = "🚀",
                 nodes = listOf(node1),
                 connections = listOf(conn1),
             )
 
         assertEquals("w_123", workflow.id)
         assertEquals("Test Workflow", workflow.name)
+        assertEquals("🚀", workflow.icon)
         assertTrue(workflow.isEnabled)
         assertEquals(1, workflow.nodes.size)
 
-        val updated = workflow.copy(isEnabled = false, name = "Disabled Workflow")
+        val updated = workflow.copy(isEnabled = false, name = "Disabled Workflow", icon = "⚡")
         assertFalse(updated.isEnabled)
         assertEquals("Disabled Workflow", updated.name)
+        assertEquals("⚡", updated.icon)
         assertEquals(workflow.id, updated.id)
     }
 
@@ -61,11 +64,22 @@ class WorkflowAndPreconditionModelTest {
             Precondition.BatteryCheck(
                 minBatteryPercent = 20,
                 requireCharging = true,
+                icon = "🔋",
             )
         assertEquals(PreconditionType.BATTERY_CHECK, battery.type)
         assertEquals(20, battery.minBatteryPercent)
+        assertEquals("🔋", battery.icon)
         assertTrue(battery.requireCharging)
         assertTrue(battery.isEnabled)
+
+        val chained =
+            Precondition.ChainCheck(
+                name = "Security Vault Guard",
+                icon = "🛡️",
+            )
+        assertEquals("Security Vault Guard", chained.name)
+        assertEquals("🛡️", chained.icon)
+        assertEquals(PreconditionType.CHAINED_CHECK, chained.type)
     }
 
     @Test

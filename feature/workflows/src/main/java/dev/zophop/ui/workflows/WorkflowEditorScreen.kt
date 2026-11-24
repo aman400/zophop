@@ -50,6 +50,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.zophop.core.ui.EditorDarkColorScheme
 import dev.zophop.core.ui.EditorLightColorScheme
+import dev.zophop.core.ui.components.IconPickerModalBottomSheet
+import dev.zophop.core.ui.components.IconSelectorBadge
 import dev.zophop.core.ui.components.InfoTooltipField
 import dev.zophop.data.PreconditionEntity
 import dev.zophop.domain.engine.NodeExecutionStep
@@ -60,7 +62,6 @@ import dev.zophop.domain.model.WorkflowConnection
 import dev.zophop.domain.model.WorkflowNode
 import java.util.UUID
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorkflowEditorScreen(
     workflow: Workflow,
@@ -75,18 +76,19 @@ fun WorkflowEditorScreen(
     onTestRunWorkflowWithProgress: ((Workflow, (List<NodeExecutionStep>) -> Unit, (WorkflowExecutionResult) -> Unit) -> Unit)? = null,
     onCancelWorkflowExecution: ((String) -> Unit)? = null,
     onSaveCredential: ((Credential) -> Unit)? = null,
-    onSavePrecondition: ((PreconditionEntity) -> Unit)? = null,
     onRequestCreatePrecondition: ((onCreated: (PreconditionEntity) -> Unit) -> Unit)? = null,
 ) {
     var name by remember { mutableStateOf(workflow.name) }
     var description by remember { mutableStateOf(workflow.description) }
     var isEnabled by remember { mutableStateOf(workflow.isEnabled) }
+    var icon by remember { mutableStateOf(workflow.icon) }
     var nodes by remember { mutableStateOf(workflow.nodes) }
     var connections by remember { mutableStateOf(workflow.connections) }
 
     var editingNode by remember { mutableStateOf<WorkflowNode?>(null) }
     var pendingDeleteNode by remember { mutableStateOf<WorkflowNode?>(null) }
     var showAddNodeSheet by remember { mutableStateOf(false) }
+    var showIconPicker by remember { mutableStateOf(false) }
     var unsavedNodeIds by remember { mutableStateOf(setOf<String>()) }
     var testSteps by remember { mutableStateOf<List<NodeExecutionStep>>(emptyList()) }
     var showTestStepperSheet by remember { mutableStateOf(false) }
@@ -98,6 +100,7 @@ fun WorkflowEditorScreen(
             name = name,
             description = description,
             isEnabled = isEnabled,
+            icon = icon,
             nodes = nodes,
             connections = connections,
         )
@@ -159,7 +162,6 @@ fun WorkflowEditorScreen(
                             editingNode = null
                         },
                         onSaveCredential = onSaveCredential,
-                        onSavePrecondition = onSavePrecondition,
                         onRequestCreatePrecondition = onRequestCreatePrecondition,
                     )
                 }
@@ -220,14 +222,24 @@ fun WorkflowEditorScreen(
                                 }
 
                                 item {
-                                    InfoTooltipField(
-                                        value = name,
-                                        onValueChange = { name = it },
-                                        label = "Workflow Name",
-                                        tooltipText = "Descriptive name for this automated workflow pipeline.",
+                                    Row(
                                         modifier = Modifier.fillMaxWidth(),
-                                        singleLine = true,
-                                    )
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        IconSelectorBadge(
+                                            selectedIcon = icon,
+                                            onClick = { showIconPicker = true },
+                                        )
+                                        InfoTooltipField(
+                                            value = name,
+                                            onValueChange = { name = it },
+                                            label = "Workflow Name",
+                                            tooltipText = "Descriptive name for this automated workflow pipeline.",
+                                            modifier = Modifier.weight(1f),
+                                            singleLine = true,
+                                        )
+                                    }
                                 }
 
                                 itemsIndexed(nodes, key = { _, node -> node.id }) { index, node ->
@@ -278,6 +290,7 @@ fun WorkflowEditorScreen(
                                             name = name,
                                             description = description,
                                             isEnabled = isEnabled,
+                                            icon = icon,
                                             nodes = nodes,
                                             connections = connections,
                                         )
@@ -296,6 +309,16 @@ fun WorkflowEditorScreen(
                 }
             }
 
+            if (showIconPicker) {
+                IconPickerModalBottomSheet(
+                    selectedIcon = icon,
+                    onIconSelected = { icon = it },
+                    onDismiss = { showIconPicker = false },
+                    title = "Workflow Icon",
+                    subtitle = "Select an icon or emoji for this workflow",
+                )
+            }
+
             if (showTestStepperSheet) {
                 TestRunLogBottomSheet(
                     workflowName = name,
@@ -311,6 +334,7 @@ fun WorkflowEditorScreen(
                     workflow = workflow,
                     currentName = name,
                     currentDescription = description,
+                    currentIcon = icon,
                     currentNodes = nodes,
                     onDismiss = { showSaveConfirmDialog = false },
                     onConfirm = {
@@ -320,6 +344,7 @@ fun WorkflowEditorScreen(
                                 name = name,
                                 description = description,
                                 isEnabled = isEnabled,
+                                icon = icon,
                                 nodes = nodes,
                                 connections = connections,
                                 updatedAt = System.currentTimeMillis(),
@@ -408,12 +433,14 @@ private fun WorkflowSaveConfirmDialog(
     workflow: Workflow,
     currentName: String,
     currentDescription: String,
+    currentIcon: String,
     currentNodes: List<WorkflowNode>,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
     val nameChanged = currentName != workflow.name
     val descChanged = currentDescription != workflow.description
+    val iconChanged = currentIcon != workflow.icon
     val originalNodeIds = workflow.nodes.map { it.id }.toSet()
     val currentNodeIds = currentNodes.map { it.id }.toSet()
     val addedNodeIds = currentNodeIds - originalNodeIds
@@ -437,6 +464,12 @@ private fun WorkflowSaveConfirmDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text("Here is a summary of new changes to be saved:")
+                if (iconChanged) {
+                    Text(
+                        "• Icon: ${if (workflow.icon.isNotBlank()) workflow.icon else "(None)"} → ${if (currentIcon.isNotBlank()) currentIcon else "(None)"}",
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
                 if (nameChanged) {
                     Text("• Name: '${workflow.name}' → '$currentName'", fontWeight = FontWeight.Bold)
                 }
@@ -639,16 +672,30 @@ private fun WorkflowEditingNodeSheet(
     onDismiss: () -> Unit,
     onSave: (WorkflowNode) -> Unit,
     onSaveCredential: ((Credential) -> Unit)?,
-    onSavePrecondition: ((PreconditionEntity) -> Unit)?,
     onRequestCreatePrecondition: ((onCreated: (PreconditionEntity) -> Unit) -> Unit)?,
 ) {
     val availableUpstreamVars =
         remember(node.id, nodes, connections) {
-            dev.zophop.domain.engine.WorkflowVariableResolver.getAvailableUpstreamVariables(
-                targetNodeId = node.id,
-                nodes = nodes,
-                connections = connections,
-            )
+            val vars =
+                dev.zophop.domain.engine.WorkflowVariableResolver.getAvailableUpstreamVariables(
+                    targetNodeId = node.id,
+                    nodes = nodes,
+                    connections = connections,
+                )
+            if (vars.isNotEmpty() || node.type.contains("TRIGGER", ignoreCase = true)) {
+                vars
+            } else {
+                val otherVars =
+                    nodes
+                        .filter { it.id != node.id }
+                        .flatMap { dev.zophop.domain.engine.WorkflowVariableResolver.getNodeOutputVariables(it) }
+                        .distinct()
+                if (otherVars.isNotEmpty()) {
+                    otherVars
+                } else {
+                    listOf("body", "sender", "text", "payload", "code", "http_response", "http_status")
+                }
+            }
         }
 
     NodeConfigBottomSheet(
@@ -663,7 +710,6 @@ private fun WorkflowEditingNodeSheet(
         onDismiss = onDismiss,
         onSave = onSave,
         onSaveCredential = onSaveCredential,
-        onSavePrecondition = onSavePrecondition,
         onRequestCreatePrecondition = onRequestCreatePrecondition,
     )
 }

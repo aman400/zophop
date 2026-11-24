@@ -20,6 +20,7 @@ class EntityMappingAndSerializationTest {
                 name = "Healthcheck Service",
                 type = PreconditionType.HEALTH_CHECK.name,
                 isEnabled = true,
+                icon = "🩺",
                 targetUrl = "https://example.com/health",
                 method = "POST",
                 headers = "Authorization: Bearer token123",
@@ -36,6 +37,7 @@ class EntityMappingAndSerializationTest {
 
         assertEquals("prec_100", healthDomain.id)
         assertEquals(true, healthDomain.isEnabled)
+        assertEquals("🩺", healthDomain.icon)
         assertEquals("https://example.com/health", healthDomain.targetUrl)
         assertEquals("POST", healthDomain.method)
         assertEquals("Authorization: Bearer token123", healthDomain.headers)
@@ -127,6 +129,7 @@ class EntityMappingAndSerializationTest {
                         Precondition.HealthCheck(
                             id = precId,
                             isEnabled = true,
+                            icon = "🩺",
                             targetUrl = "https://api.example.com/health",
                             onFailureAction = "RETRY",
                             maxRetries = 4,
@@ -142,6 +145,7 @@ class EntityMappingAndSerializationTest {
                 name = "Bank Notification Forwarder",
                 description = "Forwards bank SMS to webhook",
                 isEnabled = true,
+                icon = "🏦",
                 nodes = listOf(triggerNode, actionNode),
                 connections =
                     listOf(
@@ -154,6 +158,7 @@ class EntityMappingAndSerializationTest {
 
         assertEquals(workflow.id, deserialized.id)
         assertEquals(workflow.name, deserialized.name)
+        assertEquals(workflow.icon, deserialized.icon)
         assertEquals(2, deserialized.nodes.size)
         assertEquals(1, deserialized.connections.size)
 
@@ -162,6 +167,7 @@ class EntityMappingAndSerializationTest {
 
         val prec = deserializedAction.preconditions[0] as Precondition.HealthCheck
         assertEquals(precId, prec.id)
+        assertEquals("🩺", prec.icon)
         assertEquals("https://api.example.com/health", prec.targetUrl)
         assertEquals("RETRY", prec.onFailureAction)
         assertEquals(4, prec.maxRetries)
@@ -335,5 +341,90 @@ class EntityMappingAndSerializationTest {
         // Case-insensitive trimmed type parsed properly
         assertTrue(node.preconditions[1] is Precondition.InternetCheck)
         assertEquals("QUEUE", node.preconditions[1].onFailureAction)
+    }
+
+    @Test
+    fun testWorkflowSerializationPreservesIconAndSpecialEmojis() {
+        val workflow =
+            Workflow(
+                id = "wf_emoji_1",
+                name = "Complex Emoji Pipeline",
+                icon = "🛠️",
+                nodes =
+                    listOf(
+                        WorkflowNode(
+                            id = "n1",
+                            name = "Manual Trigger",
+                            type = NodeType.MANUAL_TRIGGER,
+                        ),
+                    ),
+            )
+
+        val entity = WorkflowEntity.fromDomain(workflow)
+        assertEquals("🛠️", entity.icon)
+
+        val deserialized = entity.toDomain()
+        assertEquals("🛠️", deserialized.icon)
+        assertEquals(workflow.id, deserialized.id)
+    }
+
+    @Test
+    fun testChainedPreconditionSerializationWithCustomIcon() {
+        val chainCheck =
+            Precondition.ChainCheck(
+                id = "c_check_1",
+                name = "Custom Vault Pipeline",
+                icon = "🛡️",
+                nodes =
+                    listOf(
+                        WorkflowNode(
+                            id = "cn1",
+                            name = "Sub VPN Check",
+                            type = NodeType.VPN_CHECK,
+                        ),
+                    ),
+            )
+
+        val node =
+            WorkflowNode(
+                id = "main_node",
+                name = "Secure Node",
+                type = NodeType.HTTP_ACTION,
+                preconditions = listOf(chainCheck),
+            )
+
+        val workflow =
+            Workflow(
+                id = "wf_chained_icon",
+                name = "Chained Precondition Workflow",
+                icon = "⚡",
+                nodes = listOf(node),
+            )
+
+        val entity = WorkflowEntity.fromDomain(workflow)
+        val deserialized = entity.toDomain()
+
+        assertEquals("⚡", deserialized.icon)
+        val deserializedPrec = deserialized.nodes[0].preconditions[0]
+        assertTrue(deserializedPrec is Precondition.ChainCheck)
+        val chained = deserializedPrec as Precondition.ChainCheck
+        assertEquals("Custom Vault Pipeline", chained.name)
+        assertEquals("🛡️", chained.icon)
+        assertEquals(1, chained.nodes.size)
+        assertEquals("Sub VPN Check", chained.nodes[0].name)
+    }
+
+    @Test
+    fun testLegacyWorkflowEntityWithoutIconDefaultsToEmpty() {
+        val entity =
+            WorkflowEntity(
+                id = "legacy_wf",
+                name = "Legacy Workflow",
+                graphJson = "{}",
+            )
+
+        assertEquals("", entity.icon)
+        val domain = entity.toDomain()
+        assertEquals("", domain.icon)
     }
 }

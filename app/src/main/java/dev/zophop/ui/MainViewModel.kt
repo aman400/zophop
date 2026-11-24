@@ -31,6 +31,7 @@ import dev.zophop.domain.engine.PreconditionResult
 import dev.zophop.domain.engine.WorkflowEngine
 import dev.zophop.domain.engine.WorkflowExecutionResult
 import dev.zophop.domain.engine.toJsonString
+import dev.zophop.domain.engine.toNodeExecutionSteps
 import dev.zophop.domain.model.Credential
 import dev.zophop.domain.model.NodeType
 import dev.zophop.domain.model.Workflow
@@ -544,18 +545,22 @@ class MainViewModel(
         workflow: Workflow,
         onProgressUpdate: (List<NodeExecutionStep>) -> Unit,
         onResult: (WorkflowExecutionResult) -> Unit,
-    ) {
-        retryWorkflowFromFailedNode(workflow, null, onProgressUpdate, onResult)
-    }
+    ): kotlinx.coroutines.Job = retryWorkflowFromFailedNode(workflow, null, null, onProgressUpdate, onResult)
 
     fun retryWorkflowFromFailedNode(
         workflow: Workflow,
         failedNodeId: String?,
+        originalLogId: String? = null,
         onProgressUpdate: (List<NodeExecutionStep>) -> Unit,
         onResult: (WorkflowExecutionResult) -> Unit,
-    ) {
+    ): kotlinx.coroutines.Job {
         val job =
             viewModelScope.launch(Dispatchers.IO) {
+                val newExecutionId = UUID.randomUUID().toString()
+                if (originalLogId != null && failedNodeId != null) {
+                    markNodeAsRetriedInOriginalLog(originalLogId, failedNodeId, newExecutionId)
+                }
+
                 _activeExecutionState.value =
                     ActiveExecutionState(
                         workflowId = workflow.id,
@@ -648,7 +653,7 @@ class MainViewModel(
 
                 val logEntity =
                     WorkflowExecutionLogEntity(
-                        id = UUID.randomUUID().toString(),
+                        id = newExecutionId,
                         workflowId = workflow.id,
                         status =
                             when (result) {
@@ -676,6 +681,25 @@ class MainViewModel(
             }
 
         ExecutionJobRegistry.registerJob(workflow.id, job)
+        return job
+    }
+
+    internal suspend fun markNodeAsRetriedInOriginalLog(
+        originalLogId: String,
+        failedNodeId: String,
+        newExecutionId: String,
+    ) {
+        val originalLog = workflowRepository.getExecutionLogById(originalLogId) ?: return
+        val steps = originalLog.logs.toNodeExecutionSteps() ?: return
+        val updatedSteps =
+            steps.map { step ->
+                if (step.nodeId == failedNodeId) {
+                    step.copy(retriedInExecutionId = newExecutionId)
+                } else {
+                    step
+                }
+            }
+        workflowRepository.saveExecutionLog(originalLog.copy(logs = updatedSteps.toJsonString()))
     }
 
     private fun populateTriggerTestContext(
@@ -721,9 +745,14 @@ class MainViewModel(
             map["body"] = defaultBody
             map["text"] = defaultBody
             map["message"] = defaultBody
+            map["sms_body"] = defaultBody
         }
         if (!map.containsKey("sender")) {
-            map["sender"] = config.optString("testSender", "+15551234567").ifBlank { "+15551234567" }
+            val defaultSender = config.optString("testSender", "+15551234567").ifBlank { "+15551234567" }
+            map["sender"] = defaultSender
+            map["header"] = defaultSender
+            map["sms_header"] = defaultSender
+            map["address"] = defaultSender
         }
     }
 
@@ -868,6 +897,37 @@ class MainViewModel(
         } catch (_: Exception) {
         }
     }
+
+    val backupBridge: dev.zophop.feature.backup.BackupBridge =
+        dev.zophop.bridge.AppBackupBridge(
+            workflowRepository = workflowRepository,
+            credentialRepository = credentialRepository,
+            preconditionRepository = preconditionRepository,
+            currentWorkflows = { workflows.value },
+            currentCredentials = { credentials.value },
+            currentPreconditions = { preconditions.value },
+        )
+
+    val backupService: dev.zophop.feature.backup.BackupService =
+        dev.zophop.feature.backup.DefaultBackupService(backupBridge)
+
+    suspend fun exportBackupJson(options: dev.zophop.feature.backup.ExportOptions): String =
+        backupService.exportBackup(options)
+
+    suspend fun parseImportJson(jsonText: String): dev.zophop.feature.backup.ParsedBackupData =
+        backupService.parseImport(jsonText)
+
+    suspend fun decryptImportData(
+        data: dev.zophop.feature.backup.ParsedBackupData,
+        password: CharSequence,
+    ): dev.zophop.feature.backup.ParsedBackupData =
+        backupService.decryptImport(data, password)
+
+    suspend fun executeImport(
+        data: dev.zophop.feature.backup.ParsedBackupData,
+        strategy: dev.zophop.feature.backup.ImportConflictStrategy,
+    ): dev.zophop.feature.backup.ImportResult =
+        backupService.executeImport(data, strategy)
 
     private fun checkBatteryOptimizedInternal(): Boolean {
         val context = getApplication<Application>()

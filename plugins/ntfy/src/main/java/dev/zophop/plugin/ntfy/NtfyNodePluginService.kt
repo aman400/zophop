@@ -5,6 +5,9 @@ import android.content.Intent
 import android.os.IBinder
 import dev.zophop.plugin.api.ConfigFieldSpec
 import dev.zophop.plugin.api.CredentialSpec
+import dev.zophop.plugin.api.ExecutionContext
+import dev.zophop.plugin.api.HttpCredentialAdapter
+import dev.zophop.plugin.api.HttpHeaderConfigHelper
 import dev.zophop.plugin.api.INodePluginService
 import dev.zophop.plugin.api.NodeCategory
 import dev.zophop.plugin.api.NodeExecutor
@@ -93,6 +96,14 @@ object NtfyPluginModule : NodePluginModule {
                             label = "Topic",
                         ),
                         ConfigFieldSpec.TextField(
+                            key = "token",
+                            label = "Access Token (Optional)",
+                            placeholder = "Leave blank to use credential default",
+                            tooltip = "Override access token. If left blank, token from attached credential is used.",
+                            singleLine = true,
+                            isSecret = true,
+                        ),
+                        ConfigFieldSpec.TextField(
                             key = "title",
                             label = "Title",
                         ),
@@ -131,6 +142,84 @@ object NtfyPluginModule : NodePluginModule {
             typeId == "NTFY_ACTION" || typeId.endsWith(".NTFY_ACTION") -> NtfyActionExecutor(okHttpClient, credentialRepository)
             else -> null
         }
+
+    override fun getHttpCredentialAdapters(): List<HttpCredentialAdapter> =
+        listOf(NtfyHttpCredentialAdapter)
+}
+
+object NtfyHttpCredentialAdapter : HttpCredentialAdapter {
+    override val supportedCredentialType: String = "NTFY_AUTH"
+
+    override fun getSecretHeaderName(dataMap: Map<String, String>): String? =
+        if (!dataMap["token"].isNullOrBlank()) "Authorization" else null
+
+    override fun configureHttpNode(
+        dataMap: Map<String, String>,
+        currentConfig: Map<String, String>,
+    ): Map<String, String> {
+        val result = mutableMapOf<String, String>()
+        val sUrl = dataMap["serverUrl"]?.trim().orEmpty()
+        val topic = dataMap["topic"]?.trim().orEmpty()
+        val token = dataMap["token"]?.trim().orEmpty()
+
+        if (sUrl.isNotBlank()) {
+            val base = sUrl.trimEnd('/')
+            result["url"] = if (topic.isNotBlank()) "$base/${topic.trimStart('/')}" else base
+        } else if (topic.isNotBlank()) {
+            result["url"] = "https://ntfy.sh/${topic.trimStart('/')}"
+        }
+        result["method"] = "POST"
+        if (token.isNotBlank()) {
+            result["headers"] = HttpHeaderConfigHelper.ensureHeaderPresent(currentConfig["headers"], "Authorization")
+        }
+        val currentBody = currentConfig["bodyTemplate"]?.trim().orEmpty()
+        if (currentBody.isBlank() || currentBody == "https://example.com/health") {
+            result["bodyTemplate"] = "\${body}"
+        }
+        return result
+    }
+
+    override fun fillMissingHttpNodeConfig(
+        dataMap: Map<String, String>,
+        currentConfig: Map<String, String>,
+    ): Map<String, String> {
+        val result = mutableMapOf<String, String>()
+        val sUrl = dataMap["serverUrl"]?.trim().orEmpty()
+        val topic = dataMap["topic"]?.trim().orEmpty()
+        val token = dataMap["token"]?.trim().orEmpty()
+
+        val currentUrl = currentConfig["url"]?.trim().orEmpty()
+        if (currentUrl.isBlank() || currentUrl == "https://example.com/health") {
+            if (sUrl.isNotBlank()) {
+                val base = sUrl.trimEnd('/')
+                result["url"] = if (topic.isNotBlank()) "$base/${topic.trimStart('/')}" else base
+            } else if (topic.isNotBlank()) {
+                result["url"] = "https://ntfy.sh/${topic.trimStart('/')}"
+            }
+        }
+        if (currentConfig["method"].isNullOrBlank()) {
+            result["method"] = "POST"
+        }
+        if (token.isNotBlank() && currentConfig["headers"].isNullOrBlank()) {
+            result["headers"] = "Authorization: "
+        }
+        val currentBody = currentConfig["bodyTemplate"]?.trim().orEmpty()
+        if (currentBody.isBlank() || currentBody == "https://example.com/health") {
+            result["bodyTemplate"] = "\${body}"
+        }
+        return result
+    }
+
+    override fun applyToRequest(
+        builder: Request.Builder,
+        dataMap: Map<String, String>,
+        context: ExecutionContext,
+    ) {
+        val token = context.interpolate(dataMap["token"] ?: "").trim()
+        if (token.isNotBlank()) {
+            builder.addHeader("Authorization", "Bearer $token")
+        }
+    }
 }
 
 class NtfyNodePluginService : Service() {

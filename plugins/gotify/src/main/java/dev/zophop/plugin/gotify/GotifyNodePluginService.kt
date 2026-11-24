@@ -5,6 +5,9 @@ import android.content.Intent
 import android.os.IBinder
 import dev.zophop.plugin.api.ConfigFieldSpec
 import dev.zophop.plugin.api.CredentialSpec
+import dev.zophop.plugin.api.ExecutionContext
+import dev.zophop.plugin.api.HttpCredentialAdapter
+import dev.zophop.plugin.api.HttpHeaderConfigHelper
 import dev.zophop.plugin.api.INodePluginService
 import dev.zophop.plugin.api.NodeCategory
 import dev.zophop.plugin.api.NodeExecutor
@@ -73,6 +76,7 @@ object GotifyPluginModule : NodePluginModule {
                                 ConfigFieldSpec.TextField(
                                     key = "appToken",
                                     label = "Gotify Application Token",
+                                    isSecret = true,
                                 ),
                             ),
                     ),
@@ -82,6 +86,14 @@ object GotifyPluginModule : NodePluginModule {
                             key = "serverUrl",
                             label = "Gotify Server URL (Leave blank for credential default)",
                             placeholder = "https://gotify.example.com",
+                        ),
+                        ConfigFieldSpec.TextField(
+                            key = "appToken",
+                            label = "Gotify Application Token (Optional)",
+                            placeholder = "Leave blank to use credential default",
+                            tooltip = "Application token to authenticate with Gotify server",
+                            singleLine = true,
+                            isSecret = true,
                         ),
                         ConfigFieldSpec.TextField(
                             key = "title",
@@ -118,6 +130,75 @@ object GotifyPluginModule : NodePluginModule {
             typeId == "GOTIFY_ACTION" || typeId.endsWith(".GOTIFY_ACTION") -> GotifyActionExecutor(okHttpClient, credentialRepository)
             else -> null
         }
+
+    override fun getHttpCredentialAdapters(): List<HttpCredentialAdapter> =
+        listOf(GotifyHttpCredentialAdapter)
+}
+
+object GotifyHttpCredentialAdapter : HttpCredentialAdapter {
+    override val supportedCredentialType: String = "GOTIFY_AUTH"
+
+    override fun getSecretHeaderName(dataMap: Map<String, String>): String? =
+        if (!dataMap["appToken"].isNullOrBlank()) "X-Gotify-Key" else null
+
+    override fun configureHttpNode(
+        dataMap: Map<String, String>,
+        currentConfig: Map<String, String>,
+    ): Map<String, String> {
+        val result = mutableMapOf<String, String>()
+        val sUrl = dataMap["serverUrl"]?.trim().orEmpty()
+        val appToken = dataMap["appToken"]?.trim().orEmpty()
+
+        if (sUrl.isNotBlank()) {
+            result["url"] = "${sUrl.trimEnd('/')}/message"
+        }
+        result["method"] = "POST"
+        if (appToken.isNotBlank()) {
+            result["headers"] = HttpHeaderConfigHelper.ensureHeaderPresent(currentConfig["headers"], "X-Gotify-Key")
+        }
+        val currentBody = currentConfig["bodyTemplate"]?.trim().orEmpty()
+        if (currentBody.isBlank() || currentBody == "https://example.com/health") {
+            result["bodyTemplate"] = "{\"message\": \"\${body}\", \"title\": \"Notification\"}"
+        }
+        return result
+    }
+
+    override fun fillMissingHttpNodeConfig(
+        dataMap: Map<String, String>,
+        currentConfig: Map<String, String>,
+    ): Map<String, String> {
+        val result = mutableMapOf<String, String>()
+        val sUrl = dataMap["serverUrl"]?.trim().orEmpty()
+        val appToken = dataMap["appToken"]?.trim().orEmpty()
+
+        val currentUrl = currentConfig["url"]?.trim().orEmpty()
+        if (currentUrl.isBlank() || currentUrl == "https://example.com/health") {
+            if (sUrl.isNotBlank()) {
+                result["url"] = "${sUrl.trimEnd('/')}/message"
+            }
+        }
+        if (currentConfig["method"].isNullOrBlank()) {
+            result["method"] = "POST"
+        }
+        if (appToken.isNotBlank() && currentConfig["headers"].isNullOrBlank()) {
+            result["headers"] = "X-Gotify-Key: "
+        }
+        if (currentConfig["bodyTemplate"].isNullOrBlank()) {
+            result["bodyTemplate"] = "{\"message\": \"\${body}\", \"title\": \"Notification\"}"
+        }
+        return result
+    }
+
+    override fun applyToRequest(
+        builder: Request.Builder,
+        dataMap: Map<String, String>,
+        context: ExecutionContext,
+    ) {
+        val appToken = context.interpolate(dataMap["appToken"] ?: "").trim()
+        if (appToken.isNotBlank()) {
+            builder.addHeader("X-Gotify-Key", appToken)
+        }
+    }
 }
 
 class GotifyNodePluginService : Service() {

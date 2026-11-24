@@ -12,6 +12,8 @@ import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.UUID
@@ -303,5 +305,115 @@ class WorkflowEngineTest {
 
             val result = engine.executeWorkflow(workflow, execContext, appContext = null, startNodeId = actionId)
             assertTrue(result is WorkflowExecutionResult.Success)
+        }
+
+    @Test
+    fun testNodeExecutionStepSerializationAndDeserialization() {
+        val steps =
+            listOf(
+                NodeExecutionStep(
+                    nodeId = "node_1",
+                    nodeName = "HTTP Action",
+                    nodeType = NodeType.HTTP_ACTION,
+                    state = NodeStepState.SUCCESS,
+                    errorReason = null,
+                    executedAt = 1700000000000L,
+                    durationMs = 42L,
+                    retriedInExecutionId = "exec_retry_123",
+                ),
+                NodeExecutionStep(
+                    nodeId = "node_2",
+                    nodeName = "ntfy Target",
+                    nodeType = NodeType.NTFY_ACTION,
+                    state = NodeStepState.FAILED,
+                    errorReason = "Timeout",
+                    executedAt = 1700000000050L,
+                    durationMs = 1250L,
+                    retriedInExecutionId = null,
+                ),
+            )
+
+        val json = steps.toJsonString()
+        val deserialized = json.toNodeExecutionSteps()
+
+        assertNotNull(deserialized)
+        assertEquals(2, deserialized?.size)
+        assertEquals("node_1", deserialized?.get(0)?.nodeId)
+        assertEquals(1700000000000L, deserialized?.get(0)?.executedAt)
+        assertEquals(42L, deserialized?.get(0)?.durationMs)
+        assertEquals("exec_retry_123", deserialized?.get(0)?.retriedInExecutionId)
+
+        assertEquals("node_2", deserialized?.get(1)?.nodeId)
+        assertEquals(1700000000050L, deserialized?.get(1)?.executedAt)
+        assertEquals(1250L, deserialized?.get(1)?.durationMs)
+        assertNull(deserialized?.get(1)?.retriedInExecutionId)
+    }
+
+    @Test
+    fun testWorkflowExecutionPopulatesTimestampsAndDurations() =
+        runTest {
+            val okHttpClient =
+                OkHttpClient
+                    .Builder()
+                    .addInterceptor { chain ->
+                        Response
+                            .Builder()
+                            .request(chain.request())
+                            .protocol(Protocol.HTTP_1_1)
+                            .code(200)
+                            .message("OK")
+                            .body("ok".toResponseBody())
+                            .build()
+                    }.build()
+
+            val evaluator = PreconditionEvaluator(context = null, okHttpClient = okHttpClient)
+            val engine =
+                WorkflowEngine(
+                    preconditionEvaluator = evaluator,
+                    credentialRepository = null,
+                    executorFactory = NodeExecutorFactory(okHttpClient),
+                )
+
+            val triggerId = UUID.randomUUID().toString()
+            val actionId = UUID.randomUUID().toString()
+
+            val triggerNode =
+                WorkflowNode(
+                    id = triggerId,
+                    name = "SMS Trigger",
+                    type = NodeType.SMS_TRIGGER,
+                )
+
+            val actionNode =
+                WorkflowNode(
+                    id = actionId,
+                    name = "ntfy Target Action",
+                    type = NodeType.NTFY_ACTION,
+                    configJson = "{\"serverUrl\":\"https://ntfy.sh\",\"topic\":\"test-topic\"}",
+                )
+
+            val workflow =
+                Workflow(
+                    id = "w_timed",
+                    name = "Timed Test Workflow",
+                    isEnabled = true,
+                    nodes = listOf(triggerNode, actionNode),
+                    connections = listOf(WorkflowConnection(fromNodeId = triggerId, toNodeId = actionId)),
+                )
+
+            val execContext =
+                ExecutionContext(
+                    mapOf("sender" to "Sender", "body" to "Body"),
+                )
+
+            val result = engine.executeWorkflow(workflow, execContext, appContext = null)
+            assertTrue(result is WorkflowExecutionResult.Success)
+            assertEquals(2, result.steps.size)
+            result.steps.forEach { step ->
+                assertNotNull(step.executedAt)
+                assertTrue((step.executedAt ?: 0L) > 0L)
+                assertNotNull(step.durationMs)
+                assertTrue((step.durationMs ?: -1L) >= 0L)
+            }
         }
 }
