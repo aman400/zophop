@@ -1,5 +1,6 @@
 package dev.zophop.domain.model
 
+import kotlinx.serialization.Serializable
 import java.util.UUID
 
 object NodeType {
@@ -35,6 +36,7 @@ object NodeType {
     const val ANSWER_CALL_ACTION = "ANSWER_CALL_ACTION"
 }
 
+@Serializable
 data class WorkflowNode(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
@@ -44,6 +46,7 @@ data class WorkflowNode(
     val preconditions: List<Precondition> = emptyList(),
 )
 
+@Serializable
 data class WorkflowConnection(
     val fromNodeId: String,
     val toNodeId: String,
@@ -51,6 +54,13 @@ data class WorkflowConnection(
     val inputPort: String = "main",
 )
 
+@Serializable
+data class WorkflowGraph(
+    val nodes: List<WorkflowNode> = emptyList(),
+    val connections: List<WorkflowConnection> = emptyList(),
+)
+
+@Serializable
 data class Workflow(
     val id: String = UUID.randomUUID().toString(),
     val name: String,

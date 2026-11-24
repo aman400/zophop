@@ -1,5 +1,10 @@
 package dev.zophop.domain.model
 
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
+
+@Serializable
 enum class PreconditionType {
     INTERNET_CHECK,
     VPN_CHECK,
@@ -60,64 +65,56 @@ fun calculateRetryDelaySeconds(
     }
 }
 
-sealed class Precondition(
-    val type: PreconditionType,
-    open val id: String = "",
-    open val isEnabled: Boolean = true,
-    open val onFailureAction: String = PreconditionFailurePolicy.FAIL_IMMEDIATELY, // "FAIL_IMMEDIATELY", "RETRY", or "QUEUE"
-    open val maxRetries: Int = 3,
-    open val retryIntervalSeconds: Int = 30,
-    open val retryStrategy: String = RetryStrategy.FIXED, // "FIXED", "EXPONENTIAL", or "RANDOMIZED"
-    open val queueTimeoutMinutes: Int = 10,
-    open val showNotificationOnFailure: Boolean = false,
-) {
+@Serializable
+sealed class Precondition {
+    abstract val type: PreconditionType
+    abstract val id: String
+    abstract val isEnabled: Boolean
+    abstract val onFailureAction: String
+    abstract val maxRetries: Int
+    abstract val retryIntervalSeconds: Int
+    abstract val retryStrategy: String
+    abstract val queueTimeoutMinutes: Int
+    abstract val showNotificationOnFailure: Boolean
     open val name: String get() = ""
     open val icon: String get() = ""
 
+    @Serializable
+    @SerialName("INTERNET_CHECK")
     data class InternetCheck(
         override val id: String = "",
         override val isEnabled: Boolean = true,
         override val icon: String = "",
-        override val onFailureAction: String = "FAIL_IMMEDIATELY",
+        override val onFailureAction: String = PreconditionFailurePolicy.FAIL_IMMEDIATELY,
         override val maxRetries: Int = 3,
         override val retryIntervalSeconds: Int = 30,
         override val retryStrategy: String = RetryStrategy.FIXED,
         override val queueTimeoutMinutes: Int = 10,
         override val showNotificationOnFailure: Boolean = false,
-    ) : Precondition(
-            PreconditionType.INTERNET_CHECK,
-            id,
-            isEnabled,
-            onFailureAction,
-            maxRetries,
-            retryIntervalSeconds,
-            retryStrategy,
-            queueTimeoutMinutes,
-            showNotificationOnFailure,
-        )
+    ) : Precondition() {
+        @Transient
+        override val type: PreconditionType = PreconditionType.INTERNET_CHECK
+    }
 
+    @Serializable
+    @SerialName("VPN_CHECK")
     data class VpnCheck(
         override val id: String = "",
         override val isEnabled: Boolean = true,
         override val icon: String = "",
-        override val onFailureAction: String = "FAIL_IMMEDIATELY",
+        override val onFailureAction: String = PreconditionFailurePolicy.FAIL_IMMEDIATELY,
         override val maxRetries: Int = 3,
         override val retryIntervalSeconds: Int = 30,
         override val retryStrategy: String = RetryStrategy.FIXED,
         override val queueTimeoutMinutes: Int = 10,
         override val showNotificationOnFailure: Boolean = false,
-    ) : Precondition(
-            PreconditionType.VPN_CHECK,
-            id,
-            isEnabled,
-            onFailureAction,
-            maxRetries,
-            retryIntervalSeconds,
-            retryStrategy,
-            queueTimeoutMinutes,
-            showNotificationOnFailure,
-        )
+    ) : Precondition() {
+        @Transient
+        override val type: PreconditionType = PreconditionType.VPN_CHECK
+    }
 
+    @Serializable
+    @SerialName("HEALTH_CHECK")
     data class HealthCheck(
         override val id: String = "",
         override val isEnabled: Boolean = true,
@@ -126,95 +123,75 @@ sealed class Precondition(
         val method: String = "GET",
         val headers: String = "",
         val expectedStatus: Int = 200,
-        override val onFailureAction: String = "FAIL_IMMEDIATELY",
+        override val onFailureAction: String = PreconditionFailurePolicy.FAIL_IMMEDIATELY,
         override val maxRetries: Int = 3,
         override val retryIntervalSeconds: Int = 30,
         override val retryStrategy: String = RetryStrategy.FIXED,
         override val queueTimeoutMinutes: Int = 10,
         override val showNotificationOnFailure: Boolean = false,
-    ) : Precondition(
-            PreconditionType.HEALTH_CHECK,
-            id,
-            isEnabled,
-            onFailureAction,
-            maxRetries,
-            retryIntervalSeconds,
-            retryStrategy,
-            queueTimeoutMinutes,
-            showNotificationOnFailure,
-        )
+    ) : Precondition() {
+        @Transient
+        override val type: PreconditionType = PreconditionType.HEALTH_CHECK
+    }
 
+    @Serializable
+    @SerialName("SIM_CHECK")
     data class SimCheck(
         override val id: String = "",
         override val isEnabled: Boolean = true,
         override val icon: String = "",
         val requiredCarrier: String = "",
         val requiredSlot: Int = -1,
-        override val onFailureAction: String = "FAIL_IMMEDIATELY",
+        override val onFailureAction: String = PreconditionFailurePolicy.FAIL_IMMEDIATELY,
         override val maxRetries: Int = 3,
         override val retryIntervalSeconds: Int = 30,
         override val retryStrategy: String = RetryStrategy.FIXED,
         override val queueTimeoutMinutes: Int = 10,
         override val showNotificationOnFailure: Boolean = false,
-    ) : Precondition(
-            PreconditionType.SIM_CHECK,
-            id,
-            isEnabled,
-            onFailureAction,
-            maxRetries,
-            retryIntervalSeconds,
-            retryStrategy,
-            queueTimeoutMinutes,
-            showNotificationOnFailure,
-        )
+    ) : Precondition() {
+        @Transient
+        override val type: PreconditionType = PreconditionType.SIM_CHECK
+    }
 
+    @Serializable
+    @SerialName("GPS_CHECK")
     data class GpsCheck(
         override val id: String = "",
         override val isEnabled: Boolean = true,
         override val icon: String = "",
         val requireGpsEnabled: Boolean = true,
-        override val onFailureAction: String = "FAIL_IMMEDIATELY",
+        override val onFailureAction: String = PreconditionFailurePolicy.FAIL_IMMEDIATELY,
         override val maxRetries: Int = 3,
         override val retryIntervalSeconds: Int = 30,
         override val retryStrategy: String = RetryStrategy.FIXED,
         override val queueTimeoutMinutes: Int = 10,
         override val showNotificationOnFailure: Boolean = false,
-    ) : Precondition(
-            PreconditionType.GPS_CHECK,
-            id,
-            isEnabled,
-            onFailureAction,
-            maxRetries,
-            retryIntervalSeconds,
-            retryStrategy,
-            queueTimeoutMinutes,
-            showNotificationOnFailure,
-        )
+    ) : Precondition() {
+        @Transient
+        override val type: PreconditionType = PreconditionType.GPS_CHECK
+    }
 
+    @Serializable
+    @SerialName("BATTERY_CHECK")
     data class BatteryCheck(
         override val id: String = "",
         override val isEnabled: Boolean = true,
         override val icon: String = "",
         val minBatteryPercent: Int = 15,
         val requireCharging: Boolean = false,
-        override val onFailureAction: String = "FAIL_IMMEDIATELY",
+        override val onFailureAction: String = PreconditionFailurePolicy.FAIL_IMMEDIATELY,
         override val maxRetries: Int = 3,
         override val retryIntervalSeconds: Int = 30,
         override val retryStrategy: String = RetryStrategy.FIXED,
         override val queueTimeoutMinutes: Int = 10,
         override val showNotificationOnFailure: Boolean = false,
-    ) : Precondition(
-            PreconditionType.BATTERY_CHECK,
-            id,
-            isEnabled,
-            onFailureAction,
-            maxRetries,
-            retryIntervalSeconds,
-            retryStrategy,
-            queueTimeoutMinutes,
-            showNotificationOnFailure,
-        )
+    ) : Precondition() {
+        @Transient
+        override val type: PreconditionType = PreconditionType.BATTERY_CHECK
+    }
 
+    @Serializable
+    @SerialName("CHAINED_CHECK")
     data class ChainCheck(
         override val id: String = "",
         override val name: String = "",
@@ -222,21 +199,14 @@ sealed class Precondition(
         override val icon: String = "",
         val nodes: List<WorkflowNode> = emptyList(),
         val connections: List<WorkflowConnection> = emptyList(),
-        override val onFailureAction: String = "FAIL_IMMEDIATELY",
+        override val onFailureAction: String = PreconditionFailurePolicy.FAIL_IMMEDIATELY,
         override val maxRetries: Int = 3,
         override val retryIntervalSeconds: Int = 30,
         override val retryStrategy: String = RetryStrategy.FIXED,
         override val queueTimeoutMinutes: Int = 10,
         override val showNotificationOnFailure: Boolean = false,
-    ) : Precondition(
-            PreconditionType.CHAINED_CHECK,
-            id,
-            isEnabled,
-            onFailureAction,
-            maxRetries,
-            retryIntervalSeconds,
-            retryStrategy,
-            queueTimeoutMinutes,
-            showNotificationOnFailure,
-        )
+    ) : Precondition() {
+        @Transient
+        override val type: PreconditionType = PreconditionType.CHAINED_CHECK
+    }
 }

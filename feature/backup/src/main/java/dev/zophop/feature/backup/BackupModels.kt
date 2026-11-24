@@ -3,12 +3,25 @@ package dev.zophop.feature.backup
 import dev.zophop.data.PreconditionEntity
 import dev.zophop.domain.model.Credential
 import dev.zophop.domain.model.Workflow
+import kotlinx.serialization.Serializable
 
 enum class ImportConflictStrategy {
     OVERWRITE,
     KEEP_BOTH,
     SKIP_EXISTING,
 }
+
+@Serializable
+data class BackupBundle(
+    val version: Int = 1,
+    val type: String = "ZOPHOP_BACKUP",
+    val exportedAt: Long = 0L,
+    val isEncrypted: Boolean = false,
+    val verificationToken: String? = null,
+    val workflows: List<Workflow> = emptyList(),
+    val credentials: List<Credential> = emptyList(),
+    val preconditions: List<PreconditionEntity> = emptyList(),
+)
 
 data class ParsedBackupData(
     val workflows: List<Workflow> = emptyList(),

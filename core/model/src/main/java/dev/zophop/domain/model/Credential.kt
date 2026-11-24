@@ -1,5 +1,8 @@
 package dev.zophop.domain.model
 
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonNames
 import java.util.UUID
 
 object CredentialType {
@@ -25,10 +28,13 @@ object CredentialType {
     }
 }
 
+@Serializable
 data class Credential(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
     val type: String,
+    @OptIn(ExperimentalSerializationApi::class)
+    @JsonNames("data", "dataJson")
     val dataMap: Map<String, String> = emptyMap(),
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),

@@ -9,6 +9,7 @@ import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import dev.zophop.data.CredentialRepository
+import dev.zophop.domain.model.AppJson
 import dev.zophop.domain.model.Workflow
 import dev.zophop.domain.model.WorkflowNode
 import dev.zophop.plugin.api.ExecutionContext
@@ -19,9 +20,8 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONException
-import org.json.JSONObject
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 import kotlin.time.Duration.Companion.milliseconds
 
 private const val TAG = "WorkflowEngine"
@@ -60,6 +60,7 @@ sealed class WorkflowExecutionResult {
     ) : WorkflowExecutionResult()
 }
 
+@Serializable
 enum class NodeStepState {
     PENDING,
     EXECUTING,
@@ -68,6 +69,7 @@ enum class NodeStepState {
     SKIPPED,
 }
 
+@Serializable
 data class NodeExecutionStep(
     val nodeId: String,
     val nodeName: String,
@@ -80,57 +82,14 @@ data class NodeExecutionStep(
     val retriedInExecutionId: String? = null,
 )
 
-fun List<NodeExecutionStep>.toJsonString(): String {
-    val arr = JSONArray()
-    for (step in this) {
-        val obj = JSONObject()
-        obj.put("nodeId", step.nodeId)
-        obj.put("nodeName", step.nodeName)
-        obj.put("nodeType", step.nodeType)
-        obj.put("state", step.state.name)
-        obj.put("logMessage", step.logMessage)
-        if (step.errorReason != null) {
-            obj.put("errorReason", step.errorReason)
-        }
-        if (step.executedAt != null) {
-            obj.put("executedAt", step.executedAt)
-        }
-        if (step.durationMs != null) {
-            obj.put("durationMs", step.durationMs)
-        }
-        if (step.retriedInExecutionId != null) {
-            obj.put("retriedInExecutionId", step.retriedInExecutionId)
-        }
-        arr.put(obj)
-    }
-    return arr.toString()
-}
+fun List<NodeExecutionStep>.toJsonString(): String = AppJson.encodeToString(this)
 
 fun String.toNodeExecutionSteps(): List<NodeExecutionStep>? {
-    if (!this.startsWith("[")) return null
+    val trimmed = this.trim()
+    if (!trimmed.startsWith("[")) return null
     return try {
-        val arr = JSONArray(this)
-        val list = mutableListOf<NodeExecutionStep>()
-        for (i in 0 until arr.length()) {
-            val obj = arr.getJSONObject(i)
-            list.add(
-                NodeExecutionStep(
-                    nodeId = obj.getString("nodeId"),
-                    nodeName = obj.getString("nodeName"),
-                    nodeType = obj.getString("nodeType"),
-                    state = NodeStepState.valueOf(obj.getString("state")),
-                    logMessage = obj.optString("logMessage", ""),
-                    errorReason = if (obj.has("errorReason")) obj.getString("errorReason") else null,
-                    executedAt = if (obj.has("executedAt")) obj.optLong("executedAt") else null,
-                    durationMs = if (obj.has("durationMs")) obj.optLong("durationMs") else null,
-                    retriedInExecutionId = if (obj.has("retriedInExecutionId")) obj.optString("retriedInExecutionId") else null,
-                ),
-            )
-        }
-        list
-    } catch (_: JSONException) {
-        null
-    } catch (_: IllegalArgumentException) {
+        AppJson.decodeFromString<List<NodeExecutionStep>>(trimmed)
+    } catch (_: Exception) {
         null
     }
 }

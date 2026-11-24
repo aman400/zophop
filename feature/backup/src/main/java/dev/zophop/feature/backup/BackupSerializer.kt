@@ -2,6 +2,7 @@ package dev.zophop.feature.backup
 
 import dev.zophop.data.DatabaseEncryption
 import dev.zophop.data.PreconditionEntity
+import dev.zophop.domain.model.AppJson
 import dev.zophop.domain.model.Credential
 import dev.zophop.domain.model.CredentialType
 import dev.zophop.domain.model.Precondition
@@ -9,6 +10,7 @@ import dev.zophop.domain.model.PreconditionType
 import dev.zophop.domain.model.Workflow
 import dev.zophop.domain.model.WorkflowConnection
 import dev.zophop.domain.model.WorkflowNode
+import kotlinx.serialization.encodeToString
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.GeneralSecurityException
@@ -30,32 +32,80 @@ object BackupSerializer {
         password: String? = null,
         decryptLocalStorageValue: (String) -> String = { DatabaseEncryption.decrypt(it) },
     ): String {
-        val root = JSONObject()
         val hasPassword = !password.isNullOrBlank()
+        val verificationToken =
+            if (hasPassword) {
+                PasswordBasedEncryption.encrypt(VERIFICATION_SENTINEL, password)
+            } else {
+                null
+            }
 
-        root.put("version", CURRENT_VERSION)
-        root.put("type", BACKUP_TYPE)
-        root.put("exportedAt", System.currentTimeMillis())
-        root.put("isEncrypted", hasPassword)
+        val processedWorkflows =
+            workflows.map { wf ->
+                wf.copy(
+                    nodes =
+                        wf.nodes.map { node ->
+                            val rawConfig =
+                                if (DatabaseEncryption.isEncrypted(node.configJson)) {
+                                    DatabaseEncryption.decryptNodeConfig(node.configJson)
+                                } else {
+                                    node.configJson
+                                }
+                            val config =
+                                if (!password.isNullOrBlank()) {
+                                    encryptSensitiveJsonKeys(rawConfig, password)
+                                } else {
+                                    rawConfig
+                                }
+                            node.copy(configJson = config)
+                        },
+                )
+            }
 
-        if (hasPassword) {
-            val token = PasswordBasedEncryption.encrypt(VERIFICATION_SENTINEL, password)
-            root.put("verificationToken", token)
-        }
+        val processedCredentials =
+            credentials.map { cred ->
+                val dataMap =
+                    cred.dataMap.mapValues { (k, v) ->
+                        val cleanVal = decryptLocalStorageValue(v)
+                        if (!password.isNullOrBlank() && DatabaseEncryption.isSensitiveKey(k) && cleanVal.isNotBlank()) {
+                            PasswordBasedEncryption.encrypt(cleanVal, password)
+                        } else {
+                            cleanVal
+                        }
+                    }
+                cred.copy(dataMap = dataMap)
+            }
 
-        val wfArr = JSONArray()
-        workflows.forEach { wfArr.put(serializeWorkflow(it, password)) }
-        root.put("workflows", wfArr)
+        val processedPreconditions =
+            preconditions.map { prec ->
+                val headers =
+                    if (!password.isNullOrBlank()) {
+                        encryptSensitiveJsonKeys(prec.headers, password)
+                    } else {
+                        prec.headers
+                    }
+                val pipeline =
+                    if (!password.isNullOrBlank()) {
+                        encryptSensitiveJsonKeys(prec.pipelineJson, password)
+                    } else {
+                        prec.pipelineJson
+                    }
+                prec.copy(headers = headers, pipelineJson = pipeline)
+            }
 
-        val credArr = JSONArray()
-        credentials.forEach { credArr.put(serializeCredential(it, password, decryptLocalStorageValue)) }
-        root.put("credentials", credArr)
+        val bundle =
+            BackupBundle(
+                version = CURRENT_VERSION,
+                type = BACKUP_TYPE,
+                exportedAt = System.currentTimeMillis(),
+                isEncrypted = hasPassword,
+                verificationToken = verificationToken,
+                workflows = processedWorkflows,
+                credentials = processedCredentials,
+                preconditions = processedPreconditions,
+            )
 
-        val precArr = JSONArray()
-        preconditions.forEach { precArr.put(serializePreconditionEntity(it, password)) }
-        root.put("preconditions", precArr)
-
-        return root.toString(2)
+        return AppJson.encodeToString(bundle)
     }
 
     /**
@@ -127,6 +177,25 @@ object BackupSerializer {
         obj.has("type") && (obj.has("onFailureAction") || obj.has("targetUrl") || obj.has("minBatteryPercent"))
 
     private fun parseBundle(obj: JSONObject): ParsedBackupData {
+        try {
+            val bundle = AppJson.decodeFromString<BackupBundle>(obj.toString())
+            val hasEncryptedItems =
+                bundle.isEncrypted ||
+                    bundle.verificationToken != null ||
+                    bundle.credentials.any { it.dataMap.values.any { v -> PasswordBasedEncryption.isEncryptedWithPassword(v) } } ||
+                    bundle.workflows.any { it.nodes.any { n -> n.configJson.contains(PasswordBasedEncryption.PREFIX) } } ||
+                    bundle.preconditions.any { it.headers.contains(PasswordBasedEncryption.PREFIX) || it.pipelineJson.contains(PasswordBasedEncryption.PREFIX) }
+
+            return ParsedBackupData(
+                workflows = bundle.workflows,
+                credentials = bundle.credentials,
+                preconditions = bundle.preconditions,
+                isEncrypted = hasEncryptedItems,
+                verificationToken = bundle.verificationToken,
+            )
+        } catch (_: Exception) {
+        }
+
         val verificationToken = obj.optString("verificationToken").takeIf { it.isNotBlank() }
         val isEncryptedFlag = obj.optBoolean("isEncrypted", false)
 
@@ -360,165 +429,6 @@ object BackupSerializer {
             preconditions = remappedPrecs,
         )
     }
-
-    // --- Serialization Helpers ---
-
-    private fun serializeWorkflow(workflow: Workflow, password: String?): JSONObject =
-        JSONObject().apply {
-            put("id", workflow.id)
-            put("name", workflow.name)
-            put("description", workflow.description)
-            put("isEnabled", workflow.isEnabled)
-            put("icon", workflow.icon)
-            put("createdAt", workflow.createdAt)
-            put("updatedAt", workflow.updatedAt)
-
-            val nodesArr = JSONArray()
-            for (node in workflow.nodes) {
-                nodesArr.put(serializeNode(node, password))
-            }
-            put("nodes", nodesArr)
-
-            val connArr = JSONArray()
-            for (conn in workflow.connections) {
-                connArr.put(
-                    JSONObject().apply {
-                        put("fromNodeId", conn.fromNodeId)
-                        put("toNodeId", conn.toNodeId)
-                        put("outputPort", conn.outputPort)
-                        put("inputPort", conn.inputPort)
-                    },
-                )
-            }
-            put("connections", connArr)
-        }
-
-    private fun serializeNode(node: WorkflowNode, password: String?): JSONObject =
-        JSONObject().apply {
-            put("id", node.id)
-            put("name", node.name)
-            put("type", node.type)
-            put("isEnabled", node.isEnabled)
-            val rawConfig = if (DatabaseEncryption.isEncrypted(node.configJson)) {
-                DatabaseEncryption.decryptNodeConfig(node.configJson)
-            } else {
-                node.configJson
-            }
-            val config = if (!password.isNullOrBlank()) {
-                encryptSensitiveJsonKeys(rawConfig, password)
-            } else {
-                rawConfig
-            }
-            put("configJson", config)
-
-            val preArr = JSONArray()
-            for (prec in node.preconditions) {
-                preArr.put(serializePrecondition(prec))
-            }
-            put("preconditions", preArr)
-        }
-
-    private fun serializePrecondition(prec: Precondition): JSONObject =
-        JSONObject().apply {
-            put("id", prec.id)
-            put("type", prec.type.name)
-            put("icon", prec.icon)
-            put("onFailureAction", prec.onFailureAction)
-            put("maxRetries", prec.maxRetries)
-            put("retryIntervalSeconds", prec.retryIntervalSeconds)
-            put("retryStrategy", prec.retryStrategy)
-            put("queueTimeoutMinutes", prec.queueTimeoutMinutes)
-            put("showNotificationOnFailure", prec.showNotificationOnFailure)
-            when (prec) {
-                is Precondition.InternetCheck -> put("isEnabled", prec.isEnabled)
-                is Precondition.VpnCheck -> put("isEnabled", prec.isEnabled)
-                is Precondition.HealthCheck -> {
-                    put("isEnabled", prec.isEnabled)
-                    put("targetUrl", prec.targetUrl)
-                    put("method", prec.method)
-                    put("headers", prec.headers)
-                    put("expectedStatus", prec.expectedStatus)
-                }
-                is Precondition.SimCheck -> {
-                    put("isEnabled", prec.isEnabled)
-                    put("requiredCarrier", prec.requiredCarrier)
-                    put("requiredSlot", prec.requiredSlot)
-                }
-                is Precondition.GpsCheck -> {
-                    put("isEnabled", prec.isEnabled)
-                    put("requireGpsEnabled", prec.requireGpsEnabled)
-                }
-                is Precondition.BatteryCheck -> {
-                    put("isEnabled", prec.isEnabled)
-                    put("minBatteryPercent", prec.minBatteryPercent)
-                    put("requireCharging", prec.requireCharging)
-                }
-                is Precondition.ChainCheck -> {
-                    put("name", prec.name)
-                    put("isEnabled", prec.isEnabled)
-                }
-            }
-        }
-
-    private fun serializeCredential(
-        credential: Credential,
-        password: String?,
-        decryptLocalStorageValue: (String) -> String = { DatabaseEncryption.decrypt(it) },
-    ): JSONObject =
-        JSONObject().apply {
-            put("id", credential.id)
-            put("name", credential.name)
-            put("type", credential.type)
-            put("createdAt", credential.createdAt)
-            put("updatedAt", credential.updatedAt)
-
-            val dataObj = JSONObject()
-            for ((k, v) in credential.dataMap) {
-                val cleanVal = decryptLocalStorageValue(v)
-                if (!password.isNullOrBlank() && DatabaseEncryption.isSensitiveKey(k) && cleanVal.isNotBlank()) {
-                    dataObj.put(k, PasswordBasedEncryption.encrypt(cleanVal, password))
-                } else {
-                    dataObj.put(k, cleanVal)
-                }
-            }
-            put("data", dataObj)
-        }
-
-    private fun serializePreconditionEntity(prec: PreconditionEntity, password: String?): JSONObject =
-        JSONObject().apply {
-            put("id", prec.id)
-            put("name", prec.name)
-            put("type", prec.type)
-            put("isEnabled", prec.isEnabled)
-            put("icon", prec.icon)
-            put("targetUrl", prec.targetUrl)
-            put("method", prec.method)
-            val headers = if (!password.isNullOrBlank()) {
-                encryptSensitiveJsonKeys(prec.headers, password)
-            } else {
-                prec.headers
-            }
-            put("headers", headers)
-            put("expectedStatus", prec.expectedStatus)
-            put("requiredCarrier", prec.requiredCarrier)
-            put("requiredPermission", prec.requiredPermission)
-            put("credentialId", prec.credentialId)
-            val pipeline = if (!password.isNullOrBlank()) {
-                encryptSensitiveJsonKeys(prec.pipelineJson, password)
-            } else {
-                prec.pipelineJson
-            }
-            put("pipelineJson", pipeline)
-            put("minBatteryPercent", prec.minBatteryPercent)
-            put("requireCharging", prec.requireCharging)
-            put("onFailureAction", prec.onFailureAction)
-            put("maxRetries", prec.maxRetries)
-            put("retryIntervalSeconds", prec.retryIntervalSeconds)
-            put("retryStrategy", prec.retryStrategy)
-            put("queueTimeoutMinutes", prec.queueTimeoutMinutes)
-            put("showNotificationOnFailure", prec.showNotificationOnFailure)
-            put("updatedAt", prec.updatedAt)
-        }
 
     // --- Deserialization Helpers ---
 

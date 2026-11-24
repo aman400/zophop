@@ -2,13 +2,17 @@ package dev.zophop.data
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import dev.zophop.domain.model.AppJson
 import dev.zophop.domain.model.Precondition
 import dev.zophop.domain.model.PreconditionType
 import dev.zophop.domain.model.WorkflowConnection
+import dev.zophop.domain.model.WorkflowGraph
 import dev.zophop.domain.model.WorkflowNode
+import kotlinx.serialization.Serializable
 import org.json.JSONArray
 import org.json.JSONObject
 
+@Serializable
 @Entity(tableName = "preconditions")
 data class PreconditionEntity(
     @PrimaryKey
@@ -119,35 +123,20 @@ fun PreconditionEntity.toDomain(): Precondition =
                 showNotificationOnFailure = showNotificationOnFailure,
             )
         PreconditionType.CHAINED_CHECK.name -> {
-            val nodesList = mutableListOf<WorkflowNode>()
-            val connectionsList = mutableListOf<WorkflowConnection>()
-            try {
-                val json = JSONObject(pipelineJson.ifBlank { "{}" })
-                val nodesArr = json.optJSONArray("nodes") ?: JSONArray()
-                for (i in 0 until nodesArr.length()) {
-                    val nodeObj = nodesArr.getJSONObject(i)
-                    nodesList.add(
-                        WorkflowNode(
-                            id = nodeObj.getString("id"),
-                            name = nodeObj.getString("name"),
-                            type = nodeObj.getString("type"),
-                            isEnabled = nodeObj.optBoolean("isEnabled", true),
-                            configJson = DatabaseEncryption.decryptNodeConfig(nodeObj.optString("configJson", "{}")),
-                        ),
-                    )
+            var nodesList: List<WorkflowNode> = emptyList()
+            var connectionsList: List<WorkflowConnection> = emptyList()
+            if (pipelineJson.isNotBlank()) {
+                try {
+                    val graph = AppJson.decodeFromString<WorkflowGraph>(pipelineJson)
+                    nodesList = graph.nodes.map { node ->
+                        node.copy(configJson = DatabaseEncryption.decryptNodeConfig(node.configJson))
+                    }
+                    connectionsList = graph.connections
+                } catch (_: Exception) {
+                    val legacy = parseLegacyPipeline(pipelineJson)
+                    nodesList = legacy.first
+                    connectionsList = legacy.second
                 }
-                val connArr = json.optJSONArray("connections") ?: JSONArray()
-                for (i in 0 until connArr.length()) {
-                    val connObj = connArr.getJSONObject(i)
-                    connectionsList.add(
-                        WorkflowConnection(
-                            fromNodeId = connObj.getString("fromNodeId"),
-                            toNodeId = connObj.getString("toNodeId"),
-                            outputPort = connObj.optString("outputPort", "main"),
-                        ),
-                    )
-                }
-            } catch (_: Exception) {
             }
             Precondition.ChainCheck(
                 id = id,
@@ -178,29 +167,59 @@ fun PreconditionEntity.toDomain(): Precondition =
             )
     }
 
+private fun parseLegacyPipeline(pipelineJson: String): Pair<List<WorkflowNode>, List<WorkflowConnection>> {
+    val nodesList = mutableListOf<WorkflowNode>()
+    val connectionsList = mutableListOf<WorkflowConnection>()
+    try {
+        val json = JSONObject(pipelineJson.ifBlank { "{}" })
+        val nodesArr = json.optJSONArray("nodes") ?: JSONArray()
+        for (i in 0 until nodesArr.length()) {
+            val nodeObj = nodesArr.getJSONObject(i)
+            nodesList.add(
+                WorkflowNode(
+                    id = nodeObj.getString("id"),
+                    name = nodeObj.getString("name"),
+                    type = nodeObj.getString("type"),
+                    isEnabled = nodeObj.optBoolean("isEnabled", true),
+                    configJson = DatabaseEncryption.decryptNodeConfig(nodeObj.optString("configJson", "{}")),
+                ),
+            )
+        }
+        val connArr = json.optJSONArray("connections") ?: JSONArray()
+        for (i in 0 until connArr.length()) {
+            val connObj = connArr.getJSONObject(i)
+            connectionsList.add(
+                WorkflowConnection(
+                    fromNodeId = connObj.getString("fromNodeId"),
+                    toNodeId = connObj.getString("toNodeId"),
+                    outputPort = connObj.optString("outputPort", "main"),
+                ),
+            )
+        }
+    } catch (_: Exception) {
+    }
+    return Pair(nodesList, connectionsList)
+}
+
 fun PreconditionEntity.hasNodeType(vararg targetTypes: String): Boolean {
     if (targetTypes.any { it.equals(type, ignoreCase = true) }) return true
     if (pipelineJson.isBlank()) return false
     return try {
-        val json = JSONObject(pipelineJson)
-        val arr = json.optJSONArray("nodes") ?: JSONArray()
-        for (i in 0 until arr.length()) {
-            val t = arr.getJSONObject(i).optString("type", "")
-            if (targetTypes.any { it.equals(t, ignoreCase = true) }) return true
-        }
-        false
+        val graph = AppJson.decodeFromString<WorkflowGraph>(pipelineJson)
+        graph.nodes.any { node -> targetTypes.any { it.equals(node.type, ignoreCase = true) } }
     } catch (_: Exception) {
-        false
+        val legacy = parseLegacyPipeline(pipelineJson)
+        legacy.first.any { node -> targetTypes.any { it.equals(node.type, ignoreCase = true) } }
     }
 }
 
 fun PreconditionEntity.getStepCount(): Int {
     if (pipelineJson.isBlank()) return 1
     return try {
-        val json = JSONObject(pipelineJson)
-        val arr = json.optJSONArray("nodes") ?: JSONArray()
-        arr.length().coerceAtLeast(1)
+        val graph = AppJson.decodeFromString<WorkflowGraph>(pipelineJson)
+        graph.nodes.size.coerceAtLeast(1)
     } catch (_: Exception) {
-        1
+        val legacy = parseLegacyPipeline(pipelineJson)
+        legacy.first.size.coerceAtLeast(1)
     }
 }
