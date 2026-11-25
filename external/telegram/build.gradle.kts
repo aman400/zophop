@@ -20,15 +20,42 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    signingConfigs {
+        create("release") {
+            val keystoreFile = System.getenv("KEYSTORE_FILE") ?: "release.keystore"
+            val storeFileObj =
+                file(keystoreFile).takeIf { it.exists() }
+                    ?: rootProject.file(keystoreFile)
+            if (storeFileObj.exists()) {
+                storeFile = storeFileObj
+                storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "zophop_secret"
+                keyAlias = System.getenv("KEY_ALIAS") ?: "zophop_key"
+                keyPassword = System.getenv("KEY_PASSWORD") ?: System.getenv("KEYSTORE_PASSWORD") ?: "zophop_secret"
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            val releaseSigning = signingConfigs.getByName("release")
+            signingConfig = if (releaseSigning.storeFile?.exists() == true) releaseSigning else signingConfigs.getByName("debug")
         }
     }
 
     testOptions {
         unitTests.isReturnDefaultValues = true
         unitTests.isIncludeAndroidResources = true
+    }
+}
+
+androidComponents {
+    onVariants { variant ->
+        val suffix = if (variant.buildType == "debug") "-Debug" else ""
+        val verName = android.defaultConfig.versionName ?: "1.0"
+        variant.outputs.forEach { output ->
+            output.outputFileName.set("ZopHop-Telegram-Plugin$suffix-v$verName.apk")
+        }
     }
 }
 

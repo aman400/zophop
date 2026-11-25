@@ -27,7 +27,9 @@ android {
     signingConfigs {
         create("release") {
             val keystoreFile = System.getenv("KEYSTORE_FILE") ?: "release.keystore"
-            val storeFileObj = file(keystoreFile)
+            val storeFileObj =
+                file(keystoreFile).takeIf { it.exists() }
+                    ?: rootProject.file(keystoreFile)
             if (storeFileObj.exists()) {
                 storeFile = storeFileObj
                 storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "zophop_secret"
