@@ -78,6 +78,7 @@ import java.util.UUID
 fun WorkflowsListScreen(
     workflows: List<Workflow> = emptyList(),
     queuedMessages: List<MessageEntity> = emptyList(),
+    queuedWorkflowIds: Set<String> = emptySet(),
     onToggleWorkflow: ((String, Boolean) -> Unit)? = null,
     onRunManualWorkflow: ((Workflow) -> Unit)? = null,
     onDeleteWorkflow: ((String) -> Unit)? = null,
@@ -100,6 +101,7 @@ fun WorkflowsListScreen(
     var selectedWorkflowForLogs by remember { mutableStateOf<Workflow?>(null) }
     var showCreateTriggerSheet by remember { mutableStateOf(false) }
     var pendingDeleteWorkflow by remember { mutableStateOf<Workflow?>(null) }
+    val totalQueued = queuedMessages.size + queuedWorkflowIds.size
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -111,10 +113,10 @@ fun WorkflowsListScreen(
         ) {
             item { Spacer(modifier = Modifier.height(12.dp)) }
 
-            if (queuedMessages.isNotEmpty()) {
+            if (totalQueued > 0) {
                 item {
                     PendingQueueCard(
-                        queuedCount = queuedMessages.size,
+                        queuedCount = totalQueued,
                         onViewQueue = onViewPendingQueue,
                         onProcessNow = onProcessQueueNow,
                     )
@@ -150,6 +152,7 @@ fun WorkflowsListScreen(
                 items(workflows, key = { it.id }) { workflow ->
                     WorkflowCardItem(
                         workflow = workflow,
+                        isQueued = workflow.id in queuedWorkflowIds,
                         onToggle = { enabled ->
                             onToggleWorkflow?.invoke(workflow.id, enabled)
                         },
@@ -254,6 +257,7 @@ fun WorkflowsListScreen(
 @Composable
 fun WorkflowCardItem(
     workflow: Workflow,
+    isQueued: Boolean = false,
     onToggle: (Boolean) -> Unit,
     onRunManual: () -> Unit,
     onEdit: () -> Unit,
@@ -402,6 +406,21 @@ fun WorkflowCardItem(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    if (isQueued) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            shape = RoundedCornerShape(4.dp),
+                        ) {
+                            Text(
+                                text = "⏳ Queued",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                fontSize = 10.sp,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
+                        }
+                    }
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceContainerHighest,
                         shape = RoundedCornerShape(4.dp),

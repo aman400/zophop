@@ -36,7 +36,6 @@ class PreconditionVaultMappingAndValidationTest {
         assertEquals("RETRY", internetCheck.onFailureAction)
         assertEquals(5, internetCheck.maxRetries)
         assertEquals(10, internetCheck.retryIntervalSeconds)
-        assertTrue(internetCheck.showNotificationOnFailure)
     }
 
     @Test

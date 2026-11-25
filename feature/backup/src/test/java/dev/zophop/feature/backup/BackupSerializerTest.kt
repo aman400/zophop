@@ -320,4 +320,112 @@ class BackupSerializerTest {
             ),
         )
     }
+
+    @Test
+    fun testResolveConflicts_keepBothRemapsPreconditionEntityCredentialId() {
+        val existingCredId = "existing_cred"
+        val existingPrecId = "existing_prec"
+
+        val credential = Credential(id = existingCredId, name = "Existing Cred", type = CredentialType.BEARER_TOKEN)
+        val precondition = PreconditionEntity(
+            id = existingPrecId,
+            name = "Existing Rule",
+            type = "INTERNET_CHECK",
+            credentialId = existingCredId,
+        )
+
+        val parsed = ParsedBackupData(
+            workflows = emptyList(),
+            credentials = listOf(credential),
+            preconditions = listOf(precondition),
+        )
+
+        val resolved = BackupSerializer.resolveConflicts(
+            parsed = parsed,
+            strategy = ImportConflictStrategy.KEEP_BOTH,
+            existingWorkflows = emptyList(),
+            existingCredentials = listOf(credential),
+            existingPreconditions = listOf(precondition),
+        )
+
+        val resolvedCred = resolved.credentials[0]
+        val resolvedPrec = resolved.preconditions[0]
+
+        assertNotEquals(existingCredId, resolvedCred.id)
+        assertNotEquals(existingPrecId, resolvedPrec.id)
+        assertEquals("Existing Cred (Imported)", resolvedCred.name)
+        assertEquals("Existing Rule (Imported)", resolvedPrec.name)
+        // Check that the precondition's credentialId was remapped to the new credential ID!
+        assertEquals(resolvedCred.id, resolvedPrec.credentialId)
+    }
+
+    @Test
+    fun testResolveConflicts_overwriteRetainsOriginalIds() {
+        val cred = Credential(id = "cred_1", name = "Cred 1 Updated", type = CredentialType.BEARER_TOKEN)
+        val prec = PreconditionEntity(id = "prec_1", name = "Prec 1 Updated", type = "INTERNET_CHECK")
+
+        val parsed = ParsedBackupData(
+            workflows = emptyList(),
+            credentials = listOf(cred),
+            preconditions = listOf(prec),
+        )
+
+        val resolved = BackupSerializer.resolveConflicts(
+            parsed = parsed,
+            strategy = ImportConflictStrategy.OVERWRITE,
+            existingWorkflows = emptyList(),
+            existingCredentials = listOf(Credential(id = "cred_1", name = "Old Name", type = CredentialType.BEARER_TOKEN)),
+            existingPreconditions = listOf(PreconditionEntity(id = "prec_1", name = "Old Prec", type = "INTERNET_CHECK")),
+        )
+
+        assertEquals("cred_1", resolved.credentials[0].id)
+        assertEquals("Cred 1 Updated", resolved.credentials[0].name)
+        assertEquals("prec_1", resolved.preconditions[0].id)
+        assertEquals("Prec 1 Updated", resolved.preconditions[0].name)
+    }
+
+    @Test
+    fun testParseImport_malformedJson_throwsIllegalArgumentException() {
+        try {
+            BackupSerializer.parseImport("{ this is definitely not valid json")
+            fail("Expected IllegalArgumentException on malformed JSON")
+        } catch (_: IllegalArgumentException) {
+            // Expected
+        }
+    }
+
+    @Test
+    fun testPasswordBasedEncryption_tamperedCiphertextThrowsSecurityException() {
+        val encrypted = PasswordBasedEncryption.encrypt("secret_value", "mypassword")
+        // Alter some characters in the ciphertext
+        val tampered = encrypted.dropLast(4) + "AAAA"
+        try {
+            PasswordBasedEncryption.decrypt(tampered, "mypassword")
+            fail("Expected SecurityException when decrypting tampered payload")
+        } catch (_: SecurityException) {
+            // Expected
+        } catch (_: IllegalArgumentException) {
+            // Expected
+        }
+    }
+
+    @Test
+    fun testCreateBackupJson_decryptLocalStorageValueApplied() {
+        val cred = Credential(
+            id = "c1",
+            name = "Local Enc Cred",
+            type = CredentialType.BEARER_TOKEN,
+            dataMap = mapOf("token" to "enc:raw_token_xyz"),
+        )
+        val json = BackupSerializer.createBackupJson(
+            workflows = emptyList(),
+            credentials = listOf(cred),
+            preconditions = emptyList(),
+            password = null,
+            decryptLocalStorageValue = { it.removePrefix("enc:") },
+        )
+
+        assertTrue(json.contains("raw_token_xyz"))
+        assertFalse(json.contains("enc:raw_token_xyz"))
+    }
 }

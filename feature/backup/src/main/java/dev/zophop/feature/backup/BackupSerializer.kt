@@ -557,7 +557,6 @@ object BackupSerializer {
         val pRetryInterval = pObj.optInt("retryIntervalSeconds", 30)
         val pRetryStrategy = pObj.optString("retryStrategy", "FIXED")
         val pQueueTimeout = pObj.optInt("queueTimeoutMinutes", 10)
-        val pShowNotif = pObj.optBoolean("showNotificationOnFailure", false)
 
         val precType = try {
             PreconditionType.valueOf(pTypeStr.uppercase().trim())
@@ -569,42 +568,42 @@ object BackupSerializer {
             PreconditionType.INTERNET_CHECK -> Precondition.InternetCheck(
                 id = pId, isEnabled = isPEnabled, icon = pIcon, onFailureAction = pFailureAction,
                 maxRetries = pMaxRetries, retryIntervalSeconds = pRetryInterval, retryStrategy = pRetryStrategy,
-                queueTimeoutMinutes = pQueueTimeout, showNotificationOnFailure = pShowNotif,
+                queueTimeoutMinutes = pQueueTimeout,
             )
             PreconditionType.VPN_CHECK -> Precondition.VpnCheck(
                 id = pId, isEnabled = isPEnabled, icon = pIcon, onFailureAction = pFailureAction,
                 maxRetries = pMaxRetries, retryIntervalSeconds = pRetryInterval, retryStrategy = pRetryStrategy,
-                queueTimeoutMinutes = pQueueTimeout, showNotificationOnFailure = pShowNotif,
+                queueTimeoutMinutes = pQueueTimeout,
             )
             PreconditionType.HEALTH_CHECK -> Precondition.HealthCheck(
                 id = pId, isEnabled = isPEnabled, icon = pIcon, targetUrl = pObj.optString("targetUrl", ""),
                 method = pObj.optString("method", "GET"), headers = pObj.optString("headers", ""),
                 expectedStatus = pObj.optInt("expectedStatus", 200), onFailureAction = pFailureAction,
                 maxRetries = pMaxRetries, retryIntervalSeconds = pRetryInterval, retryStrategy = pRetryStrategy,
-                queueTimeoutMinutes = pQueueTimeout, showNotificationOnFailure = pShowNotif,
+                queueTimeoutMinutes = pQueueTimeout,
             )
             PreconditionType.SIM_CHECK -> Precondition.SimCheck(
                 id = pId, isEnabled = isPEnabled, icon = pIcon, requiredCarrier = pObj.optString("requiredCarrier", ""),
                 requiredSlot = pObj.optInt("requiredSlot", 0), onFailureAction = pFailureAction,
                 maxRetries = pMaxRetries, retryIntervalSeconds = pRetryInterval, retryStrategy = pRetryStrategy,
-                queueTimeoutMinutes = pQueueTimeout, showNotificationOnFailure = pShowNotif,
+                queueTimeoutMinutes = pQueueTimeout,
             )
             PreconditionType.GPS_CHECK -> Precondition.GpsCheck(
                 id = pId, isEnabled = isPEnabled, icon = pIcon, requireGpsEnabled = pObj.optBoolean("requireGpsEnabled", true),
                 onFailureAction = pFailureAction, maxRetries = pMaxRetries, retryIntervalSeconds = pRetryInterval,
-                retryStrategy = pRetryStrategy, queueTimeoutMinutes = pQueueTimeout, showNotificationOnFailure = pShowNotif,
+                retryStrategy = pRetryStrategy, queueTimeoutMinutes = pQueueTimeout,
             )
             PreconditionType.BATTERY_CHECK -> Precondition.BatteryCheck(
                 id = pId, isEnabled = isPEnabled, icon = pIcon, minBatteryPercent = pObj.optInt("minBatteryPercent", 15),
                 requireCharging = pObj.optBoolean("requireCharging", false), onFailureAction = pFailureAction,
                 maxRetries = pMaxRetries, retryIntervalSeconds = pRetryInterval, retryStrategy = pRetryStrategy,
-                queueTimeoutMinutes = pQueueTimeout, showNotificationOnFailure = pShowNotif,
+                queueTimeoutMinutes = pQueueTimeout,
             )
             PreconditionType.CHAINED_CHECK -> Precondition.ChainCheck(
                 id = pId, name = pObj.optString("name", "Chain"), icon = pIcon, isEnabled = isPEnabled,
                 nodes = emptyList(), connections = emptyList(), onFailureAction = pFailureAction,
                 maxRetries = pMaxRetries, retryIntervalSeconds = pRetryInterval, retryStrategy = pRetryStrategy,
-                queueTimeoutMinutes = pQueueTimeout, showNotificationOnFailure = pShowNotif,
+                queueTimeoutMinutes = pQueueTimeout,
             )
         }
     }

@@ -42,6 +42,15 @@ interface WorkflowDao {
         limit: Int = 50,
     ): Flow<List<WorkflowExecutionLogEntity>>
 
+    @Query("SELECT * FROM workflow_execution_logs WHERE status = 'QUEUED' ORDER BY timestamp DESC")
+    fun getQueuedWorkflowLogsFlow(): Flow<List<WorkflowExecutionLogEntity>>
+
+    @Query("SELECT * FROM workflow_execution_logs WHERE status = 'QUEUED' ORDER BY timestamp DESC")
+    suspend fun getQueuedWorkflowLogs(): List<WorkflowExecutionLogEntity>
+
+    @Query("DELETE FROM workflow_execution_logs WHERE id = :id")
+    suspend fun deleteExecutionLogById(id: String)
+
     @Query("DELETE FROM workflow_execution_logs WHERE workflowId = :workflowId")
     suspend fun clearLogsForWorkflow(workflowId: String)
 

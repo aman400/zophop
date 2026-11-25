@@ -20,14 +20,20 @@ class DeliveryWorker(
             try {
                 val forwardingManager = ForwardingManager.getInstance(applicationContext)
                 forwardingManager.processPendingQueue()
+                WorkflowQueueManager.processQueuedWorkflows(applicationContext)
 
                 val pendingMessages =
                     AppDatabase
                         .getInstance(applicationContext)
                         .messageDao()
                         .getPendingMessages()
+                val queuedWorkflowLogs =
+                    AppDatabase
+                        .getInstance(applicationContext)
+                        .workflowDao()
+                        .getQueuedWorkflowLogs()
 
-                if (pendingMessages.isNotEmpty()) {
+                if (pendingMessages.isNotEmpty() || queuedWorkflowLogs.isNotEmpty()) {
                     Result.retry()
                 } else {
                     Result.success()

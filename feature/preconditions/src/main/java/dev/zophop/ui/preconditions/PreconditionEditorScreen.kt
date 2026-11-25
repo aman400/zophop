@@ -1,9 +1,5 @@
 package dev.zophop.ui.preconditions
 
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
-import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -51,7 +47,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
@@ -75,7 +70,6 @@ import dev.zophop.domain.model.WorkflowNode
 import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.ui.workflows.NodeConfigBottomSheet
 import dev.zophop.ui.workflows.WorkflowUiHelper
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.util.UUID
@@ -95,9 +89,6 @@ fun PreconditionEditorScreen(
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
-    val localContext = LocalContext.current
-
-    var showNotificationPermissionRationaleDialog by remember { mutableStateOf(false) }
 
     val linkedWorkflows =
         remember(workflows, precondition?.id) {
@@ -118,7 +109,6 @@ fun PreconditionEditorScreen(
     var retryIntervalSeconds by remember { mutableStateOf((precondition?.retryIntervalSeconds ?: 30).toString()) }
     var retryStrategy by remember { mutableStateOf(precondition?.retryStrategy ?: "FIXED") }
     var queueTimeoutMinutes by remember { mutableStateOf((precondition?.queueTimeoutMinutes ?: 10).toString()) }
-    var showNotificationOnFailure by remember { mutableStateOf(precondition?.showNotificationOnFailure ?: false) }
 
     // Initial chain nodes & connections conversion (seamless legacy migration to chained pipeline)
     val initialNodesAndConns =
@@ -146,7 +136,6 @@ fun PreconditionEditorScreen(
                 retryIntervalSeconds = it.retryIntervalSeconds.toString()
                 retryStrategy = it.retryStrategy
                 queueTimeoutMinutes = it.queueTimeoutMinutes.toString()
-                showNotificationOnFailure = it.showNotificationOnFailure
             },
             onShowAddNode = { showAddNodeDialog = true },
         )
@@ -175,7 +164,6 @@ fun PreconditionEditorScreen(
             retryIntervalSeconds,
             retryStrategy,
             queueTimeoutMinutes,
-            showNotificationOnFailure,
         ) {
             hasPreconditionChanges(
                 precondition = precondition,
@@ -188,7 +176,6 @@ fun PreconditionEditorScreen(
                 retryIntervalSeconds = retryIntervalSeconds,
                 retryStrategy = retryStrategy,
                 queueTimeoutMinutes = queueTimeoutMinutes,
-                showNotificationOnFailure = showNotificationOnFailure,
                 chainNodesCount = chainNodes.size,
             )
         }
@@ -260,7 +247,6 @@ fun PreconditionEditorScreen(
                                 retryIntervalSeconds = retryIntervalSeconds,
                                 retryStrategy = retryStrategy,
                                 queueTimeoutMinutes = queueTimeoutMinutes,
-                                showNotificationOnFailure = showNotificationOnFailure,
                                 onTestPreconditionWithProgress = onTestPreconditionWithProgress,
                                 onStepsUpdate = { sheetTestSteps = it },
                                 onResult = { res ->
@@ -297,9 +283,6 @@ fun PreconditionEditorScreen(
             onRetryStrategyChanged = { retryStrategy = it },
             queueTimeoutMinutes = queueTimeoutMinutes,
             onQueueTimeoutMinutesChanged = { queueTimeoutMinutes = it },
-            showNotificationOnFailure = showNotificationOnFailure,
-            onShowNotificationOnFailureChanged = { showNotificationOnFailure = it },
-            onShowNotificationRationale = { showNotificationPermissionRationaleDialog = true },
             chainNodes = chainNodes,
             onAddStep = { showAddNodeDialog = true },
             onEditStep = { node -> editingChainNode = node },
@@ -325,7 +308,6 @@ fun PreconditionEditorScreen(
         retryIntervalSeconds = retryIntervalSeconds,
         retryStrategy = retryStrategy,
         queueTimeoutMinutes = queueTimeoutMinutes,
-        showNotificationOnFailure = showNotificationOnFailure,
         chainNodes = chainNodes,
         linkedWorkflows = linkedWorkflows,
         onConfirmSave = {
@@ -335,12 +317,6 @@ fun PreconditionEditorScreen(
             onSave(it)
         },
         onDismissSaveConfirm = { showSaveConfirmDialog = false },
-        showNotificationRationale = showNotificationPermissionRationaleDialog,
-        onDismissNotificationRationale = { showNotificationPermissionRationaleDialog = false },
-        onOpenSettings = {
-            showNotificationPermissionRationaleDialog = false
-            openAppDetailsSettings(localContext)
-        },
         editingChainNode = editingChainNode,
         credentials = credentials,
         onDismissEditNode = { editingChainNode = null },
@@ -449,7 +425,6 @@ private fun startPreconditionTest(
     retryIntervalSeconds: String,
     retryStrategy: String,
     queueTimeoutMinutes: String,
-    showNotificationOnFailure: Boolean,
     onTestPreconditionWithProgress: ((PreconditionEntity, (List<NodeExecutionStep>) -> Unit, (PreconditionResult) -> Unit) -> Unit)?,
     onStepsUpdate: (List<NodeExecutionStep>) -> Unit,
     onResult: (PreconditionResult) -> Unit,
@@ -465,7 +440,6 @@ private fun startPreconditionTest(
             retryIntervalSeconds = retryIntervalSeconds,
             retryStrategy = retryStrategy,
             queueTimeoutMinutes = queueTimeoutMinutes,
-            showNotificationOnFailure = showNotificationOnFailure,
         )
     onTestPreconditionWithProgress?.invoke(tempEntity, onStepsUpdate, onResult)
 }
@@ -492,17 +466,6 @@ private fun computeNodesAfterDeletion(
     return newNodes to newConns
 }
 
-private fun openAppDetailsSettings(context: Context) {
-    try {
-        val intent =
-            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                data = Uri.fromParts("package", context.packageName, null)
-            }
-        context.startActivity(intent)
-    } catch (_: Exception) {
-    }
-}
-
 @Suppress("LongParameterList")
 @Composable
 private fun PreconditionEditorDialogHost(
@@ -521,14 +484,10 @@ private fun PreconditionEditorDialogHost(
     retryIntervalSeconds: String,
     retryStrategy: String,
     queueTimeoutMinutes: String,
-    showNotificationOnFailure: Boolean,
     chainNodes: List<WorkflowNode>,
     linkedWorkflows: List<Workflow>,
     onConfirmSave: (PreconditionEntity) -> Unit,
     onDismissSaveConfirm: () -> Unit,
-    showNotificationRationale: Boolean,
-    onDismissNotificationRationale: () -> Unit,
-    onOpenSettings: () -> Unit,
     editingChainNode: WorkflowNode?,
     credentials: List<Credential>,
     onDismissEditNode: () -> Unit,
@@ -564,18 +523,10 @@ private fun PreconditionEditorDialogHost(
             retryIntervalSeconds = retryIntervalSeconds,
             retryStrategy = retryStrategy,
             queueTimeoutMinutes = queueTimeoutMinutes,
-            showNotificationOnFailure = showNotificationOnFailure,
             chainNodes = chainNodes,
             linkedWorkflows = linkedWorkflows,
             onConfirmSave = onConfirmSave,
             onDismiss = onDismissSaveConfirm,
-        )
-    }
-
-    if (showNotificationRationale) {
-        PreconditionNotificationRationaleDialog(
-            onDismissRequest = onDismissNotificationRationale,
-            onOpenSettings = onOpenSettings,
         )
     }
 
@@ -753,9 +704,6 @@ private fun PreconditionMetaFields(
     onRetryStrategyChanged: (String) -> Unit,
     queueTimeoutMinutes: String,
     onQueueTimeoutMinutesChanged: (String) -> Unit,
-    showNotificationOnFailure: Boolean,
-    onShowNotificationOnFailureChanged: (Boolean) -> Unit,
-    onShowNotificationRationale: () -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -808,9 +756,6 @@ private fun PreconditionMetaFields(
         onRetryStrategyChanged = onRetryStrategyChanged,
         queueTimeoutMinutes = queueTimeoutMinutes,
         onQueueTimeoutMinutesChanged = onQueueTimeoutMinutesChanged,
-        showNotificationOnFailure = showNotificationOnFailure,
-        onShowNotificationOnFailureChanged = onShowNotificationOnFailureChanged,
-        onShowNotificationRationale = onShowNotificationRationale,
     )
 }
 
@@ -1040,32 +985,6 @@ private fun PreconditionDeleteStepDialog(
     )
 }
 
-@Composable
-private fun PreconditionNotificationRationaleDialog(
-    onDismissRequest: () -> Unit,
-    onOpenSettings: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismissRequest,
-        title = { Text("Notification Permission Required") },
-        text = {
-            Text(
-                "To post failure notification alerts when this precondition fails, notification permissions must be granted in App Settings.",
-            )
-        },
-        confirmButton = {
-            Button(onClick = onOpenSettings) {
-                Text("Open Settings")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismissRequest) {
-                Text("Cancel")
-            }
-        },
-    )
-}
-
 private fun buildPipelineJson(
     chainNodes: List<WorkflowNode>,
     chainConnections: List<WorkflowConnection>,
@@ -1082,7 +1001,6 @@ private fun hasPreconditionChanges(
     retryIntervalSeconds: String,
     retryStrategy: String,
     queueTimeoutMinutes: String,
-    showNotificationOnFailure: Boolean,
     chainNodesCount: Int,
 ): Boolean {
     if (precondition == null) {
@@ -1094,7 +1012,6 @@ private fun hasPreconditionChanges(
             retryIntervalSeconds != "30" ||
             retryStrategy != "FIXED" ||
             queueTimeoutMinutes != "10" ||
-            showNotificationOnFailure ||
             chainNodesCount > 0
     }
     return name != precondition.name ||
@@ -1105,7 +1022,6 @@ private fun hasPreconditionChanges(
         retryIntervalSeconds != precondition.retryIntervalSeconds.toString() ||
         retryStrategy != precondition.retryStrategy ||
         queueTimeoutMinutes != precondition.queueTimeoutMinutes.toString() ||
-        showNotificationOnFailure != precondition.showNotificationOnFailure ||
         pipelineJson != precondition.pipelineJson
 }
 
@@ -1131,9 +1047,6 @@ private fun PreconditionEditorBody(
     onRetryStrategyChanged: (String) -> Unit,
     queueTimeoutMinutes: String,
     onQueueTimeoutMinutesChanged: (String) -> Unit,
-    showNotificationOnFailure: Boolean,
-    onShowNotificationOnFailureChanged: (Boolean) -> Unit,
-    onShowNotificationRationale: () -> Unit,
     chainNodes: List<WorkflowNode>,
     onAddStep: () -> Unit,
     onEditStep: (WorkflowNode) -> Unit,
@@ -1216,9 +1129,6 @@ private fun PreconditionEditorBody(
             onRetryStrategyChanged = onRetryStrategyChanged,
             queueTimeoutMinutes = queueTimeoutMinutes,
             onQueueTimeoutMinutesChanged = onQueueTimeoutMinutesChanged,
-            showNotificationOnFailure = showNotificationOnFailure,
-            onShowNotificationOnFailureChanged = onShowNotificationOnFailureChanged,
-            onShowNotificationRationale = onShowNotificationRationale,
         )
 
         Spacer(modifier = Modifier.height(4.dp))
@@ -1249,7 +1159,6 @@ private fun PreconditionSaveConfirmDialogWrapper(
     retryIntervalSeconds: String,
     retryStrategy: String,
     queueTimeoutMinutes: String,
-    showNotificationOnFailure: Boolean,
     chainNodes: List<WorkflowNode>,
     linkedWorkflows: List<Workflow>,
     onConfirmSave: (PreconditionEntity) -> Unit,
@@ -1265,7 +1174,6 @@ private fun PreconditionSaveConfirmDialogWrapper(
         retryIntervalSeconds = retryIntervalSeconds,
         retryStrategy = retryStrategy,
         queueTimeoutMinutes = queueTimeoutMinutes,
-        showNotificationOnFailure = showNotificationOnFailure,
         chainNodes = chainNodes,
         linkedWorkflows = linkedWorkflows,
         onConfirm = {
@@ -1288,7 +1196,6 @@ private fun PreconditionSaveConfirmDialogWrapper(
                     retryIntervalSeconds = retryIntervalSeconds.toIntOrNull()?.coerceAtLeast(1) ?: 30,
                     retryStrategy = retryStrategy,
                     queueTimeoutMinutes = queueTimeoutMinutes.toIntOrNull()?.coerceAtLeast(1) ?: 10,
-                    showNotificationOnFailure = showNotificationOnFailure,
                     updatedAt = System.currentTimeMillis(),
                 )
             onConfirmSave(entity)
@@ -1337,7 +1244,6 @@ private fun buildTestingEntity(
     retryIntervalSeconds: String,
     retryStrategy: String,
     queueTimeoutMinutes: String,
-    showNotificationOnFailure: Boolean,
 ): PreconditionEntity =
     PreconditionEntity(
         id = preconditionId ?: UUID.randomUUID().toString(),
@@ -1350,7 +1256,6 @@ private fun buildTestingEntity(
         retryIntervalSeconds = retryIntervalSeconds.toIntOrNull()?.coerceAtLeast(1) ?: 30,
         retryStrategy = retryStrategy,
         queueTimeoutMinutes = queueTimeoutMinutes.toIntOrNull()?.coerceAtLeast(1) ?: 10,
-        showNotificationOnFailure = showNotificationOnFailure,
     )
 
 private fun reorderChainNodesList(

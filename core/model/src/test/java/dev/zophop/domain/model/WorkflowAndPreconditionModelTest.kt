@@ -43,7 +43,6 @@ class WorkflowAndPreconditionModelTest {
         assertEquals("FAIL_IMMEDIATELY", internet.onFailureAction)
         assertEquals(3, internet.maxRetries)
         assertEquals(30, internet.retryIntervalSeconds)
-        assertFalse(internet.showNotificationOnFailure)
 
         val health =
             Precondition.HealthCheck(
@@ -51,14 +50,12 @@ class WorkflowAndPreconditionModelTest {
                 onFailureAction = "RETRY",
                 maxRetries = 5,
                 retryIntervalSeconds = 10,
-                showNotificationOnFailure = true,
             )
         assertEquals(PreconditionType.HEALTH_CHECK, health.type)
         assertEquals("https://example.com/health", health.targetUrl)
         assertEquals("RETRY", health.onFailureAction)
         assertEquals(5, health.maxRetries)
         assertEquals(10, health.retryIntervalSeconds)
-        assertTrue(health.showNotificationOnFailure)
 
         val battery =
             Precondition.BatteryCheck(

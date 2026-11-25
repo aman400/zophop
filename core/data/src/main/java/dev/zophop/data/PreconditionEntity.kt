@@ -39,6 +39,7 @@ data class PreconditionEntity(
     val retryIntervalSeconds: Int = 30,
     val retryStrategy: String = "FIXED", // "FIXED", "EXPONENTIAL", or "RANDOMIZED"
     val queueTimeoutMinutes: Int = 10,
+    @Deprecated("Unused. Only workflow execution notifications are used.")
     val showNotificationOnFailure: Boolean = false,
     val updatedAt: Long = System.currentTimeMillis(),
 )
@@ -55,7 +56,6 @@ fun PreconditionEntity.toDomain(): Precondition =
                 retryIntervalSeconds = retryIntervalSeconds,
                 retryStrategy = retryStrategy,
                 queueTimeoutMinutes = queueTimeoutMinutes,
-                showNotificationOnFailure = showNotificationOnFailure,
             )
         PreconditionType.VPN_CHECK.name ->
             Precondition.VpnCheck(
@@ -67,7 +67,6 @@ fun PreconditionEntity.toDomain(): Precondition =
                 retryIntervalSeconds = retryIntervalSeconds,
                 retryStrategy = retryStrategy,
                 queueTimeoutMinutes = queueTimeoutMinutes,
-                showNotificationOnFailure = showNotificationOnFailure,
             )
         PreconditionType.HEALTH_CHECK.name ->
             Precondition.HealthCheck(
@@ -83,7 +82,6 @@ fun PreconditionEntity.toDomain(): Precondition =
                 retryIntervalSeconds = retryIntervalSeconds,
                 retryStrategy = retryStrategy,
                 queueTimeoutMinutes = queueTimeoutMinutes,
-                showNotificationOnFailure = showNotificationOnFailure,
             )
         PreconditionType.SIM_CHECK.name ->
             Precondition.SimCheck(
@@ -96,7 +94,6 @@ fun PreconditionEntity.toDomain(): Precondition =
                 retryIntervalSeconds = retryIntervalSeconds,
                 retryStrategy = retryStrategy,
                 queueTimeoutMinutes = queueTimeoutMinutes,
-                showNotificationOnFailure = showNotificationOnFailure,
             )
         PreconditionType.GPS_CHECK.name ->
             Precondition.GpsCheck(
@@ -109,7 +106,6 @@ fun PreconditionEntity.toDomain(): Precondition =
                 retryIntervalSeconds = retryIntervalSeconds,
                 retryStrategy = retryStrategy,
                 queueTimeoutMinutes = queueTimeoutMinutes,
-                showNotificationOnFailure = showNotificationOnFailure,
             )
         PreconditionType.BATTERY_CHECK.name ->
             Precondition.BatteryCheck(
@@ -123,7 +119,6 @@ fun PreconditionEntity.toDomain(): Precondition =
                 retryIntervalSeconds = retryIntervalSeconds,
                 retryStrategy = retryStrategy,
                 queueTimeoutMinutes = queueTimeoutMinutes,
-                showNotificationOnFailure = showNotificationOnFailure,
             )
         PreconditionType.CHAINED_CHECK.name -> {
             var nodesList: List<WorkflowNode> = emptyList()
@@ -153,7 +148,6 @@ fun PreconditionEntity.toDomain(): Precondition =
                 retryIntervalSeconds = retryIntervalSeconds,
                 retryStrategy = retryStrategy,
                 queueTimeoutMinutes = queueTimeoutMinutes,
-                showNotificationOnFailure = showNotificationOnFailure,
             )
         }
         else ->
@@ -166,7 +160,6 @@ fun PreconditionEntity.toDomain(): Precondition =
                 retryIntervalSeconds = retryIntervalSeconds,
                 retryStrategy = retryStrategy,
                 queueTimeoutMinutes = queueTimeoutMinutes,
-                showNotificationOnFailure = showNotificationOnFailure,
             )
     }
 

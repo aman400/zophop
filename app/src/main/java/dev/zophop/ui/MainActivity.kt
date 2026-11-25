@@ -1,6 +1,7 @@
 package dev.zophop.ui
 
 import android.Manifest
+import android.app.NotificationManager
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Build
@@ -88,8 +89,19 @@ class MainActivity : FragmentActivity() {
 
     private fun handleIntent(intent: android.content.Intent?) {
         val workflowId = intent?.getStringExtra("open_workflow_id")
+        val notificationId = intent?.getIntExtra("notification_id", -1) ?: -1
+        val nm = getSystemService(NOTIFICATION_SERVICE) as? NotificationManager
+        if (notificationId != -1) {
+            nm?.cancel(notificationId)
+        }
         if (!workflowId.isNullOrBlank()) {
-            viewModel.openWorkflowLogsById(workflowId)
+            nm?.cancel(workflowId.hashCode())
+            val showActive = intent.getBooleanExtra("show_active_execution", false)
+            if (showActive) {
+                viewModel.navigateToExecutingWorkflow(workflowId)
+            } else {
+                viewModel.openWorkflowLogsById(workflowId)
+            }
         }
     }
 

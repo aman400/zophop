@@ -33,6 +33,12 @@ interface WorkflowRepository {
         limit: Int = 50,
     ): Flow<List<WorkflowExecutionLogEntity>>
 
+    fun getQueuedWorkflowLogsFlow(): Flow<List<WorkflowExecutionLogEntity>>
+
+    suspend fun getQueuedWorkflowLogs(): List<WorkflowExecutionLogEntity>
+
+    suspend fun deleteExecutionLogById(id: String)
+
     suspend fun clearLogsForWorkflow(workflowId: String)
 }
 
@@ -104,6 +110,16 @@ class RoomWorkflowRepository(
         workflowId: String,
         limit: Int,
     ): Flow<List<WorkflowExecutionLogEntity>> = workflowDao.getLogsForWorkflowFlow(workflowId, limit)
+
+    override fun getQueuedWorkflowLogsFlow(): Flow<List<WorkflowExecutionLogEntity>> =
+        workflowDao.getQueuedWorkflowLogsFlow()
+
+    override suspend fun getQueuedWorkflowLogs(): List<WorkflowExecutionLogEntity> =
+        workflowDao.getQueuedWorkflowLogs()
+
+    override suspend fun deleteExecutionLogById(id: String) {
+        workflowDao.deleteExecutionLogById(id)
+    }
 
     override suspend fun clearLogsForWorkflow(workflowId: String) {
         workflowDao.clearLogsForWorkflow(workflowId)

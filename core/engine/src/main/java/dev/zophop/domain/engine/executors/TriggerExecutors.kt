@@ -390,7 +390,7 @@ class SendNotificationExecutor : NodeExecutor {
         )
 
         val notification = NotificationCompat.Builder(ctx, channelId)
-            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setSmallIcon(dev.zophop.core.engine.R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))

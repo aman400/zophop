@@ -15,13 +15,14 @@ import dev.zophop.domain.model.WorkflowNode
 import dev.zophop.plugin.api.ExecutionContext
 import dev.zophop.plugin.api.NodeExecutionResult
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
 import kotlin.time.Duration.Companion.milliseconds
 
 private const val TAG = "WorkflowEngine"
@@ -99,6 +100,9 @@ open class WorkflowEngine(
     private val credentialRepository: CredentialRepository? = null,
     private val executorFactory: NodeExecutorFactory = NodeExecutorFactory(credentialRepository = credentialRepository),
 ) {
+    private fun getNotificationIcon(): Int =
+        dev.zophop.core.engine.R.drawable.ic_notification
+
     private fun postProgressNotification(
         context: Context?,
         execContext: ExecutionContext?,
@@ -108,7 +112,15 @@ open class WorkflowEngine(
         isFinished: Boolean = false,
         isSuccess: Boolean = true,
     ) {
-        val showNotif = execContext?.get("show_workflow_notifications") as? Boolean ?: true
+        val showNotif = execContext?.get("show_workflow_notifications") as? Boolean
+            ?: run {
+                try {
+                    context?.let { dev.zophop.data.EncryptedSettingsRepository(it).getSettings().showWorkflowNotifications }
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            ?: false
         if (!showNotif || context == null) return
 
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
@@ -120,6 +132,8 @@ open class WorkflowEngine(
             setClassName(context, "dev.zophop.ui.MainActivity")
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra("open_workflow_id", workflowId)
+            putExtra("notification_id", notificationId)
+            putExtra("show_active_execution", true)
         }
         val pendingOpenIntent = PendingIntent.getActivity(
             context,
@@ -180,29 +194,42 @@ open class WorkflowEngine(
         isSuccess: Boolean,
         pendingOpenIntent: PendingIntent,
     ) {
-        if (isSuccess && !statusText.contains("Cancelled", ignoreCase = true)) {
+        val isCancelled = statusText.contains("Cancelled", ignoreCase = true)
+        if (isSuccess || isCancelled) {
             nm.cancel(notificationId)
             return
         }
 
-        val title = when {
-            statusText.contains("Cancelled", ignoreCase = true) -> "🛑 Execution Cancelled: $workflowName"
-            else -> "❌ Workflow Failed: $workflowName"
+        val cleanReason = statusText.lineSequence().firstOrNull()?.trim() ?: "Execution failed"
+        val content = when {
+            cleanReason.startsWith("⏳ Queued") || cleanReason.startsWith("❌ Failed") -> cleanReason
+            statusText.contains("queued", ignoreCase = true) -> "⏳ Queued: $cleanReason"
+            else -> "❌ Failed: $cleanReason"
         }
+
         val notification = NotificationCompat.Builder(ctx, channelId)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle(title)
-            .setContentText(statusText)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(statusText))
+            .setSmallIcon(getNotificationIcon())
+            .setContentTitle(workflowName)
+            .setContentText(content)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .setContentIntent(pendingOpenIntent)
             .setOngoing(false)
+            .setOnlyAlertOnce(true)
             .setProgress(0, 0, false)
             .clearActions()
+            .setTimeoutAfter(5_000L)
             .build()
 
         nm.notify(notificationId, notification)
+
+        CoroutineScope(Dispatchers.IO).launch {
+            delay(5_000L)
+            try {
+                nm.cancel(notificationId)
+            } catch (_: Exception) {
+            }
+        }
     }
 
     private fun showOngoingNotification(
@@ -228,15 +255,18 @@ open class WorkflowEngine(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
+        val cleanContent = statusText.lineSequence().firstOrNull()?.trim() ?: "Running..."
+
         val notification = NotificationCompat.Builder(ctx, channelId)
-            .setSmallIcon(android.R.drawable.ic_popup_sync)
-            .setContentTitle("⚡ Executing Workflow: $workflowName")
-            .setContentText(statusText)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(statusText))
+            .setSmallIcon(getNotificationIcon())
+            .setContentTitle(workflowName)
+            .setContentText(cleanContent)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setContentIntent(pendingOpenIntent)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Cancel Execution", pendingCancelIntent)
+            .setAutoCancel(true)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Cancel", pendingCancelIntent)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
             .build()
 
         nm.notify(notificationId, notification)
@@ -262,18 +292,19 @@ open class WorkflowEngine(
             NodeExecutionStep(nodeId = it.id, nodeName = it.name, nodeType = it.type, state = NodeStepState.PENDING)
         }.toMutableList()
 
-        onStepUpdate(steps.toList())
+        notifyStepUpdate(workflow, steps.toList(), onStepUpdate, isExecuting = true)
 
         if (!workflow.isEnabled) {
             steps.indices.forEach { steps[it] = steps[it].copy(state = NodeStepState.SKIPPED) }
-            onStepUpdate(steps.toList())
-            return@withContext WorkflowExecutionResult.Failed(
+            val failResult = WorkflowExecutionResult.Failed(
                 workflowId = workflow.id,
                 nodeId = null,
                 reason = "Workflow '${workflow.name}' is disabled",
                 logs = listOf("Workflow is disabled"),
                 steps = steps.toList(),
             )
+            notifyStepUpdate(workflow, steps.toList(), onStepUpdate, isExecuting = false, result = failResult)
+            return@withContext failResult
         }
 
         val logs = mutableListOf<String>()
@@ -290,16 +321,17 @@ open class WorkflowEngine(
             val triggerNodes = resolveTriggerNodes(workflow, startNodeId)
             if (triggerNodes.isEmpty()) {
                 steps.indices.forEach { steps[it] = steps[it].copy(state = NodeStepState.SKIPPED) }
-                onStepUpdate(steps.toList())
                 val failReason = "No trigger or entry nodes found in workflow"
                 postProgressNotification(appContext, context, notifId, workflow.name, failReason, isFinished = true, isSuccess = false)
-                return@withContext WorkflowExecutionResult.Failed(
+                val failResult = WorkflowExecutionResult.Failed(
                     workflowId = workflow.id,
                     nodeId = null,
                     reason = failReason,
                     logs = logs,
                     steps = steps.toList(),
                 )
+                notifyStepUpdate(workflow, steps.toList(), onStepUpdate, isExecuting = false, result = failResult)
+                return@withContext failResult
             }
 
             val visitedNodeIds = mutableSetOf<String>()
@@ -338,7 +370,9 @@ open class WorkflowEngine(
                 isFinished = true,
                 isSuccess = true,
             )
-            WorkflowExecutionResult.Success(workflowId = workflow.id, logs = logs, steps = steps.toList())
+            val successResult = WorkflowExecutionResult.Success(workflowId = workflow.id, logs = logs, steps = steps.toList())
+            notifyStepUpdate(workflow, steps.toList(), onStepUpdate, isExecuting = false, result = successResult)
+            successResult
         } catch (e: CancellationException) {
             Log.i(TAG, "Workflow execution manually cancelled by user: ${e.message}", e)
             handleCancellation(workflow, logs, steps, notifId, appContext, context, onStepUpdate)
@@ -370,6 +404,7 @@ open class WorkflowEngine(
     ): WorkflowExecutionResult? {
         val nodeStartTime = System.currentTimeMillis()
         updateStep(
+            workflow = workflow,
             steps = steps,
             nodeId = currentNode.id,
             newState = NodeStepState.EXECUTING,
@@ -391,6 +426,7 @@ open class WorkflowEngine(
             val duration = (System.currentTimeMillis() - nodeStartTime).coerceAtLeast(0L)
             logs.add("Node '${currentNode.name}' is disabled, skipping.")
             updateStep(
+                workflow = workflow,
                 steps = steps,
                 nodeId = currentNode.id,
                 newState = NodeStepState.SKIPPED,
@@ -446,15 +482,40 @@ open class WorkflowEngine(
         val precResult = preconditionEvaluator.evaluateAll(currentNode.preconditions) { chainSteps ->
             val activeStep = chainSteps.lastOrNull()
             val stepDesc = activeStep?.let { " [${it.nodeName}: ${it.logMessage}]" } ?: ""
-            updateStep(steps, currentNode.id, NodeStepState.EXECUTING, message = "Evaluating preconditions$stepDesc", onStepUpdate = onStepUpdate)
-            postProgressNotification(
-                appContext,
-                context,
-                notifId,
-                workflow.name,
-                "Evaluating preconditions for '${currentNode.name}'$stepDesc",
-                isFinished = false,
+            updateStep(
+                workflow = workflow,
+                steps = steps,
+                nodeId = currentNode.id,
+                newState = NodeStepState.EXECUTING,
+                message = "Evaluating preconditions$stepDesc",
+                onStepUpdate = onStepUpdate,
             )
+
+            if (activeStep != null) {
+                val notifStatus = when {
+                    activeStep.nodeId.startsWith("queue_waiting") -> {
+                        val cleanMsg = activeStep.logMessage.lineSequence().firstOrNull()?.trim()
+                        if (!cleanMsg.isNullOrBlank()) "⏳ Queued: $cleanMsg" else "⏳ Queued: Waiting for preconditions..."
+                    }
+                    activeStep.nodeId.startsWith("retry_delay") -> {
+                        "🔄 Retrying '${currentNode.name}' (Attempt ${activeStep.nodeName.filter { it.isDigit() || it == '/' }})..."
+                    }
+                    activeStep.nodeId.startsWith("queue_resolved") -> {
+                        "✅ Conditions met. Resuming '${currentNode.name}'..."
+                    }
+                    else -> {
+                        "Checking preconditions for '${currentNode.name}'..."
+                    }
+                }
+                postProgressNotification(
+                    appContext,
+                    context,
+                    notifId,
+                    workflow.name,
+                    notifStatus,
+                    isFinished = false,
+                )
+            }
         }
 
         if (precResult is PreconditionResult.Failed) {
@@ -464,6 +525,7 @@ open class WorkflowEngine(
             logs.add("$logPrefix for node '${currentNode.name}': $failReason")
             val stepMessage = if (precResult.shouldQueue) "Precondition queued: $failReason" else "Precondition failed: $failReason"
             updateStep(
+                workflow = workflow,
                 steps = steps,
                 nodeId = currentNode.id,
                 newState = NodeStepState.FAILED,
@@ -478,12 +540,11 @@ open class WorkflowEngine(
                     steps[i] = steps[i].copy(state = NodeStepState.SKIPPED, logMessage = "Skipped due to upstream failure")
                 }
             }
-            onStepUpdate(steps.toList())
             val notifTitle =
                 if (precResult.shouldQueue) {
-                    "Precondition queued at '${currentNode.name}': $failReason"
+                    "⏳ Queued: $failReason"
                 } else {
-                    "Precondition failed at '${currentNode.name}': $failReason"
+                    "❌ Failed: $failReason"
                 }
             postProgressNotification(
                 appContext,
@@ -494,7 +555,7 @@ open class WorkflowEngine(
                 isFinished = true,
                 isSuccess = false,
             )
-            return WorkflowExecutionResult.PreconditionFailed(
+            val precFailResult = WorkflowExecutionResult.PreconditionFailed(
                 workflowId = workflow.id,
                 nodeId = currentNode.id,
                 nodeName = currentNode.name,
@@ -503,6 +564,8 @@ open class WorkflowEngine(
                 steps = steps.toList(),
                 shouldQueue = precResult.shouldQueue,
             )
+            notifyStepUpdate(workflow, steps.toList(), onStepUpdate, isExecuting = false, result = precFailResult)
+            return precFailResult
         }
         return null
     }
@@ -525,6 +588,7 @@ open class WorkflowEngine(
             val duration = (System.currentTimeMillis() - nodeStartTime).coerceAtLeast(0L)
             logs.add("❌ Node '${currentNode.name}' failed: ${e.message}")
             updateStep(
+                workflow = workflow,
                 steps = steps,
                 nodeId = currentNode.id,
                 newState = NodeStepState.FAILED,
@@ -534,7 +598,6 @@ open class WorkflowEngine(
                 onStepUpdate = onStepUpdate,
             )
             markPendingStepsSkipped(steps, "Skipped due to disabled or unknown node type")
-            onStepUpdate(steps.toList())
             postProgressNotification(
                 appContext,
                 context,
@@ -544,13 +607,15 @@ open class WorkflowEngine(
                 isFinished = true,
                 isSuccess = false,
             )
-            return WorkflowExecutionResult.Failed(
+            val failResult = WorkflowExecutionResult.Failed(
                 workflowId = workflow.id,
                 nodeId = currentNode.id,
                 reason = e.message ?: "Unknown node type",
                 logs = logs,
                 steps = steps.toList(),
             )
+            notifyStepUpdate(workflow, steps.toList(), onStepUpdate, isExecuting = false, result = failResult)
+            return failResult
         }
 
         val result = executor.execute(currentNode, context, appContext)
@@ -559,6 +624,7 @@ open class WorkflowEngine(
             is NodeExecutionResult.Ignored -> {
                 logs.add("ℹ️ Node '${currentNode.name}' ignored: ${result.reason}")
                 updateStep(
+                    workflow = workflow,
                     steps = steps,
                     nodeId = currentNode.id,
                     newState = NodeStepState.SKIPPED,
@@ -567,12 +633,14 @@ open class WorkflowEngine(
                     onStepUpdate = onStepUpdate,
                 )
                 markPendingStepsSkipped(steps, "Skipped due to filtered-out trigger")
-                onStepUpdate(steps.toList())
-                WorkflowExecutionResult.Success(workflowId = workflow.id, logs = logs, steps = steps.toList())
+                val successResult = WorkflowExecutionResult.Success(workflowId = workflow.id, logs = logs, steps = steps.toList())
+                notifyStepUpdate(workflow, steps.toList(), onStepUpdate, isExecuting = false, result = successResult)
+                successResult
             }
             is NodeExecutionResult.Failed -> {
                 logs.add("❌ Node '${currentNode.name}' failed: ${result.reason}")
                 updateStep(
+                    workflow = workflow,
                     steps = steps,
                     nodeId = currentNode.id,
                     newState = NodeStepState.FAILED,
@@ -582,7 +650,6 @@ open class WorkflowEngine(
                     onStepUpdate = onStepUpdate,
                 )
                 markPendingStepsSkipped(steps, "Skipped due to upstream failure")
-                onStepUpdate(steps.toList())
                 postProgressNotification(
                     appContext,
                     context,
@@ -592,17 +659,20 @@ open class WorkflowEngine(
                     isFinished = true,
                     isSuccess = false,
                 )
-                WorkflowExecutionResult.Failed(
+                val failResult = WorkflowExecutionResult.Failed(
                     workflowId = workflow.id,
                     nodeId = currentNode.id,
                     reason = result.reason,
                     logs = logs,
                     steps = steps.toList(),
                 )
+                notifyStepUpdate(workflow, steps.toList(), onStepUpdate, isExecuting = false, result = failResult)
+                failResult
             }
             is NodeExecutionResult.Success -> {
                 logs.add("✅ Node '${currentNode.name}': ${result.logMessage}")
                 updateStep(
+                    workflow = workflow,
                     steps = steps,
                     nodeId = currentNode.id,
                     newState = NodeStepState.SUCCESS,
@@ -641,7 +711,25 @@ open class WorkflowEngine(
         }
     }
 
+    private fun notifyStepUpdate(
+        workflow: Workflow,
+        steps: List<NodeExecutionStep>,
+        onStepUpdate: (List<NodeExecutionStep>) -> Unit,
+        isExecuting: Boolean = true,
+        result: WorkflowExecutionResult? = null,
+    ) {
+        ActiveExecutionTracker.updateExecution(
+            workflowId = workflow.id,
+            workflowName = workflow.name,
+            steps = steps,
+            isExecuting = isExecuting,
+            result = result,
+        )
+        onStepUpdate(steps)
+    }
+
     private fun updateStep(
+        workflow: Workflow,
         steps: MutableList<NodeExecutionStep>,
         nodeId: String,
         newState: NodeStepState,
@@ -663,7 +751,7 @@ open class WorkflowEngine(
                 durationMs = durationMs ?: existing.durationMs,
                 retriedInExecutionId = retriedInExecutionId ?: existing.retriedInExecutionId,
             )
-            onStepUpdate(steps.toList())
+            notifyStepUpdate(workflow, steps.toList(), onStepUpdate, isExecuting = true)
         }
     }
 
@@ -695,7 +783,6 @@ open class WorkflowEngine(
                 else -> {}
             }
         }
-        onStepUpdate(steps.toList())
         postProgressNotification(
             appContext,
             context,
@@ -705,6 +792,8 @@ open class WorkflowEngine(
             isFinished = true,
             isSuccess = false,
         )
-        return WorkflowExecutionResult.Cancelled(workflowId = workflow.id, logs = logs, steps = steps.toList())
+        val cancelResult = WorkflowExecutionResult.Cancelled(workflowId = workflow.id, logs = logs, steps = steps.toList())
+        notifyStepUpdate(workflow, steps.toList(), onStepUpdate, isExecuting = false, result = cancelResult)
+        return cancelResult
     }
 }

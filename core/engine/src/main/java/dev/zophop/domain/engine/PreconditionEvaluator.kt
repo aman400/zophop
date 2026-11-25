@@ -1,19 +1,14 @@
 package dev.zophop.domain.engine
 
 import android.annotation.SuppressLint
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.content.Context
 import android.location.LocationManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
-import android.os.Build
 import android.telephony.TelephonyManager
-import androidx.core.app.NotificationCompat
 import dev.zophop.domain.engine.plugin.BuiltInPluginRegistry
 import dev.zophop.domain.engine.plugin.CoreEngineNodesModule
 import dev.zophop.domain.model.Precondition
-import dev.zophop.domain.model.PreconditionType
 import dev.zophop.domain.model.Workflow
 import dev.zophop.domain.model.calculateRetryDelaySeconds
 import dev.zophop.domain.model.optString
@@ -141,13 +136,9 @@ open class PreconditionEvaluator(
             val isQueuePolicy = precondition.onFailureAction.trim().contains("QUEUE", ignoreCase = true)
             val isRetryPolicy = precondition.onFailureAction.trim().contains("RETRY", ignoreCase = true)
             if (result is PreconditionResult.Failed && isRetryPolicy && precondition.maxRetries > 0) {
-                result = evaluateRetryPolicy(precondition, nextStack, result, onStepUpdate)
+                result = evaluateRetryPolicy(precondition, callStack, result, onStepUpdate)
             } else if (result is PreconditionResult.Failed && isQueuePolicy) {
-                result = evaluateQueuePolicy(precondition, nextStack, result, onStepUpdate)
-            }
-
-            if (result is PreconditionResult.Failed && precondition.showNotificationOnFailure) {
-                postFailureNotification(precondition, result.reason)
+                result = evaluateQueuePolicy(precondition, callStack, result, onStepUpdate)
             }
 
             result
@@ -155,7 +146,7 @@ open class PreconditionEvaluator(
 
     private suspend fun evaluateRetryPolicy(
         precondition: Precondition,
-        nextStack: Set<String>,
+        callStack: Set<String>,
         initialFailedResult: PreconditionResult.Failed,
         onStepUpdate: ((List<NodeExecutionStep>) -> Unit)?,
     ): PreconditionResult {
@@ -194,7 +185,7 @@ open class PreconditionEvaluator(
             currentCoroutineContext().ensureActive()
 
             val retryResult =
-                evaluateSingleAttempt(precondition, nextStack) { attemptSteps ->
+                evaluateSingleAttempt(precondition, callStack) { attemptSteps ->
                     val currentList = historySteps + attemptSteps
                     onStepUpdate?.invoke(currentList)
                 }
@@ -221,7 +212,7 @@ open class PreconditionEvaluator(
 
     private suspend fun evaluateQueuePolicy(
         precondition: Precondition,
-        nextStack: Set<String>,
+        callStack: Set<String>,
         initialFailedResult: PreconditionResult.Failed,
         onStepUpdate: ((List<NodeExecutionStep>) -> Unit)?,
     ): PreconditionResult {
@@ -232,8 +223,10 @@ open class PreconditionEvaluator(
         var elapsedSeconds = 0
         var attempt = 1
         var lastFailReason = initialFailedResult.reason
+        var passedResult: PreconditionResult.Passed? = null
+        var isQueueActive = true
 
-        while (elapsedSeconds < timeoutSeconds) {
+        while (elapsedSeconds < timeoutSeconds && isQueueActive) {
             currentCoroutineContext().ensureActive()
 
             val remainingTimeoutSec = (timeoutSeconds - elapsedSeconds).coerceAtLeast(1)
@@ -246,54 +239,57 @@ open class PreconditionEvaluator(
                     randomGenerator = randomGenerator,
                 ).coerceAtMost(remainingTimeoutSec)
 
-            for (sec in nextDelaySec downTo 1) {
+            val earlyPass =
+                countdownWithProbe(
+                    precondition = precondition,
+                    callStack = callStack,
+                    historySteps = historySteps,
+                    nextDelaySec = nextDelaySec,
+                    elapsedSeconds = elapsedSeconds,
+                    timeoutSeconds = timeoutSeconds,
+                    attempt = attempt,
+                    lastFailReason = lastFailReason,
+                    onStepUpdate = onStepUpdate,
+                )
+            if (earlyPass != null) {
+                passedResult = earlyPass
+                isQueueActive = false
+            } else {
+                elapsedSeconds += nextDelaySec
+                attempt++
+
                 currentCoroutineContext().ensureActive()
-                val currentQueueRemaining = (timeoutSeconds - elapsedSeconds - (nextDelaySec - sec)).coerceAtLeast(0)
-                val queueNoticeStep =
-                    NodeExecutionStep(
-                        nodeId = "queue_waiting_$attempt",
-                        nodeName = "⏳ Queued (Attempt #$attempt)",
-                        nodeType = CoreEngineNodesModule.CONDITION,
-                        state = NodeStepState.EXECUTING,
-                        logMessage = "Precondition unsatisfied ($lastFailReason). Waiting in queue (${precondition.retryStrategy} backoff: ${sec}s to next check, ${currentQueueRemaining / 60}m ${currentQueueRemaining % 60}s timeout remaining)...",
-                    )
-                val currentProgress = historySteps + queueNoticeStep
-                onStepUpdate?.invoke(currentProgress)
 
-                delayDuration(1000L.milliseconds)
-            }
-
-            elapsedSeconds += nextDelaySec
-            currentCoroutineContext().ensureActive()
-
-            val queueAttemptResult =
-                evaluateSingleAttempt(precondition, nextStack) { attemptSteps ->
+                val retryResult = evaluateSingleAttempt(precondition, callStack) { attemptSteps ->
                     val currentList = historySteps + attemptSteps
                     onStepUpdate?.invoke(currentList)
                 }
 
-            if (queueAttemptResult is PreconditionResult.Passed) {
-                historySteps.addAll(queueAttemptResult.steps)
-                val resolvedStep =
-                    NodeExecutionStep(
-                        nodeId = "queue_resolved_${precondition.id.ifBlank { precondition.type.name }}",
-                        nodeName = "✅ Precondition Satisfied in Queue",
-                        nodeType = CoreEngineNodesModule.CONDITION,
-                        state = NodeStepState.SUCCESS,
-                        logMessage = "Precondition resolved in queue after ${elapsedSeconds}s (attempt #$attempt). Resuming workflow execution.",
-                    )
-                historySteps.add(resolvedStep)
-                val passed = PreconditionResult.Passed(steps = historySteps.toList())
-                onStepUpdate?.invoke(historySteps.toList())
-                return passed
-            } else if (queueAttemptResult is PreconditionResult.Failed) {
-                lastFailReason = queueAttemptResult.reason
-                historySteps.addAll(queueAttemptResult.steps)
-                attempt++
-                if (elapsedSeconds >= timeoutSeconds) {
-                    break
+                if (retryResult is PreconditionResult.Passed) {
+                    historySteps.addAll(retryResult.steps)
+                    val resolvedStep =
+                        NodeExecutionStep(
+                            nodeId = "queue_resolved_${precondition.id.ifBlank { precondition.type.name }}",
+                            nodeName = "✅ Precondition Satisfied in Queue",
+                            nodeType = CoreEngineNodesModule.CONDITION,
+                            state = NodeStepState.SUCCESS,
+                            logMessage = "Precondition resolved in queue after ${elapsedSeconds}s (attempt #${attempt - 1}). Resuming workflow execution.",
+                        )
+                    historySteps.add(resolvedStep)
+                    val passed = PreconditionResult.Passed(steps = historySteps.toList())
+                    onStepUpdate?.invoke(historySteps.toList())
+                    passedResult = passed
+                    isQueueActive = false
+                } else if (retryResult is PreconditionResult.Failed) {
+                    lastFailReason = retryResult.reason
+                    historySteps.addAll(retryResult.steps)
+                    onStepUpdate?.invoke(historySteps.toList())
                 }
             }
+        }
+
+        if (passedResult != null) {
+            return passedResult
         }
 
         val timeoutMsg = "Precondition unsatisfied after ${precondition.queueTimeoutMinutes}m queue timeout: $lastFailReason"
@@ -315,6 +311,82 @@ open class PreconditionEvaluator(
             )
         onStepUpdate?.invoke(historySteps.toList())
         return finalFailed
+    }
+
+    private suspend fun countdownWithProbe(
+        precondition: Precondition,
+        callStack: Set<String>,
+        historySteps: MutableList<NodeExecutionStep>,
+        nextDelaySec: Int,
+        elapsedSeconds: Int,
+        timeoutSeconds: Int,
+        attempt: Int,
+        lastFailReason: String,
+        onStepUpdate: ((List<NodeExecutionStep>) -> Unit)?,
+    ): PreconditionResult.Passed? {
+        for (sec in nextDelaySec downTo 1) {
+            currentCoroutineContext().ensureActive()
+            val currentQueueRemaining = (timeoutSeconds - elapsedSeconds - (nextDelaySec - sec)).coerceAtLeast(0)
+            val remainingDesc = if (currentQueueRemaining >= 60) {
+                "${currentQueueRemaining / 60}m ${currentQueueRemaining % 60}s"
+            } else {
+                "${currentQueueRemaining}s"
+            }
+            val precLabel = precondition.name.ifBlank { precondition.type.name }
+            val queueNoticeStep =
+                NodeExecutionStep(
+                    nodeId = "queue_waiting_$attempt",
+                    nodeName = "⏳ Queued (Attempt #$attempt)",
+                    nodeType = CoreEngineNodesModule.CONDITION,
+                    state = NodeStepState.EXECUTING,
+                    logMessage = "Waiting for $precLabel ($lastFailReason). Next check in ${sec}s ($remainingDesc timeout remaining)...",
+                )
+            val currentProgress = historySteps + queueNoticeStep
+            onStepUpdate?.invoke(currentProgress)
+
+            val actualElapsed = elapsedSeconds + (nextDelaySec - sec) + 1
+            val quickResult = checkLocalOsProbe(precondition, callStack, attempt, actualElapsed, historySteps, onStepUpdate)
+            if (quickResult != null) {
+                return quickResult
+            }
+
+            delayDuration(1000L.milliseconds)
+        }
+        return null
+    }
+
+    private suspend fun checkLocalOsProbe(
+        precondition: Precondition,
+        callStack: Set<String>,
+        attempt: Int,
+        actualElapsed: Int,
+        historySteps: MutableList<NodeExecutionStep>,
+        onStepUpdate: ((List<NodeExecutionStep>) -> Unit)?,
+    ): PreconditionResult.Passed? {
+        val hasLocalCapability = when (precondition) {
+            is Precondition.InternetCheck -> isInternetAvailable()
+            is Precondition.VpnCheck -> isVpnConnected()
+            else -> false
+        }
+        if (hasLocalCapability) {
+            val quickProbe = evaluateSingleAttempt(precondition, callStack)
+            if (quickProbe is PreconditionResult.Passed) {
+                historySteps.addAll(quickProbe.steps)
+                val resolvedStep =
+                    NodeExecutionStep(
+                        nodeId = "queue_resolved_${precondition.id.ifBlank { precondition.type.name }}",
+                        nodeName = "✅ Precondition Satisfied in Queue",
+                        nodeType = CoreEngineNodesModule.CONDITION,
+                        state = NodeStepState.SUCCESS,
+                        logMessage = "Precondition resolved in queue after ${actualElapsed}s (attempt #$attempt). Resuming workflow execution.",
+                    )
+                historySteps.add(resolvedStep)
+                val passed = PreconditionResult.Passed(steps = historySteps.toList())
+                onStepUpdate?.invoke(historySteps.toList())
+                return passed
+            }
+        }
+        return null
     }
 
     private suspend fun evaluateSingleAttempt(
@@ -545,56 +617,6 @@ open class PreconditionEvaluator(
             }
         }
 
-    private fun postFailureNotification(
-        precondition: Precondition,
-        reason: String,
-    ) {
-        val ctx = context ?: return
-        try {
-            val notificationManager =
-                ctx.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-                    ?: return
-
-            val channelId = "precondition_failure_channel"
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val channel =
-                    NotificationChannel(
-                        channelId,
-                        "Precondition Alerts",
-                        NotificationManager.IMPORTANCE_HIGH,
-                    ).apply {
-                        description = "Notifications for failed precondition checks"
-                    }
-                notificationManager.createNotificationChannel(channel)
-            }
-
-            val (typeEmoji, typeTitle) =
-                when (precondition.type) {
-                    PreconditionType.INTERNET_CHECK -> "🌐" to "Internet Check"
-                    PreconditionType.VPN_CHECK -> "🔐" to "VPN Check"
-                    PreconditionType.HEALTH_CHECK -> "🩺" to "Healthcheck"
-                    PreconditionType.SIM_CHECK -> "📱" to "SIM Card Check"
-                    PreconditionType.GPS_CHECK -> "📍" to "GPS Check"
-                    PreconditionType.BATTERY_CHECK -> "🔋" to "Battery Check"
-                    PreconditionType.CHAINED_CHECK -> "⛓️" to "Chained Pipeline"
-                }
-
-            val notification =
-                NotificationCompat
-                    .Builder(ctx, channelId)
-                    .setSmallIcon(android.R.drawable.ic_dialog_alert)
-                    .setContentTitle("$typeEmoji Precondition Failed: $typeTitle")
-                    .setContentText(reason)
-                    .setStyle(NotificationCompat.BigTextStyle().bigText("Precondition Failed:\n$reason"))
-                    .setPriority(NotificationCompat.PRIORITY_HIGH)
-                    .setAutoCancel(true)
-                    .build()
-
-            notificationManager.notify((System.currentTimeMillis() % 100000).toInt(), notification)
-        } catch (_: Exception) {
-        }
-    }
-
     private suspend fun evaluateChainCheck(
         check: Precondition.ChainCheck,
         callStack: Set<String>,
@@ -781,30 +803,52 @@ open class PreconditionEvaluator(
         )
     }
 
+    @Suppress("DEPRECATION")
     @SuppressLint("MissingPermission")
-    fun isInternetAvailable(): Boolean {
+    open fun isInternetAvailable(): Boolean {
         val ctx = context ?: return true
         val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
-        val activeNetwork = cm.activeNetwork ?: return false
-        val caps = cm.getNetworkCapabilities(activeNetwork) ?: return false
-        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        val activeNetwork = cm.activeNetwork
+        if (activeNetwork != null) {
+            val caps = cm.getNetworkCapabilities(activeNetwork)
+            if (caps != null && (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) || caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED))) {
+                return true
+            }
+        }
+        return try {
+            cm.allNetworks.any { network ->
+                val caps = cm.getNetworkCapabilities(network)
+                caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            }
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private val vpnKeywords = listOf("tun", "ppp", "tailscale", "wireguard", "utun")
 
     @SuppressLint("MissingPermission")
-    fun isVpnConnected(): Boolean {
+    open fun isVpnConnected(): Boolean {
         val ctx = context
-        if (ctx != null && checkNetworkCapabilitiesVpn(ctx)) return true
-        return checkNetworkInterfacesVpn()
+        return (ctx != null && checkNetworkCapabilitiesVpn(ctx)) || checkNetworkInterfacesVpn()
     }
 
+    @Suppress("DEPRECATION")
     @SuppressLint("MissingPermission")
     private fun checkNetworkCapabilitiesVpn(ctx: Context): Boolean {
         val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
-        val activeNetwork = cm.activeNetwork ?: return false
-        val caps = cm.getNetworkCapabilities(activeNetwork) ?: return false
-        return caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+        val activeNetwork = cm.activeNetwork
+        if (activeNetwork != null && cm.getNetworkCapabilities(activeNetwork)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true) {
+            return true
+        }
+        return try {
+            cm.allNetworks.any { network ->
+                val caps = cm.getNetworkCapabilities(network)
+                caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+            }
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private fun checkNetworkInterfacesVpn(): Boolean = try {

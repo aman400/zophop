@@ -28,6 +28,7 @@ class BootReceiver : BroadcastReceiver() {
                         val manager = ForwardingManager.getInstance(context)
                         manager.scheduleWorkManagerRetry()
                         manager.processPendingQueue()
+                        dev.zophop.worker.WorkflowQueueManager.processQueuedWorkflows(context)
                     } finally {
                         pendingResult?.finish()
                     }

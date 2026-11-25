@@ -44,6 +44,7 @@ class MainViewModelTest {
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
+        dev.zophop.domain.engine.ActiveExecutionTracker.clearAll()
         application = ApplicationProvider.getApplicationContext()
         WorkManagerTestInitHelper.initializeTestWorkManager(application)
 
@@ -52,6 +53,7 @@ class MainViewModelTest {
 
     @After
     fun tearDown() {
+        dev.zophop.domain.engine.ActiveExecutionTracker.clearAll()
         Dispatchers.resetMain()
     }
 
@@ -324,5 +326,108 @@ class MainViewModelTest {
             assertNotNull(retriedStep)
             assertNotNull(retriedStep?.retriedInExecutionId)
             assertTrue(retriedStep?.retriedInExecutionId?.isNotBlank() == true)
+        }
+
+    @Test
+    fun testBackupBridge_biometricLockTogglesWithViewModelState() {
+        assertFalse(viewModel.backupBridge.isBiometricLockEnabled())
+        viewModel.toggleLockCredentialsWithBiometric(true)
+        assertTrue(viewModel.backupBridge.isBiometricLockEnabled())
+        viewModel.toggleLockCredentialsWithBiometric(false)
+        assertFalse(viewModel.backupBridge.isBiometricLockEnabled())
+    }
+
+    @Test
+    fun testBackupService_exportAndImportViaViewModel() =
+        runTest {
+            val wf = Workflow(id = "wf_vm_test", name = "VM Export Flow", nodes = emptyList())
+            viewModel.workflowRepository.saveWorkflow(wf)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            val json =
+                viewModel.exportBackupJson(
+                    dev.zophop.feature.backup.ExportOptions(
+                        includeWorkflows = true,
+                        selectedWorkflowIds = setOf("wf_vm_test"),
+                        includeCredentials = false,
+                        includePreconditions = false,
+                    ),
+                )
+            assertTrue(json.contains("VM Export Flow"))
+
+            val parsed = viewModel.parseImportJson(json)
+            assertEquals(1, parsed.workflows.size)
+            assertEquals("wf_vm_test", parsed.workflows[0].id)
+
+            val importData =
+                dev.zophop.feature.backup.ParsedBackupData(
+                    workflows = listOf(Workflow(id = "wf_imported_via_vm", name = "Restored Via VM", nodes = emptyList())),
+                )
+            val result = viewModel.executeImport(importData, dev.zophop.feature.backup.ImportConflictStrategy.OVERWRITE)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(1, result.importedWorkflowsCount)
+            val importedWf = viewModel.workflowRepository.getWorkflowById("wf_imported_via_vm")
+            assertNotNull(importedWf)
+            assertEquals("Restored Via VM", importedWf?.name)
+        }
+
+    @Test
+    fun testNavigateToExecutingWorkflow_withActiveExecution() =
+        runTest {
+            dev.zophop.domain.engine.ActiveExecutionTracker.updateExecution(
+                workflowId = "wf_executing_1",
+                workflowName = "Active Workflow",
+                steps = emptyList(),
+                isExecuting = true,
+            )
+
+            viewModel.navigateToExecutingWorkflow("wf_executing_1")
+            assertEquals("wf_executing_1", viewModel.targetExecutingWorkflowId.value)
+            assertEquals("wf_executing_1", viewModel.activeExecutionState.value?.workflowId)
+            assertTrue(viewModel.activeExecutionState.value?.isExecuting == true)
+
+            viewModel.clearTargetExecutingWorkflowId()
+            assertNull(viewModel.targetExecutingWorkflowId.value)
+        }
+
+    @Test
+    fun testNavigateToExecutingWorkflow_withoutActiveExecution_opensLogs() =
+        runTest {
+            val wf = Workflow(id = "wf_finished_logs", name = "Finished Flow", nodes = emptyList())
+            viewModel.workflowRepository.saveWorkflow(wf)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            viewModel.navigateToExecutingWorkflow("wf_finished_logs")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            var attempts = 0
+            while (viewModel.uiState.value.selectedWorkflowForLogs == null && attempts < 20) {
+                Thread.sleep(50)
+                testDispatcher.scheduler.advanceUntilIdle()
+                attempts++
+            }
+
+            assertNull(viewModel.targetExecutingWorkflowId.value)
+            assertEquals("wf_finished_logs", viewModel.uiState.value.selectedWorkflowForLogs?.id)
+        }
+
+    @Test
+    fun testActiveExecutionTracker_updatesViewModelActiveExecutionState() =
+        runTest {
+            dev.zophop.domain.engine.ActiveExecutionTracker.updateExecution(
+                workflowId = "wf_bg_exec",
+                workflowName = "Background Exec",
+                steps = emptyList(),
+                isExecuting = true,
+            )
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("wf_bg_exec", viewModel.activeExecutionState.value?.workflowId)
+            assertTrue(viewModel.activeExecutionState.value?.isExecuting == true)
+
+            viewModel.clearActiveExecutionState()
+            assertNull(viewModel.activeExecutionState.value)
+            assertNull(dev.zophop.domain.engine.ActiveExecutionTracker.getExecution("wf_bg_exec"))
         }
 }

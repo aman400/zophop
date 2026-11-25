@@ -47,7 +47,6 @@ class EntityMappingAndSerializationTest {
         assertEquals("RETRY", healthDomain.onFailureAction)
         assertEquals(5, healthDomain.maxRetries)
         assertEquals(15, healthDomain.retryIntervalSeconds)
-        assertEquals(true, healthDomain.showNotificationOnFailure)
     }
 
     @Test
@@ -108,7 +107,6 @@ class EntityMappingAndSerializationTest {
                             onFailureAction = "RETRY",
                             maxRetries = 4,
                             retryIntervalSeconds = 20,
-                            showNotificationOnFailure = true,
                         ),
                     ),
             )
@@ -146,7 +144,6 @@ class EntityMappingAndSerializationTest {
         assertEquals("RETRY", prec.onFailureAction)
         assertEquals(4, prec.maxRetries)
         assertEquals(20, prec.retryIntervalSeconds)
-        assertEquals(true, prec.showNotificationOnFailure)
     }
 
     @Test

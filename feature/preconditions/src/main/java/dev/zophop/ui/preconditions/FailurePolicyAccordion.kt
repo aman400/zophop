@@ -42,9 +42,6 @@ fun FailurePolicyAccordion(
     onRetryStrategyChanged: (String) -> Unit = {},
     queueTimeoutMinutes: String = "10",
     onQueueTimeoutMinutesChanged: (String) -> Unit = {},
-    showNotificationOnFailure: Boolean,
-    onShowNotificationOnFailureChanged: (Boolean) -> Unit,
-    onShowNotificationRationale: () -> Unit = {},
 ) {
     var expanded by remember { mutableStateOf(false) }
 
@@ -117,9 +114,6 @@ fun FailurePolicyAccordion(
                     onRetryStrategyChanged = onRetryStrategyChanged,
                     queueTimeoutMinutes = queueTimeoutMinutes,
                     onQueueTimeoutMinutesChanged = onQueueTimeoutMinutesChanged,
-                    showNotificationOnFailure = showNotificationOnFailure,
-                    onShowNotificationOnFailureChanged = onShowNotificationOnFailureChanged,
-                    onShowNotificationRationale = onShowNotificationRationale,
                 )
             }
         }

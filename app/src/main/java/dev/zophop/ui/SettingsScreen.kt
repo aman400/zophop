@@ -298,6 +298,7 @@ fun SettingsScreen(
     if (showExportBackupDialog) {
         ExportBackupDialog(
             backupService = viewModel.backupService,
+            isBiometricLockEnabled = uiState.lockCredentialsWithBiometric,
             workflowsCount = workflows.size,
             credentialsCount = credentials.size,
             preconditionsCount = preconditions.size,
@@ -308,6 +309,7 @@ fun SettingsScreen(
     if (showImportBackupDialog) {
         ImportBackupDialog(
             backupService = viewModel.backupService,
+            isBiometricLockEnabled = uiState.lockCredentialsWithBiometric,
             onDismiss = { showImportBackupDialog = false },
         )
     }

@@ -36,6 +36,7 @@ class ConnectivityMonitor(
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 ForwardingManager.getInstance(context).processPendingQueue()
+                dev.zophop.worker.WorkflowQueueManager.processQueuedWorkflows(context)
             } catch (e: IllegalStateException) {
                 Log.w(TAG, "Error processing queue on connectivity change: ${e.message}", e)
             } catch (e: SecurityException) {

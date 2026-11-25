@@ -16,7 +16,6 @@ import dev.zophop.domain.model.optJsonObject
 import dev.zophop.domain.model.optString
 import dev.zophop.domain.model.parseJsonObjectSafe
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonObject
 
 @Serializable
@@ -157,7 +156,6 @@ private fun parsePrecondition(pObj: JsonObject): Precondition {
     val pRetryInterval = pObj.optInt("retryIntervalSeconds", 30)
     val pRetryStrategy = pObj.optString("retryStrategy", "FIXED")
     val pQueueTimeout = pObj.optInt("queueTimeoutMinutes", 10)
-    val pShowNotif = pObj.optBoolean("showNotificationOnFailure", false)
 
     val precType =
         try {
@@ -177,7 +175,6 @@ private fun parsePrecondition(pObj: JsonObject): Precondition {
                 retryIntervalSeconds = pRetryInterval,
                 retryStrategy = pRetryStrategy,
                 queueTimeoutMinutes = pQueueTimeout,
-                showNotificationOnFailure = pShowNotif,
             )
         PreconditionType.VPN_CHECK ->
             Precondition.VpnCheck(
@@ -189,7 +186,6 @@ private fun parsePrecondition(pObj: JsonObject): Precondition {
                 retryIntervalSeconds = pRetryInterval,
                 retryStrategy = pRetryStrategy,
                 queueTimeoutMinutes = pQueueTimeout,
-                showNotificationOnFailure = pShowNotif,
             )
         PreconditionType.HEALTH_CHECK ->
             Precondition.HealthCheck(
@@ -201,7 +197,6 @@ private fun parsePrecondition(pObj: JsonObject): Precondition {
                 retryIntervalSeconds = pRetryInterval,
                 retryStrategy = pRetryStrategy,
                 queueTimeoutMinutes = pQueueTimeout,
-                showNotificationOnFailure = pShowNotif,
             )
         PreconditionType.SIM_CHECK ->
             Precondition.SimCheck(
@@ -213,7 +208,6 @@ private fun parsePrecondition(pObj: JsonObject): Precondition {
                 retryIntervalSeconds = pRetryInterval,
                 retryStrategy = pRetryStrategy,
                 queueTimeoutMinutes = pQueueTimeout,
-                showNotificationOnFailure = pShowNotif,
             )
         PreconditionType.GPS_CHECK ->
             Precondition.GpsCheck(
@@ -225,7 +219,6 @@ private fun parsePrecondition(pObj: JsonObject): Precondition {
                 retryIntervalSeconds = pRetryInterval,
                 retryStrategy = pRetryStrategy,
                 queueTimeoutMinutes = pQueueTimeout,
-                showNotificationOnFailure = pShowNotif,
             )
         PreconditionType.BATTERY_CHECK ->
             Precondition.BatteryCheck(
@@ -237,7 +230,6 @@ private fun parsePrecondition(pObj: JsonObject): Precondition {
                 retryIntervalSeconds = pRetryInterval,
                 retryStrategy = pRetryStrategy,
                 queueTimeoutMinutes = pQueueTimeout,
-                showNotificationOnFailure = pShowNotif,
             )
         PreconditionType.CHAINED_CHECK ->
             parseChainedPrecondition(
@@ -250,7 +242,6 @@ private fun parsePrecondition(pObj: JsonObject): Precondition {
                 pRetryInterval = pRetryInterval,
                 pRetryStrategy = pRetryStrategy,
                 pQueueTimeout = pQueueTimeout,
-                pShowNotif = pShowNotif,
             )
     }
 }
@@ -266,7 +257,6 @@ private fun parseChainedPrecondition(
     pRetryInterval: Int,
     pRetryStrategy: String = "FIXED",
     pQueueTimeout: Int = 10,
-    pShowNotif: Boolean,
 ): Precondition.ChainCheck {
     val chainNodesList = mutableListOf<WorkflowNode>()
     val chainConnectionsList = mutableListOf<WorkflowConnection>()
@@ -296,7 +286,6 @@ private fun parseChainedPrecondition(
         retryIntervalSeconds = pRetryInterval,
         retryStrategy = pRetryStrategy,
         queueTimeoutMinutes = pQueueTimeout,
-        showNotificationOnFailure = pShowNotif,
     )
 }
 

@@ -36,7 +36,6 @@ fun PreconditionChangesConfirmDialog(
     retryIntervalSeconds: String,
     retryStrategy: String = "FIXED",
     queueTimeoutMinutes: String = "10",
-    showNotificationOnFailure: Boolean,
     chainNodes: List<WorkflowNode>,
     linkedWorkflows: List<Workflow>,
     icon: String = "",
@@ -51,8 +50,7 @@ fun PreconditionChangesConfirmDialog(
             maxRetries != (precondition?.maxRetries?.toString() ?: "3") ||
             retryIntervalSeconds != (precondition?.retryIntervalSeconds?.toString() ?: "30") ||
             retryStrategy != (precondition?.retryStrategy ?: "FIXED") ||
-            queueTimeoutMinutes != (precondition?.queueTimeoutMinutes?.toString() ?: "10") ||
-            showNotificationOnFailure != (precondition?.showNotificationOnFailure ?: false)
+            queueTimeoutMinutes != (precondition?.queueTimeoutMinutes?.toString() ?: "10")
     val originalChainIds = (precondition?.toDomain() as? Precondition.ChainCheck)?.nodes?.map { it.id }?.toSet() ?: emptySet()
     val currentChainIds = chainNodes.map { it.id }.toSet()
     val addedSteps = chainNodes.filter { !originalChainIds.contains(it.id) }
@@ -86,7 +84,6 @@ fun PreconditionChangesConfirmDialog(
                     retryIntervalSeconds = retryIntervalSeconds,
                     retryStrategy = retryStrategy,
                     queueTimeoutMinutes = queueTimeoutMinutes,
-                    showNotificationOnFailure = showNotificationOnFailure,
                     addedSteps = addedSteps,
                     removedSteps = removedSteps,
                 )
@@ -158,7 +155,6 @@ private fun PreconditionChangesSummaryList(
     retryIntervalSeconds: String,
     retryStrategy: String,
     queueTimeoutMinutes: String,
-    showNotificationOnFailure: Boolean,
     addedSteps: List<WorkflowNode>,
     removedSteps: List<WorkflowNode>,
 ) {
@@ -186,7 +182,6 @@ private fun PreconditionChangesSummaryList(
             Text("  - Retry Interval: ${retryIntervalSeconds}s (was ${precondition?.retryIntervalSeconds ?: 30}s)")
             Text("  - Backoff Strategy: $retryStrategy (was ${precondition?.retryStrategy ?: "FIXED"})")
         }
-        Text("  - Notification Alert: $showNotificationOnFailure (was ${precondition?.showNotificationOnFailure ?: false})")
     }
     if (addedSteps.isNotEmpty()) {
         Text(

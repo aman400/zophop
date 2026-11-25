@@ -1,7 +1,5 @@
 package dev.zophop.ui.preconditions
 
-import android.content.pm.PackageManager
-import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -22,16 +20,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
 
 /**
  * Reusable Card composable for configuring Failure and Retry policies on Preconditions.
@@ -48,13 +43,8 @@ fun FailurePolicyCard(
     onRetryStrategyChanged: (String) -> Unit = {},
     queueTimeoutMinutes: String = "10",
     onQueueTimeoutMinutesChanged: (String) -> Unit = {},
-    showNotificationOnFailure: Boolean,
-    onShowNotificationOnFailureChanged: (Boolean) -> Unit,
-    onShowNotificationRationale: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
-
     OutlinedCard(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
@@ -264,42 +254,6 @@ fun FailurePolicyCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                    Text(
-                        text = "System Notification on Failure",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        text = "Notify if precondition check fails permanently",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(
-                    checked = showNotificationOnFailure,
-                    onCheckedChange = { enable ->
-                        if (enable && Build.VERSION.SDK_INT >= 33) {
-                            val granted =
-                                ContextCompat.checkSelfPermission(
-                                    context,
-                                    android.Manifest.permission.POST_NOTIFICATIONS,
-                                ) == PackageManager.PERMISSION_GRANTED
-                            if (!granted) {
-                                onShowNotificationRationale()
-                                return@Switch
-                            }
-                        }
-                        onShowNotificationOnFailureChanged(enable)
-                    },
-                )
             }
         }
     }

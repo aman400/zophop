@@ -10,6 +10,7 @@ import dev.zophop.data.RoomCredentialRepository
 import dev.zophop.data.RoomWorkflowRepository
 import dev.zophop.data.WorkflowExecutionLogEntity
 import dev.zophop.domain.engine.ExecutionJobRegistry
+import dev.zophop.domain.engine.NodeExecutionStep
 import dev.zophop.domain.engine.PreconditionEvaluator
 import dev.zophop.domain.engine.WorkflowEngine
 import dev.zophop.domain.engine.WorkflowExecutionResult
@@ -69,6 +70,7 @@ class ZopHopNotificationListenerService : NotificationListenerService() {
         val evaluator = PreconditionEvaluator(applicationContext)
         val engine = WorkflowEngine(evaluator, credentialRepository)
 
+        val showWorkflowNotifications = EncryptedSettingsRepository(applicationContext).getSettings().showWorkflowNotifications
         val baseContextMap = mapOf(
             "package_name" to data.packageName,
             "title" to data.title,
@@ -76,13 +78,48 @@ class ZopHopNotificationListenerService : NotificationListenerService() {
             "sender" to data.sender,
             "body" to data.text,
             "received_at" to System.currentTimeMillis(),
+            "show_workflow_notifications" to showWorkflowNotifications,
         )
 
         for (workflow in notifWorkflows) {
             val workflowContext = ExecutionContext(baseContextMap)
+            val executionId = UUID.randomUUID().toString()
             val job = CoroutineScope(Dispatchers.IO).launch {
-                val result = engine.executeWorkflow(workflow, workflowContext, applicationContext)
-                val logEntity = createLogEntity(workflow.id, result)
+                val initialLog = WorkflowExecutionLogEntity(
+                    id = executionId,
+                    workflowId = workflow.id,
+                    status = "RUNNING",
+                    timestamp = System.currentTimeMillis(),
+                    messageId = null,
+                    logs = emptyList<NodeExecutionStep>().toJsonString(),
+                    errorReason = null,
+                )
+                workflowRepository.saveExecutionLog(initialLog)
+
+                val result = engine.executeWorkflowWithProgress(
+                    workflow = workflow,
+                    context = workflowContext,
+                    appContext = applicationContext,
+                    startNodeId = null,
+                    onStepUpdate = { steps ->
+                        if (steps.any { it.nodeId.startsWith("queue") }) {
+                            val waitingStep = steps.lastOrNull { it.nodeId.startsWith("queue") }
+                            val queuedLog = WorkflowExecutionLogEntity(
+                                id = executionId,
+                                workflowId = workflow.id,
+                                status = "QUEUED",
+                                timestamp = System.currentTimeMillis(),
+                                messageId = null,
+                                logs = steps.toJsonString(),
+                                errorReason = waitingStep?.logMessage ?: "Waiting for preconditions in queue",
+                            )
+                            CoroutineScope(Dispatchers.IO).launch {
+                                workflowRepository.saveExecutionLog(queuedLog)
+                            }
+                        }
+                    },
+                )
+                val logEntity = createLogEntity(executionId, workflow.id, result)
                 workflowRepository.saveExecutionLog(logEntity)
             }
             ExecutionJobRegistry.registerJob(workflow.id, job)
@@ -90,9 +127,9 @@ class ZopHopNotificationListenerService : NotificationListenerService() {
         }
     }
 
-    private fun createLogEntity(workflowId: String, result: WorkflowExecutionResult): WorkflowExecutionLogEntity =
+    private fun createLogEntity(executionId: String, workflowId: String, result: WorkflowExecutionResult): WorkflowExecutionLogEntity =
         WorkflowExecutionLogEntity(
-            id = UUID.randomUUID().toString(),
+            id = executionId,
             workflowId = workflowId,
             status = when (result) {
                 is WorkflowExecutionResult.Success -> "SUCCESS"

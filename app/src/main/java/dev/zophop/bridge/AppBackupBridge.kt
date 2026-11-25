@@ -8,6 +8,7 @@ import dev.zophop.data.WorkflowRepository
 import dev.zophop.domain.model.Credential
 import dev.zophop.domain.model.Workflow
 import dev.zophop.feature.backup.BackupBridge
+import kotlinx.coroutines.flow.firstOrNull
 
 /**
  * Host application implementation of [BackupBridge].
@@ -20,13 +21,35 @@ class AppBackupBridge(
     private val currentWorkflows: () -> List<Workflow>,
     private val currentCredentials: () -> List<Credential>,
     private val currentPreconditions: () -> List<PreconditionEntity>,
+    private val isBiometricEnabled: () -> Boolean = { false },
 ) : BackupBridge {
 
-    override suspend fun getWorkflows(): List<Workflow> = currentWorkflows()
+    override suspend fun getWorkflows(): List<Workflow> {
+        val inMemory = currentWorkflows()
+        return if (inMemory.isNotEmpty()) {
+            inMemory
+        } else {
+            workflowRepository.getAllWorkflowsFlow().firstOrNull().orEmpty()
+        }
+    }
 
-    override suspend fun getCredentials(): List<Credential> = currentCredentials()
+    override suspend fun getCredentials(): List<Credential> {
+        val inMemory = currentCredentials()
+        return if (inMemory.isNotEmpty()) {
+            inMemory
+        } else {
+            credentialRepository.getAllCredentialsFlow().firstOrNull().orEmpty()
+        }
+    }
 
-    override suspend fun getPreconditions(): List<PreconditionEntity> = currentPreconditions()
+    override suspend fun getPreconditions(): List<PreconditionEntity> {
+        val inMemory = currentPreconditions()
+        return if (inMemory.isNotEmpty()) {
+            inMemory
+        } else {
+            preconditionRepository.getAllPreconditionsFlow().firstOrNull().orEmpty()
+        }
+    }
 
     override suspend fun saveWorkflows(workflows: List<Workflow>) {
         for (wf in workflows) {
@@ -48,4 +71,6 @@ class AppBackupBridge(
 
     override fun decryptLocalStorageValue(encryptedValue: String): String =
         DatabaseEncryption.decrypt(encryptedValue)
+
+    override fun isBiometricLockEnabled(): Boolean = isBiometricEnabled()
 }

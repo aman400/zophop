@@ -18,6 +18,9 @@ android {
     buildFeatures {
         aidl = true
     }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
     packaging {
         resources {
             merges += "META-INF/services/dev.zophop.plugin.api.NodePluginModule"

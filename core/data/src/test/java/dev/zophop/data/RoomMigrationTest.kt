@@ -56,13 +56,15 @@ class RoomMigrationTest {
 
         MIGRATION_4_5.migrate(fakeDb)
 
-        assertEquals(6, executedSql.size)
+        assertEquals(8, executedSql.size)
         assertTrue(executedSql.any { it.contains("ALTER TABLE `preconditions` ADD COLUMN `minBatteryPercent`") })
         assertTrue(executedSql.any { it.contains("ALTER TABLE `preconditions` ADD COLUMN `requireCharging`") })
         assertTrue(executedSql.any { it.contains("ALTER TABLE `preconditions` ADD COLUMN `retryStrategy`") })
         assertTrue(executedSql.any { it.contains("ALTER TABLE `preconditions` ADD COLUMN `queueTimeoutMinutes`") })
         assertTrue(executedSql.any { it.contains("ALTER TABLE `preconditions` ADD COLUMN `icon`") })
         assertTrue(executedSql.any { it.contains("ALTER TABLE `workflows` ADD COLUMN `icon`") })
+        assertTrue(executedSql.any { it.contains("ALTER TABLE `workflows` ADD COLUMN `createdAt`") })
+        assertTrue(executedSql.any { it.contains("UPDATE `workflows` SET `createdAt` = `updatedAt`") })
     }
 
     @Test
@@ -77,6 +79,7 @@ class RoomMigrationTest {
                 "retryStrategy",
                 "queueTimeoutMinutes",
                 "icon",
+                "createdAt",
             )
         var cursorIndex: Int
 

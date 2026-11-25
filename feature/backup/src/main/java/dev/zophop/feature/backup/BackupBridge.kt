@@ -28,4 +28,9 @@ interface BackupBridge {
      * so that the exported backup can be used on other devices.
      */
     fun decryptLocalStorageValue(encryptedValue: String): String = encryptedValue
+
+    /**
+     * Returns true if biometric lock is enabled in app security settings.
+     */
+    fun isBiometricLockEnabled(): Boolean = false
 }

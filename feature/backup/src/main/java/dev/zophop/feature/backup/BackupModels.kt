@@ -38,6 +38,10 @@ data class ExportOptions(
     val includeWorkflows: Boolean = true,
     val includeCredentials: Boolean = true,
     val includePreconditions: Boolean = true,
+    val selectedWorkflowIds: Set<String>? = null,
+    val selectedCredentialIds: Set<String>? = null,
+    val selectedPreconditionIds: Set<String>? = null,
+    val autoIncludeDependencies: Boolean = true,
     val encryptSecrets: Boolean = false,
     val password: String? = null,
 )

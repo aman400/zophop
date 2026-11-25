@@ -12,6 +12,7 @@ import dev.zophop.data.RoomCredentialRepository
 import dev.zophop.data.RoomWorkflowRepository
 import dev.zophop.data.WorkflowExecutionLogEntity
 import dev.zophop.domain.engine.ExecutionJobRegistry
+import dev.zophop.domain.engine.NodeExecutionStep
 import dev.zophop.domain.engine.PreconditionEvaluator
 import dev.zophop.domain.engine.WorkflowEngine
 import dev.zophop.domain.engine.WorkflowExecutionResult
@@ -89,6 +90,7 @@ class SmsReceiver : BroadcastReceiver() {
         val evaluator = PreconditionEvaluator(context)
         val engine = WorkflowEngine(evaluator, credentialRepository)
 
+        val showWorkflowNotifications = EncryptedSettingsRepository(context).getSettings().showWorkflowNotifications
         val baseContextMap = mapOf(
             "sender" to sender,
             "header" to sender,
@@ -99,13 +101,48 @@ class SmsReceiver : BroadcastReceiver() {
             "message" to fullBody,
             "text" to fullBody,
             "received_at" to System.currentTimeMillis(),
+            "show_workflow_notifications" to showWorkflowNotifications,
         )
 
         for (workflow in smsWorkflows) {
             val workflowContext = ExecutionContext(baseContextMap)
+            val executionId = UUID.randomUUID().toString()
             val job = CoroutineScope(Dispatchers.IO).launch {
                 Log.i("SmsReceiver", "Executing workflow '${workflow.name}' (${workflow.id})")
-                val result = engine.executeWorkflow(workflow, workflowContext, context)
+                val initialLog = WorkflowExecutionLogEntity(
+                    id = executionId,
+                    workflowId = workflow.id,
+                    status = "RUNNING",
+                    timestamp = System.currentTimeMillis(),
+                    messageId = null,
+                    logs = emptyList<NodeExecutionStep>().toJsonString(),
+                    errorReason = null,
+                )
+                workflowRepository.saveExecutionLog(initialLog)
+
+                val result = engine.executeWorkflowWithProgress(
+                    workflow = workflow,
+                    context = workflowContext,
+                    appContext = context,
+                    startNodeId = null,
+                    onStepUpdate = { steps ->
+                        if (steps.any { it.nodeId.startsWith("queue") }) {
+                            val waitingStep = steps.lastOrNull { it.nodeId.startsWith("queue") }
+                            val queuedLog = WorkflowExecutionLogEntity(
+                                id = executionId,
+                                workflowId = workflow.id,
+                                status = "QUEUED",
+                                timestamp = System.currentTimeMillis(),
+                                messageId = null,
+                                logs = steps.toJsonString(),
+                                errorReason = waitingStep?.logMessage ?: "Waiting for preconditions in queue",
+                            )
+                            CoroutineScope(Dispatchers.IO).launch {
+                                workflowRepository.saveExecutionLog(queuedLog)
+                            }
+                        }
+                    },
+                )
                 val resultDetails = when (result) {
                     is WorkflowExecutionResult.Success -> "SUCCESS"
                     is WorkflowExecutionResult.Failed -> "FAILED (Node: ${result.nodeId}, Reason: ${result.reason})"
@@ -113,7 +150,7 @@ class SmsReceiver : BroadcastReceiver() {
                     is WorkflowExecutionResult.Cancelled -> "CANCELLED"
                 }
                 Log.i("SmsReceiver", "Workflow '${workflow.name}' completed with result: $resultDetails")
-                val logEntity = createLogEntity(workflow.id, result)
+                val logEntity = createLogEntity(executionId, workflow.id, result)
                 workflowRepository.saveExecutionLog(logEntity)
             }
             ExecutionJobRegistry.registerJob(workflow.id, job)
@@ -121,9 +158,9 @@ class SmsReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun createLogEntity(workflowId: String, result: WorkflowExecutionResult): WorkflowExecutionLogEntity =
+    private fun createLogEntity(executionId: String, workflowId: String, result: WorkflowExecutionResult): WorkflowExecutionLogEntity =
         WorkflowExecutionLogEntity(
-            id = UUID.randomUUID().toString(),
+            id = executionId,
             workflowId = workflowId,
             status = when (result) {
                 is WorkflowExecutionResult.Success -> "SUCCESS"

@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.sp
 import dev.zophop.core.ui.components.NoSwipeBottomSheet
 import dev.zophop.data.MessageEntity
 import dev.zophop.data.PreconditionEntity
+import dev.zophop.data.WorkflowExecutionLogEntity
 import dev.zophop.domain.model.Credential
 import dev.zophop.domain.model.NodeType
 import dev.zophop.domain.model.Workflow
@@ -103,6 +104,7 @@ sealed class MainScreenDestination {
     ) : MainScreenDestination()
 }
 
+@Suppress("CyclomaticComplexMethod")
 @Composable
 fun MainAppScreen(
     viewModel: MainViewModel,
@@ -123,7 +125,11 @@ fun MainAppScreen(
     val credentials by viewModel.credentials.collectAsState()
     val preconditions by viewModel.preconditions.collectAsState()
     val activeExecutionState by viewModel.activeExecutionState.collectAsState()
+    val targetExecutingWorkflowId by viewModel.targetExecutingWorkflowId.collectAsState()
     val queuedMessages by viewModel.queuedMessages.collectAsState()
+    val queuedWorkflowLogs by viewModel.queuedWorkflowLogs.collectAsState()
+    val totalQueuedCount = queuedMessages.size + queuedWorkflowLogs.size
+    val queuedWorkflowIds = remember(queuedWorkflowLogs) { queuedWorkflowLogs.map { it.workflowId }.toSet() }
     var showActiveExecutionSheet by remember { mutableStateOf(false) }
     var showPendingQueueSheet by remember { mutableStateOf(false) }
     var showExportBackupDialog by remember { mutableStateOf(false) }
@@ -133,6 +139,18 @@ fun MainAppScreen(
         if (uiState.selectedWorkflowForLogs != null) {
             activeLogsWorkflow = uiState.selectedWorkflowForLogs
             viewModel.clearSelectedWorkflowForLogs()
+        }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(targetExecutingWorkflowId) {
+        if (!targetExecutingWorkflowId.isNullOrBlank()) {
+            activeEditingWorkflow = null
+            activeLogsWorkflow = null
+            showAddPreconditionScreen = false
+            activeEditingPrecondition = null
+            selectedTab = AppTab.WORKFLOWS
+            showActiveExecutionSheet = true
+            viewModel.clearTargetExecutingWorkflowId()
         }
     }
 
@@ -243,7 +261,7 @@ fun MainAppScreen(
                             preconditions = preconditions,
                             credentials = credentials,
                             isEngineEnabled = uiState.isEnabled,
-                            queuedCount = queuedMessages.size,
+                            queuedCount = totalQueuedCount,
                             onExportBackup = { showExportBackupDialog = true },
                             onImportBackup = { showImportBackupDialog = true },
                         )
@@ -268,6 +286,7 @@ fun MainAppScreen(
                             preconditions = preconditions,
                             credentials = credentials,
                             queuedMessages = queuedMessages,
+                            queuedWorkflowIds = queuedWorkflowIds,
                             hasSmsPermission = hasSmsPermission,
                             onRequestSmsPermission = onRequestSmsPermission,
                             hasNotificationPermission = hasNotificationPermission,
@@ -286,10 +305,19 @@ fun MainAppScreen(
                             onViewSheet = { showActiveExecutionSheet = true },
                         )
                     } ?: run {
-                        if (queuedMessages.isNotEmpty()) {
+                        if (totalQueuedCount > 0) {
+                            val subtitle = if (queuedWorkflowLogs.isNotEmpty()) {
+                                val firstLog = queuedWorkflowLogs.first()
+                                val wfName = workflows.find { it.id == firstLog.workflowId }?.name ?: "Workflow"
+                                val reason = firstLog.errorReason?.takeIf { it.isNotBlank() } ?: "Preconditions not satisfied"
+                                "$wfName: $reason"
+                            } else {
+                                queuedMessages.firstOrNull()?.errorMessage?.takeIf { it.isNotBlank() }
+                                    ?: "Waiting for preconditions to resolve"
+                            }
                             PendingQueueBanner(
-                                queuedCount = queuedMessages.size,
-                                earliestMessage = queuedMessages.firstOrNull(),
+                                queuedCount = totalQueuedCount,
+                                subtitle = subtitle,
                                 onViewQueue = { showPendingQueueSheet = true },
                                 onProcessNow = { viewModel.processQueueNow() },
                             )
@@ -303,8 +331,12 @@ fun MainAppScreen(
     if (showPendingQueueSheet) {
         PendingQueueBottomSheet(
             queuedMessages = queuedMessages,
+            queuedWorkflowLogs = queuedWorkflowLogs,
+            workflows = workflows,
             onProcessNow = { viewModel.processQueueNow() },
             onCancelMessage = { id -> viewModel.deleteQueuedMessage(id) },
+            onRetryWorkflow = { log -> viewModel.retryQueuedWorkflow(log) },
+            onCancelWorkflowLog = { id -> viewModel.deleteQueuedWorkflowLog(id) },
             onDismiss = { showPendingQueueSheet = false },
         )
     }
@@ -312,15 +344,13 @@ fun MainAppScreen(
     if (showActiveExecutionSheet && activeExecutionState != null) {
         val activeState = activeExecutionState!!
         val wf = workflows.find { it.id == activeState.workflowId }
-        if (wf != null) {
-            TestRunLogBottomSheet(
-                workflowName = activeState.workflowName,
-                steps = activeState.steps,
-                isTesting = activeState.isExecuting,
-                onCancelExecution = { viewModel.cancelWorkflowExecution(wf.id) },
-                onDismiss = { showActiveExecutionSheet = false },
-            )
-        }
+        TestRunLogBottomSheet(
+            workflowName = wf?.name ?: activeState.workflowName,
+            steps = activeState.steps,
+            isTesting = activeState.isExecuting,
+            onCancelExecution = { viewModel.cancelWorkflowExecution(activeState.workflowId) },
+            onDismiss = { showActiveExecutionSheet = false },
+        )
     }
 
     if (activeCreatePreconditionCallback != null) {
@@ -342,6 +372,7 @@ fun MainAppScreen(
     if (showExportBackupDialog) {
         ExportBackupDialog(
             backupService = viewModel.backupService,
+            isBiometricLockEnabled = uiState.lockCredentialsWithBiometric,
             workflowsCount = workflows.size,
             credentialsCount = credentials.size,
             preconditionsCount = preconditions.size,
@@ -352,6 +383,7 @@ fun MainAppScreen(
     if (showImportBackupDialog) {
         ImportBackupDialog(
             backupService = viewModel.backupService,
+            isBiometricLockEnabled = uiState.lockCredentialsWithBiometric,
             onDismiss = { showImportBackupDialog = false },
         )
     }
@@ -581,6 +613,8 @@ private fun ActiveExecutionBanner(
     onViewSheet: () -> Unit,
 ) {
     if (!activeState.isExecuting) return
+    val lastStep = activeState.steps.lastOrNull()
+    val isQueuedState = lastStep?.nodeId?.startsWith("queue_waiting") == true
 
     Surface(
         modifier =
@@ -589,7 +623,7 @@ private fun ActiveExecutionBanner(
                 .padding(horizontal = 16.dp, vertical = 8.dp)
                 .padding(bottom = 80.dp),
         shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.tertiaryContainer,
+        color = if (isQueuedState) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.tertiaryContainer,
         tonalElevation = 8.dp,
         shadowElevation = 6.dp,
     ) {
@@ -603,22 +637,33 @@ private fun ActiveExecutionBanner(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.weight(1f),
             ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    strokeWidth = 2.dp,
-                    color = MaterialTheme.colorScheme.onTertiaryContainer,
-                )
-                Column {
-                    Text(
-                        text = "Executing: ${activeState.workflowName}",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Bold,
+                if (isQueuedState) {
+                    Icon(
+                        imageVector = Icons.Default.HourglassTop,
+                        contentDescription = "Queued",
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.size(20.dp),
+                    )
+                } else {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
                         color = MaterialTheme.colorScheme.onTertiaryContainer,
                     )
+                }
+                Column {
                     Text(
-                        text = "Step: ${activeState.steps.lastOrNull()?.nodeName ?: "Running..."}",
+                        text = if (isQueuedState) "⏳ Queued: ${activeState.workflowName}" else "Executing: ${activeState.workflowName}",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isQueuedState) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onTertiaryContainer,
+                    )
+                    Text(
+                        text = lastStep?.logMessage ?: "Running...",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.8f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = (if (isQueuedState) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onTertiaryContainer).copy(alpha = 0.8f),
                     )
                 }
             }
@@ -626,7 +671,11 @@ private fun ActiveExecutionBanner(
             TextButton(
                 onClick = onViewSheet,
             ) {
-                Text("View", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                Text(
+                    text = "View",
+                    fontWeight = FontWeight.Bold,
+                    color = if (isQueuedState) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onTertiaryContainer,
+                )
             }
         }
     }
@@ -635,7 +684,7 @@ private fun ActiveExecutionBanner(
 @Composable
 private fun PendingQueueBanner(
     queuedCount: Int,
-    earliestMessage: MessageEntity?,
+    subtitle: String,
     onViewQueue: () -> Unit,
     onProcessNow: () -> Unit,
 ) {
@@ -672,11 +721,8 @@ private fun PendingQueueBanner(
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSecondaryContainer,
                     )
-                    val desc =
-                        earliestMessage?.errorMessage?.takeIf { it.isNotBlank() }
-                            ?: "Waiting for preconditions to resolve"
                     Text(
-                        text = desc,
+                        text = subtitle,
                         style = MaterialTheme.typography.labelSmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -701,10 +747,15 @@ private fun PendingQueueBanner(
 @Composable
 fun PendingQueueBottomSheet(
     queuedMessages: List<MessageEntity>,
+    queuedWorkflowLogs: List<WorkflowExecutionLogEntity> = emptyList(),
+    workflows: List<Workflow> = emptyList(),
     onProcessNow: () -> Unit,
     onCancelMessage: (String) -> Unit,
+    onRetryWorkflow: (WorkflowExecutionLogEntity) -> Unit = {},
+    onCancelWorkflowLog: (String) -> Unit = {},
     onDismiss: () -> Unit,
 ) {
+    val totalCount = queuedMessages.size + queuedWorkflowLogs.size
     NoSwipeBottomSheet(onDismissRequest = onDismiss) {
         Column(
             modifier =
@@ -729,7 +780,7 @@ fun PendingQueueBottomSheet(
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        text = "${queuedMessages.size} execution(s) waiting for preconditions",
+                        text = "$totalCount execution(s) waiting for preconditions",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -739,7 +790,7 @@ fun PendingQueueBottomSheet(
                 }
             }
 
-            if (queuedMessages.isEmpty()) {
+            if (totalCount == 0) {
                 Box(
                     modifier =
                         Modifier
@@ -757,6 +808,91 @@ fun PendingQueueBottomSheet(
                             .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
+                    // 1. Queued Workflows
+                    queuedWorkflowLogs.forEach { log ->
+                        val wf = workflows.find { it.id == log.workflowId }
+                        val wfName = wf?.name ?: "Workflow (${log.workflowId})"
+                        OutlinedCard(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.weight(1f),
+                                    ) {
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.secondaryContainer,
+                                            shape = RoundedCornerShape(4.dp),
+                                        ) {
+                                            Text(
+                                                text = "QUEUED",
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                            )
+                                        }
+                                        Text(
+                                            text = wfName,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        TextButton(
+                                            onClick = {
+                                                onRetryWorkflow(log)
+                                                onDismiss()
+                                            },
+                                        ) {
+                                            Text("Retry", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        IconButton(
+                                            onClick = { onCancelWorkflowLog(log.id) },
+                                            modifier = Modifier.size(24.dp),
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Close,
+                                                contentDescription = "Cancel",
+                                                modifier = Modifier.size(16.dp),
+                                                tint = MaterialTheme.colorScheme.error,
+                                            )
+                                        }
+                                    }
+                                }
+
+                                val reasonText = log.errorReason?.takeIf { it.isNotBlank() }
+                                    ?: "Waiting for preconditions to resolve..."
+                                Text(
+                                    text = reasonText,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+
+                                val elapsedMinutes = ((System.currentTimeMillis() - log.timestamp) / 60000L).coerceAtLeast(0)
+                                Text(
+                                    text = "Queued ${elapsedMinutes}m ago",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline,
+                                )
+                            }
+                        }
+                    }
+
+                    // 2. Queued Messages
                     queuedMessages.forEach { msg ->
                         OutlinedCard(
                             modifier = Modifier.fillMaxWidth(),
@@ -855,6 +991,7 @@ private fun MainTabContent(
     preconditions: List<PreconditionEntity>,
     credentials: List<Credential>,
     queuedMessages: List<MessageEntity> = emptyList(),
+    queuedWorkflowIds: Set<String> = emptySet(),
     hasSmsPermission: Boolean,
     onRequestSmsPermission: () -> Unit,
     hasNotificationPermission: Boolean,
@@ -870,6 +1007,7 @@ private fun MainTabContent(
             WorkflowsListScreen(
                 workflows = workflows,
                 queuedMessages = queuedMessages,
+                queuedWorkflowIds = queuedWorkflowIds,
                 onToggleWorkflow = { id, enabled ->
                     viewModel.setWorkflowEnabled(id, enabled)
                 },

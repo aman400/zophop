@@ -46,6 +46,14 @@ class WorkflowRepositoryTest {
             limit: Int,
         ) = flowOf(logs.filter { it.workflowId == workflowId }.takeLast(limit))
 
+        override fun getQueuedWorkflowLogsFlow() = flowOf(logs.filter { it.status == "QUEUED" })
+
+        override suspend fun getQueuedWorkflowLogs() = logs.filter { it.status == "QUEUED" }
+
+        override suspend fun deleteExecutionLogById(id: String) {
+            logs.removeAll { it.id == id }
+        }
+
         override suspend fun clearLogsForWorkflow(workflowId: String) {
             logs.removeAll { it.workflowId == workflowId }
         }

@@ -75,7 +75,6 @@ sealed class Precondition {
     abstract val retryIntervalSeconds: Int
     abstract val retryStrategy: String
     abstract val queueTimeoutMinutes: Int
-    abstract val showNotificationOnFailure: Boolean
     open val name: String get() = ""
     open val icon: String get() = ""
 
@@ -90,7 +89,6 @@ sealed class Precondition {
         override val retryIntervalSeconds: Int = 30,
         override val retryStrategy: String = RetryStrategy.FIXED,
         override val queueTimeoutMinutes: Int = 10,
-        override val showNotificationOnFailure: Boolean = false,
     ) : Precondition() {
         @Transient
         override val type: PreconditionType = PreconditionType.INTERNET_CHECK
@@ -107,7 +105,6 @@ sealed class Precondition {
         override val retryIntervalSeconds: Int = 30,
         override val retryStrategy: String = RetryStrategy.FIXED,
         override val queueTimeoutMinutes: Int = 10,
-        override val showNotificationOnFailure: Boolean = false,
     ) : Precondition() {
         @Transient
         override val type: PreconditionType = PreconditionType.VPN_CHECK
@@ -128,7 +125,6 @@ sealed class Precondition {
         override val retryIntervalSeconds: Int = 30,
         override val retryStrategy: String = RetryStrategy.FIXED,
         override val queueTimeoutMinutes: Int = 10,
-        override val showNotificationOnFailure: Boolean = false,
     ) : Precondition() {
         @Transient
         override val type: PreconditionType = PreconditionType.HEALTH_CHECK
@@ -147,7 +143,6 @@ sealed class Precondition {
         override val retryIntervalSeconds: Int = 30,
         override val retryStrategy: String = RetryStrategy.FIXED,
         override val queueTimeoutMinutes: Int = 10,
-        override val showNotificationOnFailure: Boolean = false,
     ) : Precondition() {
         @Transient
         override val type: PreconditionType = PreconditionType.SIM_CHECK
@@ -165,7 +160,6 @@ sealed class Precondition {
         override val retryIntervalSeconds: Int = 30,
         override val retryStrategy: String = RetryStrategy.FIXED,
         override val queueTimeoutMinutes: Int = 10,
-        override val showNotificationOnFailure: Boolean = false,
     ) : Precondition() {
         @Transient
         override val type: PreconditionType = PreconditionType.GPS_CHECK
@@ -184,7 +178,6 @@ sealed class Precondition {
         override val retryIntervalSeconds: Int = 30,
         override val retryStrategy: String = RetryStrategy.FIXED,
         override val queueTimeoutMinutes: Int = 10,
-        override val showNotificationOnFailure: Boolean = false,
     ) : Precondition() {
         @Transient
         override val type: PreconditionType = PreconditionType.BATTERY_CHECK
@@ -204,7 +197,6 @@ sealed class Precondition {
         override val retryIntervalSeconds: Int = 30,
         override val retryStrategy: String = RetryStrategy.FIXED,
         override val queueTimeoutMinutes: Int = 10,
-        override val showNotificationOnFailure: Boolean = false,
     ) : Precondition() {
         @Transient
         override val type: PreconditionType = PreconditionType.CHAINED_CHECK

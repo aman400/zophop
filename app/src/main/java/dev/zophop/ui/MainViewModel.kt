@@ -24,8 +24,11 @@ import dev.zophop.data.RoomWorkflowRepository
 import dev.zophop.data.WorkflowExecutionLogEntity
 import dev.zophop.data.WorkflowRepository
 import dev.zophop.data.toDomain
+import dev.zophop.domain.engine.ActiveExecutionTracker
+import dev.zophop.domain.engine.ActiveWorkflowExecution
 import dev.zophop.domain.engine.ExecutionJobRegistry
 import dev.zophop.domain.engine.NodeExecutionStep
+import dev.zophop.domain.engine.NodeStepState
 import dev.zophop.domain.engine.PreconditionEvaluator
 import dev.zophop.domain.engine.PreconditionResult
 import dev.zophop.domain.engine.WorkflowEngine
@@ -54,13 +57,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import java.util.UUID
 
-data class ActiveExecutionState(
-    val workflowId: String,
-    val workflowName: String,
-    val steps: List<NodeExecutionStep>,
-    val isExecuting: Boolean,
-    val result: WorkflowExecutionResult? = null,
-)
+typealias ActiveExecutionState = ActiveWorkflowExecution
 
 data class MainUiState(
     val nodes: List<DeliveryNode> = emptyList(),
@@ -130,6 +127,23 @@ class MainViewModel(
 
     private val _activeExecutionState = MutableStateFlow<ActiveExecutionState?>(null)
     val activeExecutionState: StateFlow<ActiveExecutionState?> = _activeExecutionState.asStateFlow()
+
+    private val _targetExecutingWorkflowId = MutableStateFlow<String?>(null)
+    val targetExecutingWorkflowId: StateFlow<String?> = _targetExecutingWorkflowId.asStateFlow()
+
+    fun clearTargetExecutingWorkflowId() {
+        _targetExecutingWorkflowId.value = null
+    }
+
+    fun navigateToExecutingWorkflow(workflowId: String) {
+        val execution = ActiveExecutionTracker.getExecution(workflowId)
+        if (execution != null) {
+            _activeExecutionState.value = execution
+            _targetExecutingWorkflowId.value = workflowId
+        } else {
+            openWorkflowLogsById(workflowId)
+        }
+    }
 
     val workflows: StateFlow<List<Workflow>> =
         kotlinx.coroutines.flow
@@ -219,9 +233,47 @@ class MainViewModel(
                 initialValue = emptyList(),
             )
 
+    val queuedWorkflowLogs: StateFlow<List<WorkflowExecutionLogEntity>> =
+        workflowRepository
+            .getQueuedWorkflowLogsFlow()
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000),
+                initialValue = emptyList(),
+            )
+
     fun processQueueNow() {
         viewModelScope.launch(Dispatchers.IO) {
             forwardingManager.processPendingQueue()
+            dev.zophop.worker.WorkflowQueueManager.processQueuedWorkflows(getApplication())
+        }
+    }
+
+    fun retryQueuedWorkflow(log: WorkflowExecutionLogEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val workflow = workflowRepository.getWorkflowById(log.workflowId) ?: return@launch
+            val steps =
+                try {
+                    log.logs.toNodeExecutionSteps()
+                } catch (_: Exception) {
+                    null
+                }
+            val failedNodeId = steps?.lastOrNull {
+                it.state == NodeStepState.FAILED || it.nodeId.startsWith("queue")
+            }?.nodeId
+            retryWorkflowFromFailedNode(
+                workflow = workflow,
+                failedNodeId = failedNodeId,
+                originalLogId = log.id,
+                onProgressUpdate = {},
+                onResult = {},
+            )
+        }
+    }
+
+    fun deleteQueuedWorkflowLog(logId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            workflowRepository.deleteExecutionLogById(logId)
         }
     }
 
@@ -236,6 +288,19 @@ class MainViewModel(
         checkPermissionsAndStatus()
         viewModelScope.launch(Dispatchers.IO) {
             workflowInitializer.checkAndInitialize()
+        }
+        viewModelScope.launch {
+            ActiveExecutionTracker.executions.collect { executions ->
+                val active = executions.values.firstOrNull { it.isExecuting }
+                if (active != null) {
+                    _activeExecutionState.value = active
+                } else {
+                    val currentId = _activeExecutionState.value?.workflowId
+                    if (currentId != null && executions.containsKey(currentId)) {
+                        _activeExecutionState.value = executions[currentId]
+                    }
+                }
+            }
         }
     }
 
@@ -488,6 +553,10 @@ class MainViewModel(
     }
 
     fun clearActiveExecutionState() {
+        val currentWfId = _activeExecutionState.value?.workflowId
+        if (currentWfId != null) {
+            ActiveExecutionTracker.removeExecution(currentWfId)
+        }
         _activeExecutionState.value = null
     }
 
@@ -571,6 +640,18 @@ class MainViewModel(
                         isExecuting = true,
                     )
 
+                val initialLog =
+                    WorkflowExecutionLogEntity(
+                        id = newExecutionId,
+                        workflowId = workflow.id,
+                        status = "RUNNING",
+                        timestamp = System.currentTimeMillis(),
+                        messageId = null,
+                        logs = emptyList<NodeExecutionStep>().toJsonString(),
+                        errorReason = null,
+                    )
+                workflowRepository.saveExecutionLog(initialLog)
+
                 val context = getApplication<Application>()
                 val evaluator = PreconditionEvaluator(context)
                 val engine = WorkflowEngine(evaluator, credentialRepository)
@@ -632,6 +713,22 @@ class MainViewModel(
                                 )
                             viewModelScope.launch(Dispatchers.Main) {
                                 onProgressUpdate(steps)
+                            }
+                            if (steps.any { it.nodeId.startsWith("queue") }) {
+                                val waitingStep = steps.lastOrNull { it.nodeId.startsWith("queue") }
+                                val queuedLog =
+                                    WorkflowExecutionLogEntity(
+                                        id = newExecutionId,
+                                        workflowId = workflow.id,
+                                        status = "QUEUED",
+                                        timestamp = System.currentTimeMillis(),
+                                        messageId = null,
+                                        logs = steps.toJsonString(),
+                                        errorReason = waitingStep?.logMessage ?: "Waiting for preconditions in queue",
+                                    )
+                                viewModelScope.launch(Dispatchers.IO) {
+                                    workflowRepository.saveExecutionLog(queuedLog)
+                                }
                             }
                         },
                     )
@@ -896,6 +993,7 @@ class MainViewModel(
             currentWorkflows = { workflows.value },
             currentCredentials = { credentials.value },
             currentPreconditions = { preconditions.value },
+            isBiometricEnabled = { _uiState.value.lockCredentialsWithBiometric },
         )
 
     val backupService: dev.zophop.feature.backup.BackupService =

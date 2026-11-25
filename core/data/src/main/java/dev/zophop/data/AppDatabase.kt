@@ -49,6 +49,10 @@ val MIGRATION_4_5 =
             if ("icon" !in existingWfColumns) {
                 db.execSQL("ALTER TABLE `workflows` ADD COLUMN `icon` TEXT NOT NULL DEFAULT ''")
             }
+            if ("createdAt" !in existingWfColumns) {
+                db.execSQL("ALTER TABLE `workflows` ADD COLUMN `createdAt` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE `workflows` SET `createdAt` = `updatedAt` WHERE `createdAt` = 0 AND `updatedAt` > 0")
+            }
         }
     }
 

@@ -50,6 +50,12 @@ class DefaultWorkflowInitializerTest {
         override suspend fun getExecutionLogById(id: String): WorkflowExecutionLogEntity? = null
 
         override suspend fun clearLogsForWorkflow(workflowId: String) {}
+
+        override fun getQueuedWorkflowLogsFlow(): Flow<List<WorkflowExecutionLogEntity>> = flowOf(emptyList())
+
+        override suspend fun getQueuedWorkflowLogs(): List<WorkflowExecutionLogEntity> = emptyList()
+
+        override suspend fun deleteExecutionLogById(id: String) {}
     }
 
     @Test
