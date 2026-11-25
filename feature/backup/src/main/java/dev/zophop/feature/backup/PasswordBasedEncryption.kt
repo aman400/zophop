@@ -30,9 +30,17 @@ object PasswordBasedEncryption {
 
     private fun deriveKey(password: CharArray, salt: ByteArray): SecretKey {
         val spec = PBEKeySpec(password, salt, ITERATIONS, KEY_LENGTH_BITS)
-        val factory = SecretKeyFactory.getInstance(KDF_ALGORITHM)
-        val keyBytes = factory.generateSecret(spec).encoded
-        return SecretKeySpec(keyBytes, "AES")
+        var keyBytes: ByteArray? = null
+        return try {
+            val factory = SecretKeyFactory.getInstance(KDF_ALGORITHM)
+            val generated = factory.generateSecret(spec).encoded
+            keyBytes = generated
+            SecretKeySpec(generated, "AES")
+        } finally {
+            spec.clearPassword()
+            password.fill('\u0000')
+            keyBytes?.fill(0)
+        }
     }
 
     /**

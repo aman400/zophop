@@ -80,9 +80,13 @@ object NodeConfigValidator {
         val url = config["url"]?.trim() ?: config["serverUrl"]?.trim() ?: ""
         val credentialId = config["credentialId"]?.trim() ?: ""
         val isHttp = url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true)
+        val expectedStatus = config["expectedStatus"]?.trim() ?: ""
+        val expectedCode = expectedStatus.toIntOrNull()
         return when {
             url.isBlank() && credentialId.isBlank() -> "HTTP URL cannot be blank."
             url.isNotBlank() && !isHttp -> "HTTP URL must start with http:// or https://."
+            expectedStatus.isNotBlank() && (expectedCode == null || expectedCode !in 100..599) ->
+                "Expected HTTP status must be a valid status code (100-599)."
             else -> null
         }
     }

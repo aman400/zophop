@@ -171,7 +171,8 @@ private fun parseJsonConfig(configJson: String): JsonObject = parseJsonObjectSaf
 private fun validateSmsTriggerConfig(config: JsonObject): String? {
     val allowlist = config.optString("allowlist", ".*").trim()
     val keywordRegex = config.optString("keywordRegex", ".*").trim()
-    val allowlistError = validateRegexPattern(allowlist.replace("*", ".*"), "sender allowlist")
+    val normalizedAllowlist = Regex("(?<![.\\])+?*])\\*").replace(allowlist, ".*")
+    val allowlistError = validateRegexPattern(normalizedAllowlist, "sender allowlist")
     if (allowlistError != null) return allowlistError
     return validateRegexPattern(keywordRegex, "keyword")
 }

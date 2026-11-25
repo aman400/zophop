@@ -272,8 +272,10 @@ class ForwardingManager(
                 "✅ Forwarding Trigger Executed",
                 "Successfully delivered SMS from ${current.sender} to target nodes",
             )
-            delayProvider(4000L)
-            SmsForwarderService.resetToDefaultStatus(ctx)
+            scope.launch {
+                delayProvider(4000L)
+                SmsForwarderService.resetToDefaultStatus(ctx)
+            }
         }
     }
 
@@ -303,7 +305,7 @@ class ForwardingManager(
         notifyDeliveryFailureStatus(current.sender, isThrottled, updatedStatus, newRetryCount, maxRetries, result)
     }
 
-    private suspend fun notifyDeliveryFailureStatus(
+    private fun notifyDeliveryFailureStatus(
         sender: String,
         isThrottled: Boolean,
         status: String,
@@ -330,8 +332,10 @@ class ForwardingManager(
                     "❌ Forwarding Trigger Failed",
                     "Failed to deliver SMS from $sender: ${result.nodeNotes.joinToString("; ")}",
                 )
-                delayProvider(5000L)
-                SmsForwarderService.resetToDefaultStatus(ctx)
+                scope.launch {
+                    delayProvider(5000L)
+                    SmsForwarderService.resetToDefaultStatus(ctx)
+                }
             }
         }
     }

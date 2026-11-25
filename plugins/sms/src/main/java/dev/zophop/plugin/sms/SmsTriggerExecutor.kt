@@ -8,6 +8,7 @@ import dev.zophop.domain.model.WorkflowNode
 import dev.zophop.domain.model.optString
 import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ExecutionContext
+import dev.zophop.plugin.api.ExecutionLogFormatter
 import dev.zophop.plugin.api.NodeExecutionResult
 import dev.zophop.plugin.api.NodeExecutor
 import kotlinx.serialization.json.JsonObject
@@ -46,7 +47,20 @@ class SmsTriggerExecutor : NodeExecutor {
         }
 
         populateSmsContext(context, sender, body)
-        return NodeExecutionResult.Success(logMessage = "SMS trigger matched sender: $sender")
+        val details =
+            "Sender: $sender\nAllowlist: $allowlist\nKeyword Filter: $keywordRegex\n" +
+                "Message Length: ${body.length} chars\n" +
+                "Variables Set: sender, header, sms_header, address, body, sms_body, message, text"
+        val log =
+            ExecutionLogFormatter.buildStructuredLog(
+                summary = "SMS trigger matched sender: $sender",
+                sections =
+                    listOf(
+                        "SMS Details" to details,
+                        "Message Preview" to ExecutionLogFormatter.previewText(body, 500),
+                    ),
+            )
+        return NodeExecutionResult.Success(logMessage = log)
     }
 }
 
@@ -97,6 +111,8 @@ private fun checkSmsFilters(
     }
 }
 
+private val STANDALONE_WILDCARD_REGEX = Regex("(?<![.\\])+?*])\\*")
+
 private fun matchesSenderAllowlist(
     sender: String,
     allowlist: String,
@@ -105,7 +121,8 @@ private fun matchesSenderAllowlist(
     if (patterns.isEmpty() || allowlist == ".*") return true
     return patterns.any { pattern ->
         try {
-            val regex = Pattern.compile(pattern.replace("*", ".*"), Pattern.CASE_INSENSITIVE)
+            val normalized = STANDALONE_WILDCARD_REGEX.replace(pattern, ".*")
+            val regex = Pattern.compile(normalized, Pattern.CASE_INSENSITIVE)
             regex.matcher(sender).find()
         } catch (_: PatternSyntaxException) {
             false

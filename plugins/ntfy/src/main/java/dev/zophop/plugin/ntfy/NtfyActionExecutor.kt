@@ -6,6 +6,7 @@ import dev.zophop.domain.model.WorkflowNode
 import dev.zophop.domain.model.optString
 import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ExecutionContext
+import dev.zophop.plugin.api.ExecutionLogFormatter
 import dev.zophop.plugin.api.NodeExecutionResult
 import dev.zophop.plugin.api.NodeExecutor
 import okhttp3.MediaType.Companion.toMediaType
@@ -36,6 +37,7 @@ class NtfyActionExecutor(
 
     private fun sendNtfyMessage(params: NtfyParams): NodeExecutionResult {
         val targetUrl = "${params.serverUrl}/${params.topic}"
+        val authMode = if (params.token.isNotBlank()) "Bearer ***" else "None"
 
         return try {
             val requestBuilder =
@@ -45,34 +47,68 @@ class NtfyActionExecutor(
                     .post(params.payload.toRequestBody("text/plain; charset=utf-8".toMediaType()))
 
             if (params.title.isNotBlank()) requestBuilder.addHeader("Title", toSafeHeaderValue(params.title))
-            if (params.priority.isNotBlank()) requestBuilder.addHeader("Priority", params.priority)
+            if (params.priority.isNotBlank()) requestBuilder.addHeader("Priority", sanitizeControlChars(params.priority))
             if (params.tags.isNotBlank()) requestBuilder.addHeader("Tags", toSafeHeaderValue(params.tags))
-            if (params.token.isNotBlank()) requestBuilder.addHeader("Authorization", "Bearer ${params.token}")
+            if (params.token.isNotBlank()) requestBuilder.addHeader("Authorization", "Bearer ${sanitizeControlChars(params.token)}")
 
             val response = okHttpClient.newCall(requestBuilder.build()).execute()
-            response.use { resp ->
-                val respBody = resp.body?.string() ?: ""
-                if (resp.isSuccessful) {
-                    val detailedLog =
-                        "Delivered to ntfy topic '${params.topic}' (HTTP ${resp.code})\nURL: $targetUrl\nTitle: ${params.title}\nBody: ${params.payload}"
-                    NodeExecutionResult.Success(outputPort = "main", logMessage = detailedLog)
-                } else {
-                    NodeExecutionResult.Failed("ntfy request failed: HTTP ${resp.code} - $respBody")
-                }
-            }
+            response.use { resp -> buildNtfyResponseResult(resp, targetUrl, authMode, params) }
         } catch (e: IOException) {
-            NodeExecutionResult.Failed("ntfy dispatch failed: ${e.message}")
+            NodeExecutionResult.Failed("ntfy dispatch to $targetUrl failed: ${e.message}")
         } catch (e: IllegalArgumentException) {
-            NodeExecutionResult.Failed("ntfy dispatch failed: ${e.message}")
+            NodeExecutionResult.Failed("ntfy dispatch to $targetUrl failed: ${e.message}")
         }
     }
 
-    private fun toSafeHeaderValue(value: String): String =
-        if (value.any { it.code !in 32..126 }) {
-            "=?utf-8?B?" + android.util.Base64.encodeToString(value.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP) + "?="
+    private fun buildNtfyResponseResult(
+        resp: okhttp3.Response,
+        targetUrl: String,
+        authMode: String,
+        params: NtfyParams,
+    ): NodeExecutionResult {
+        val respBody = resp.body?.string() ?: ""
+        val details =
+            "URL: $targetUrl\nTopic: ${params.topic}\nTitle: ${params.title}\n" +
+                "Priority: ${params.priority}\nTags: ${params.tags}\nAuth: $authMode\nStatus: ${resp.code} ${resp.message}"
+        return if (resp.isSuccessful) {
+            val sections = mutableListOf(
+                "ntfy Request Details" to details,
+                "Body" to ExecutionLogFormatter.previewText(params.payload, 1000),
+            )
+            if (respBody.isNotBlank()) {
+                sections.add("Response Body" to ExecutionLogFormatter.previewText(respBody, 1000))
+            }
+            val detailedLog =
+                ExecutionLogFormatter.buildStructuredLog(
+                    summary = "Delivered to ntfy topic '${params.topic}' (HTTP ${resp.code})",
+                    sections = sections,
+                )
+            NodeExecutionResult.Success(outputPort = "main", logMessage = detailedLog)
         } else {
-            value
+            val failedLog =
+                ExecutionLogFormatter.buildStructuredLog(
+                    summary = "ntfy request failed: HTTP ${resp.code} ${resp.message}",
+                    sections =
+                        listOfNotNull(
+                            "ntfy Request Details" to details,
+                            respBody.takeIf { it.isNotBlank() }?.let { "Response Body" to ExecutionLogFormatter.previewText(it, 1000) },
+                        ),
+                )
+            NodeExecutionResult.Failed(failedLog)
         }
+    }
+
+    private fun sanitizeControlChars(value: String): String =
+        value.replace(Regex("[\\r\\n\\u0000]"), "").trim()
+
+    private fun toSafeHeaderValue(value: String): String {
+        val cleaned = sanitizeControlChars(value)
+        return if (cleaned.any { it.code !in 32..126 }) {
+            "=?utf-8?B?" + android.util.Base64.encodeToString(cleaned.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP) + "?="
+        } else {
+            cleaned
+        }
+    }
 }
 
 private data class NtfyParams(

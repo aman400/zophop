@@ -23,6 +23,7 @@ import dev.zophop.domain.model.WorkflowNode
 import dev.zophop.domain.model.optString
 import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ExecutionContext
+import dev.zophop.plugin.api.ExecutionLogFormatter
 import dev.zophop.plugin.api.NodeExecutionResult
 import dev.zophop.plugin.api.NodeExecutor
 import kotlinx.coroutines.Dispatchers
@@ -69,7 +70,17 @@ class VpnCheckExecutor : NodeExecutor {
             NodeExecutionResult.Failed(failure)
         } else {
             NodeExecutionResult.Success(
-                logMessage = "VPN Check: connected=${state.isConnected}, interface=${state.ifaceName}, type=${state.vpnType}",
+                logMessage =
+                    ExecutionLogFormatter.buildStructuredLog(
+                        summary = "VPN Check: connected=${state.isConnected}, interface=${state.ifaceName}, type=${state.vpnType}",
+                        sections =
+                            listOf(
+                                "Check Details" to
+                                    "Require Connected: $requireConnected\nConnected: ${state.isConnected}\n" +
+                                    "Interface: ${state.ifaceName}\nVPN Type: ${state.vpnType}\n" +
+                                    "Variables Set: vpn_connected, vpn_interface, vpn_type",
+                            ),
+                    ),
             )
         }
     }
@@ -166,7 +177,17 @@ class GpsCheckExecutor : NodeExecutor {
             NodeExecutionResult.Failed(failure)
         } else {
             NodeExecutionResult.Success(
-                logMessage = "GPS Check: enabled=${state.isEnabled}, lat=${state.lat}, lon=${state.lon}, provider=${state.provider}",
+                logMessage =
+                    ExecutionLogFormatter.buildStructuredLog(
+                        summary = "GPS Check: enabled=${state.isEnabled}, lat=${state.lat}, lon=${state.lon}, provider=${state.provider}",
+                        sections =
+                            listOf(
+                                "Location Details" to
+                                    "GPS Enabled: ${state.isEnabled}\nProvider: ${state.provider}\n" +
+                                    "Coordinates: ${state.lat}, ${state.lon} (±${state.acc}m)\n" +
+                                    "Variables Set: gps_enabled, latitude, longitude, accuracy, maps_url, location_provider",
+                            ),
+                    ),
             )
         }
     }
@@ -268,7 +289,17 @@ class InternetCheckExecutor : NodeExecutor {
             NodeExecutionResult.Failed(failure)
         } else {
             NodeExecutionResult.Success(
-                logMessage = "Internet Check: connected=${state.isConnected}, type=${state.networkType}, metered=${state.isMetered}",
+                logMessage =
+                    ExecutionLogFormatter.buildStructuredLog(
+                        summary = "Internet Check: connected=${state.isConnected}, type=${state.networkType}, metered=${state.isMetered}",
+                        sections =
+                            listOf(
+                                "Network Details" to
+                                    "Connected: ${state.isConnected}\nNetwork Type: ${state.networkType}\n" +
+                                    "Required Type: $requiredNetworkType\nMetered: ${state.isMetered}\n" +
+                                    "Variables Set: internet_connected, network_type, is_metered",
+                            ),
+                    ),
             )
         }
     }
@@ -353,7 +384,17 @@ class BluetoothCheckExecutor : NodeExecutor {
             NodeExecutionResult.Failed(failure)
         } else {
             NodeExecutionResult.Success(
-                logMessage = "Bluetooth Check: enabled=${state.isEnabled}, connected=${state.isConnected}, device=${state.deviceName}",
+                logMessage =
+                    ExecutionLogFormatter.buildStructuredLog(
+                        summary = "Bluetooth Check: enabled=${state.isEnabled}, connected=${state.isConnected}, device=${state.deviceName}",
+                        sections =
+                            listOf(
+                                "Bluetooth Details" to
+                                    "Enabled: ${state.isEnabled}\nConnected: ${state.isConnected}\n" +
+                                    "Device: ${state.deviceName} (${state.deviceAddress})\nBonded Devices: ${state.bondedCount}\n" +
+                                    "Variables Set: bluetooth_enabled, bluetooth_connected, connected_device_name, connected_device_address, bonded_device_count",
+                            ),
+                    ),
             )
         }
     }
@@ -483,7 +524,17 @@ class SimCheckExecutor : NodeExecutor {
             NodeExecutionResult.Failed(failure)
         } else {
             NodeExecutionResult.Success(
-                logMessage = "SIM Check: ready=${state.isReady}, carrier=${state.carrier}, simCount=${state.simCount}",
+                logMessage =
+                    ExecutionLogFormatter.buildStructuredLog(
+                        summary = "SIM Check: ready=${state.isReady}, carrier=${state.carrier}, simCount=${state.simCount}",
+                        sections =
+                            listOf(
+                                "SIM Details" to
+                                    "SIM Ready: ${state.isReady}\nCarrier: ${state.carrier}\n" +
+                                    "Active SIMs: ${state.simCount}\nRoaming: ${state.isRoaming}\n" +
+                                    "Variables Set: sim_ready, carrier_name, sim_count, is_roaming",
+                            ),
+                    ),
             )
         }
     }
@@ -566,7 +617,17 @@ class BatteryCheckExecutor : NodeExecutor {
             NodeExecutionResult.Failed(failure)
         } else {
             NodeExecutionResult.Success(
-                logMessage = "Battery Check: percent=${state.percent}%, charging=${state.isCharging}, status=${state.statusStr}",
+                logMessage =
+                    ExecutionLogFormatter.buildStructuredLog(
+                        summary = "Battery Check: percent=${state.percent}%, charging=${state.isCharging}, status=${state.statusStr}",
+                        sections =
+                            listOf(
+                                "Battery Details" to
+                                    "Battery Level: ${state.percent}% (Min Required: $minPercent%)\n" +
+                                    "Charging: ${state.isCharging} (${state.statusStr})\n" +
+                                    "Variables Set: battery_percent, is_charging, charging_status",
+                            ),
+                    ),
             )
         }
     }

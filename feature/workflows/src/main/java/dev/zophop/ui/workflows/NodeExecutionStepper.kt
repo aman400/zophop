@@ -12,31 +12,30 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RemoveCircleOutline
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Timer
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
@@ -44,8 +43,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
-import androidx.compose.material3.SuggestionChip
-import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -69,7 +66,7 @@ fun NodeExecutionStepper(
     onRetryFromNode: ((nodeId: String) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    var selectedErrorLog by remember { mutableStateOf<String?>(null) }
+    var selectedStepForLog by remember { mutableStateOf<NodeExecutionStep?>(null) }
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -81,15 +78,15 @@ fun NodeExecutionStepper(
                 isFirst = index == 0,
                 isLast = index == steps.size - 1,
                 onRetryFromNode = onRetryFromNode,
-                onShowErrorLog = { selectedErrorLog = it },
+                onShowCompleteLog = { selectedStepForLog = it },
             )
         }
     }
 
-    selectedErrorLog?.let { log ->
-        NodeExecutionErrorDialog(
-            log = log,
-            onDismiss = { selectedErrorLog = null },
+    selectedStepForLog?.let { step ->
+        CompleteExecutionLogDialog(
+            step = step,
+            onDismiss = { selectedStepForLog = null },
         )
     }
 }
@@ -100,7 +97,7 @@ private fun NodeExecutionStepRow(
     isFirst: Boolean,
     isLast: Boolean,
     onRetryFromNode: ((nodeId: String) -> Unit)?,
-    onShowErrorLog: (String) -> Unit,
+    onShowCompleteLog: (NodeExecutionStep) -> Unit,
 ) {
     val isRetryStep = (
         step.nodeId.contains("retry", ignoreCase = true) ||
@@ -133,16 +130,27 @@ private fun NodeExecutionStepRow(
                     .fillMaxHeight(),
             contentAlignment = Alignment.TopCenter,
         ) {
-            Box(
-                modifier =
-                    Modifier
-                        .width(3.dp)
-                        .padding(
-                            top = if (isFirst) 18.dp else 0.dp,
-                            bottom = if (isLast) 18.dp else 0.dp,
-                        ).fillMaxHeight()
-                        .background(lineColor),
-            )
+            if (!isFirst) {
+                Box(
+                    modifier =
+                        Modifier
+                            .align(Alignment.TopCenter)
+                            .width(3.dp)
+                            .height(8.dp)
+                            .background(lineColor),
+                )
+            }
+
+            if (!isLast) {
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxHeight()
+                            .padding(top = 32.dp)
+                            .width(3.dp)
+                            .background(lineColor),
+                )
+            }
 
             NodeStepDotIndicator(
                 step = step,
@@ -167,7 +175,7 @@ private fun NodeExecutionStepRow(
         OutlinedCard(
             modifier =
                 Modifier
-                    .fillMaxWidth()
+                    .weight(1f)
                     .padding(bottom = 12.dp),
             colors =
                 CardDefaults.outlinedCardColors(
@@ -186,19 +194,20 @@ private fun NodeExecutionStepRow(
             Column(
                 modifier =
                     Modifier
+                        .fillMaxWidth()
                         .padding(12.dp)
                         .animateContentSize(animationSpec = tween(250)),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.weight(1f, fill = false),
+                        modifier = Modifier.weight(1f),
                     ) {
                         Icon(
                             imageVector = WorkflowUiHelper.getNodeIcon(step.nodeType),
@@ -216,6 +225,8 @@ private fun NodeExecutionStepRow(
                             text = step.nodeName,
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
                             color =
                                 if (step.state == NodeStepState.SKIPPED) {
                                     MaterialTheme.colorScheme.onSurfaceVariant
@@ -235,12 +246,14 @@ private fun NodeExecutionStepRow(
                 Text(
                     text = WorkflowUiHelper.getNodeTitle(step.nodeType),
                     style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
                 NodeStepTimingRow(step = step)
 
-                NodeStepLogBox(step = step, onShowErrorLog = onShowErrorLog)
+                NodeStepLogBox(step = step, onShowCompleteLog = onShowCompleteLog)
 
                 NodeStepActionRow(step = step, onRetryFromNode = onRetryFromNode)
             }
@@ -253,10 +266,10 @@ private fun NodeStepTimingRow(step: NodeExecutionStep) {
     val timeStr = WorkflowUiHelper.formatExecutionTime(step.executedAt)
     val durationStr = WorkflowUiHelper.formatDuration(step.durationMs)
     if (timeStr.isNotBlank() || durationStr.isNotBlank()) {
-        Row(
+        FlowRow(
             modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             if (timeStr.isNotBlank()) {
                 Row(
@@ -273,6 +286,8 @@ private fun NodeStepTimingRow(step: NodeExecutionStep) {
                         text = timeStr,
                         style = MaterialTheme.typography.labelSmall,
                         fontSize = 11.sp,
+                        maxLines = 1,
+                        softWrap = false,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -293,6 +308,8 @@ private fun NodeStepTimingRow(step: NodeExecutionStep) {
                         style = MaterialTheme.typography.labelSmall,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        softWrap = false,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -355,42 +372,43 @@ private fun NodeStepStatusChip(
                 )
         }
 
-    SuggestionChip(
-        onClick = {},
-        label = {
-            Text(
-                text = statusText,
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
-            )
-        },
-        colors =
-            SuggestionChipDefaults.suggestionChipColors(
-                containerColor = statusBg,
-                labelColor = statusFg,
-            ),
-    )
+    Surface(
+        color = statusBg,
+        shape = RoundedCornerShape(8.dp),
+    ) {
+        Text(
+            text = statusText,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = statusFg,
+            maxLines = 1,
+            softWrap = false,
+        )
+    }
 }
 
 @Composable
 private fun NodeStepLogBox(
     step: NodeExecutionStep,
-    onShowErrorLog: (String) -> Unit,
+    onShowCompleteLog: (NodeExecutionStep) -> Unit,
 ) {
-    if (step.logMessage.isNotBlank()) {
+    if (step.logMessage.isNotBlank() || !step.errorReason.isNullOrBlank()) {
+        val displaySummary = step.logMessage.ifBlank { step.errorReason.orEmpty() }
+        val sectionCount = remember(step.logMessage) { parseStructuredLogSections(step.logMessage).size }
         Box(
             modifier =
                 Modifier
                     .fillMaxWidth()
                     .background(
                         color = MaterialTheme.colorScheme.surfaceContainer,
-                        shape = RoundedCornerShape(6.dp),
-                    ).clickable { onShowErrorLog(step.logMessage) }
-                    .padding(8.dp),
+                        shape = RoundedCornerShape(8.dp),
+                    ).clickable { onShowCompleteLog(step) }
+                    .padding(10.dp),
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    text = step.logMessage,
+                    text = displaySummary,
                     style = MaterialTheme.typography.bodySmall,
                     fontFamily = FontFamily.Monospace,
                     maxLines = 3,
@@ -402,12 +420,38 @@ private fun NodeStepLogBox(
                             else -> MaterialTheme.colorScheme.onSurface
                         },
                 )
-                Text(
-                    text = "Tap to view complete log",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.primary,
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Tap to view complete log",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        if (sectionCount > 1) {
+                            Text(
+                                text = "$sectionCount sections",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.Default.OpenInFull,
+                            contentDescription = null,
+                            modifier = Modifier.size(12.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
             }
         }
     }
@@ -420,10 +464,9 @@ private fun NodeStepActionRow(
 ) {
     if (step.state == NodeStepState.FAILED) {
         if (!step.retriedInExecutionId.isNullOrBlank()) {
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(4.dp))
             Surface(
-                modifier = Modifier.padding(top = 4.dp),
-                color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f),
+                color = MaterialTheme.colorScheme.secondaryContainer,
                 shape = RoundedCornerShape(6.dp),
             ) {
                 Row(
@@ -435,28 +478,35 @@ private fun NodeStepActionRow(
                         imageVector = Icons.Default.Replay,
                         contentDescription = null,
                         modifier = Modifier.size(12.dp),
-                        tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
                     )
                     Text(
                         text = "Retried in ${step.retriedInExecutionId}",
                         style = MaterialTheme.typography.labelSmall,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
                     )
                 }
             }
         } else if (onRetryFromNode != null) {
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(4.dp))
             Button(
                 onClick = { onRetryFromNode(step.nodeId) },
-                modifier = Modifier.height(28.dp),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                modifier = Modifier.heightIn(min = 32.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
             ) {
                 Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(12.dp))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("Retry From This Step", fontSize = 11.sp)
+                Text(
+                    text = "Retry From This Step",
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
@@ -471,11 +521,7 @@ private fun NodeStepDotIndicator(
         modifier =
             Modifier
                 .padding(top = 8.dp)
-                .size(24.dp)
-                .background(
-                    color = MaterialTheme.colorScheme.surface,
-                    shape = CircleShape,
-                ),
+                .size(24.dp),
         contentAlignment = Alignment.Center,
     ) {
         when {
@@ -547,46 +593,4 @@ private fun NodeStepDotIndicator(
             }
         }
     }
-}
-
-@Composable
-private fun NodeExecutionErrorDialog(
-    log: String,
-    onDismiss: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Complete Execution Log") },
-        text = {
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .height(320.dp)
-                        .background(
-                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                            shape = RoundedCornerShape(8.dp),
-                        ).padding(12.dp),
-            ) {
-                Column(
-                    modifier =
-                        Modifier
-                            .fillMaxSize()
-                            .verticalScroll(rememberScrollState()),
-                ) {
-                    Text(
-                        text = log,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            Button(onClick = onDismiss) {
-                Text("Close")
-            }
-        },
-    )
 }

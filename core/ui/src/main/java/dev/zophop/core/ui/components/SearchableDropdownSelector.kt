@@ -41,7 +41,7 @@ import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -122,8 +122,9 @@ fun <T> SearchableDropdownSelector(
         }
 
         val sheetState =
-            rememberModalBottomSheetState(
-                skipPartiallyExpanded = true,
+            rememberBottomSheetState(
+                initialValue = SheetValue.Hidden,
+                enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
                 confirmValueChange = { it != SheetValue.Hidden },
             )
 

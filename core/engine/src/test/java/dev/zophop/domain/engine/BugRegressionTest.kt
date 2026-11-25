@@ -575,8 +575,12 @@ class BugRegressionTest {
             val result = engine.executeWorkflow(workflow, ctx, null)
 
             assertTrue(
-                "Workflow with Ignored trigger must complete as Success, not Failed (BUG-05)",
-                result is WorkflowExecutionResult.Success,
+                "Workflow with Ignored trigger must return Ignored (not Failed or Success), discarding execution",
+                result is WorkflowExecutionResult.Ignored,
+            )
+            assertTrue(
+                "Downstream nodes must be SKIPPED when trigger is ignored",
+                result.steps.all { it.state == NodeStepState.SKIPPED },
             )
         }
 

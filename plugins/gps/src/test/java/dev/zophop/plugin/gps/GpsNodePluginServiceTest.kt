@@ -86,4 +86,27 @@ class GpsNodePluginServiceTest {
         assertFalse(json.optBoolean("isSuccess"))
         assertTrue(json.optString("errorReason").contains("Location permissions"))
     }
+
+    @Test
+    fun testGetLocationActionHandlesNullLocationManagerGracefully() {
+        val app = org.robolectric.RuntimeEnvironment.getApplication()
+        Shadows.shadowOf(app).grantPermissions(Manifest.permission.ACCESS_FINE_LOCATION)
+        val service =
+            object : GpsNodePluginService() {
+                init {
+                    attachBaseContext(app)
+                }
+
+                override fun getSystemService(name: String): Any? =
+                    if (name == LOCATION_SERVICE) null else super.getSystemService(name)
+            }
+
+        val binder = service.onBind(null) as dev.zophop.plugin.api.INodePluginService
+        val configJson = """{"typeId":"dev.zophop.plugin.gps.GET_LOCATION_ACTION"}"""
+        val resultJson = binder.executeNode("node_gps", configJson, "{}")
+
+        val json = parseJsonObjectSafe(resultJson)
+        assertFalse(json.optBoolean("isSuccess"))
+        assertTrue(json.optString("errorReason").contains("LocationManager", ignoreCase = true))
+    }
 }

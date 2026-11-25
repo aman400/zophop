@@ -71,4 +71,31 @@ class ExecutionContextTest {
 
         assertEquals("[OTP] Your OTP code is ready.", result)
     }
+
+    @Test
+    fun testInterpolate_blocksSecondOrderTemplateExpansion() {
+        val context =
+            ExecutionContext(
+                mapOf(
+                    "secret_token" to "SUPER_SECRET_123",
+                    "body" to "User sent \${secret_token} and {secret_token}",
+                ),
+            )
+
+        val result = context.interpolate("SMS: \${body}")
+        assertEquals("SMS: User sent \${secret_token} and {secret_token}", result)
+    }
+
+    @Test
+    fun testInterpolate_preservesDollarSignsAndBackslashesInValues() {
+        val context =
+            ExecutionContext(
+                mapOf(
+                    "amount" to "$100 $0 $1 \\backslash",
+                ),
+            )
+
+        val result = context.interpolate("Paid: \${amount}")
+        assertEquals("Paid: $100 $0 $1 \\backslash", result)
+    }
 }

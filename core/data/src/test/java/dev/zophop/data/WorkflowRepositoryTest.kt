@@ -50,12 +50,14 @@ class WorkflowRepositoryTest {
 
         override suspend fun getQueuedWorkflowLogs() = logs.filter { it.status == "QUEUED" }
 
+        override suspend fun getRunningWorkflowLogs() = logs.filter { it.status == "RUNNING" }
+
         override suspend fun deleteExecutionLogById(id: String) {
             logs.removeAll { it.id == id }
         }
 
         override suspend fun clearLogsForWorkflow(workflowId: String) {
-            logs.removeAll { it.workflowId == workflowId }
+            logs.removeAll { it.workflowId == workflowId && it.status != "QUEUED" }
         }
 
         override suspend fun clearAllExecutionLogs() {
@@ -137,9 +139,20 @@ class WorkflowRepositoryTest {
             assertEquals(1, wf1Logs.size)
             assertEquals("log_1", wf1Logs[0].id)
 
+            val queuedLog =
+                WorkflowExecutionLogEntity(
+                    id = "log_queued_1",
+                    workflowId = "wf_1",
+                    status = "QUEUED",
+                    logs = "Waiting for preconditions",
+                    timestamp = System.currentTimeMillis(),
+                )
+            repo.saveExecutionLog(queuedLog)
+
             repo.clearLogsForWorkflow("wf_1")
             val wf1LogsAfterClear = repo.getLogsForWorkflowFlow("wf_1", 50).first()
-            assertTrue(wf1LogsAfterClear.isEmpty())
-            assertEquals(1, repo.getRecentExecutionLogsFlow(50).first().size)
+            assertEquals(1, wf1LogsAfterClear.size)
+            assertEquals("log_queued_1", wf1LogsAfterClear[0].id)
+            assertEquals(2, repo.getRecentExecutionLogsFlow(50).first().size)
         }
 }

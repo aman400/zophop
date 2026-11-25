@@ -1,14 +1,13 @@
 package dev.zophop.ui
 
 import android.Manifest
-import android.app.Activity
-import android.app.KeyguardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.biometric.BiometricManager
@@ -44,13 +43,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberSliderState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -60,18 +60,25 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.zophop.BuildConfig
+import dev.zophop.core.ui.AppThemeMode
+import dev.zophop.core.ui.AppThemePalette
+import dev.zophop.core.ui.components.BiometricAuthHelper
 import dev.zophop.domain.engine.plugin.ExternalPluginServiceInfo
 import dev.zophop.feature.backup.ExportBackupDialog
 import dev.zophop.feature.backup.ImportBackupDialog
+import kotlin.math.roundToInt
 
 @Composable
 fun SettingsScreen(
@@ -85,10 +92,21 @@ fun SettingsScreen(
     val discoveredPlugins by viewModel.discoveredPlugins.collectAsState()
     val context = LocalContext.current
 
-    var pendingToggleState by remember { mutableStateOf<Boolean?>(null) }
+    var pendingEnableWorkflowNotifications by remember { mutableStateOf(false) }
     var showNotificationPermissionRationaleDialog by remember { mutableStateOf(false) }
     var showExportBackupDialog by remember { mutableStateOf(false) }
     var showImportBackupDialog by remember { mutableStateOf(false) }
+    val uiPrefs = remember(context) { context.getSharedPreferences("zophop_ui_prefs", Context.MODE_PRIVATE) }
+
+    LaunchedEffect(hasNotificationPermission) {
+        if (hasNotificationPermission) {
+            uiPrefs.edit { putBoolean("notif_permission_requested", false) }
+            if (pendingEnableWorkflowNotifications) {
+                pendingEnableWorkflowNotifications = false
+                viewModel.toggleShowWorkflowNotifications(true)
+            }
+        }
+    }
 
     val workflows by viewModel.workflows.collectAsState()
     val credentials by viewModel.credentials.collectAsState()
@@ -111,79 +129,37 @@ fun SettingsScreen(
         }
     }
 
-    val securityIntentLauncher =
-        rememberLauncherForActivityResult(
-            contract = ActivityResultContracts.StartActivityForResult(),
-        ) { result ->
-            if (result.resultCode == Activity.RESULT_OK) {
-                pendingToggleState?.let { targetState ->
-                    viewModel.toggleLockCredentialsWithBiometric(targetState)
-                    pendingToggleState = null
-                }
-            } else {
-                pendingToggleState = null
-            }
-        }
-
     fun authenticateSecurityToggle(targetState: Boolean) {
-        pendingToggleState = targetState
-
+        if (BiometricAuthHelper.canBypassWhenNoLockEnrolled(context)) {
+            viewModel.toggleLockCredentialsWithBiometric(targetState)
+            return
+        }
+        val authenticators = BiometricAuthHelper.allowedAuthenticators()
+        val biometricManager = BiometricManager.from(context)
         val activity = context as? FragmentActivity
-        if (activity != null) {
-            try {
-                val executor = ContextCompat.getMainExecutor(context)
-                val prompt =
-                    BiometricPrompt(
-                        activity,
-                        executor,
-                        object : BiometricPrompt.AuthenticationCallback() {
-                            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                                super.onAuthenticationSucceeded(result)
-                                viewModel.toggleLockCredentialsWithBiometric(targetState)
-                                pendingToggleState = null
-                            }
-
-                            override fun onAuthenticationError(
-                                errorCode: Int,
-                                errString: CharSequence,
-                            ) {
-                                super.onAuthenticationError(errorCode, errString)
-                                pendingToggleState = null
-                            }
-                        },
-                    )
-                val promptInfo =
-                    BiometricPrompt.PromptInfo
-                        .Builder()
-                        .setTitle("Vault Security Lock")
-                        .setSubtitle("Authenticate using biometrics or device lock to change vault security settings.")
-                        .setAllowedAuthenticators(
-                            BiometricManager.Authenticators.BIOMETRIC_STRONG or
-                                BiometricManager.Authenticators.DEVICE_CREDENTIAL,
-                        ).build()
-
-                prompt.authenticate(promptInfo)
-                return
-            } catch (_: Exception) {
-            }
-        }
-
-        val keyguardManager = context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
-        if (keyguardManager != null && keyguardManager.isDeviceSecure) {
-            val intent =
-                keyguardManager.createConfirmDeviceCredentialIntent(
-                    "Vault Security Lock",
-                    "Authenticate using device PIN, pattern, or password to change vault security settings.",
+        if (activity != null && biometricManager.canAuthenticate(authenticators) == BiometricManager.BIOMETRIC_SUCCESS) {
+            val executor = ContextCompat.getMainExecutor(context)
+            val prompt =
+                BiometricPrompt(
+                    activity,
+                    executor,
+                    object : BiometricPrompt.AuthenticationCallback() {
+                        override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                            super.onAuthenticationSucceeded(result)
+                            viewModel.toggleLockCredentialsWithBiometric(targetState)
+                        }
+                    },
                 )
-            if (intent != null) {
-                securityIntentLauncher.launch(intent)
-                return
-            }
-        }
+            val promptInfo =
+                BiometricPrompt.PromptInfo
+                    .Builder()
+                    .setTitle("Vault Security Lock")
+                    .setSubtitle("Authenticate using biometrics or device lock to change vault security settings.")
+                    .setAllowedAuthenticators(authenticators)
+                    .build()
 
-        // If no security lock is set up on the phone
-        viewModel.toggleLockCredentialsWithBiometric(targetState)
-        pendingToggleState = null
+            prompt.authenticate(promptInfo)
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -204,11 +180,36 @@ fun SettingsScreen(
             }
 
             item {
+                val activity = LocalActivity.current
                 WorkflowExecutionAlertsCard(
                     checked = uiState.showWorkflowNotifications,
                     hasNotificationPermission = hasNotificationPermission,
-                    onCheckedChange = { viewModel.toggleShowWorkflowNotifications(it) },
-                    onRequestRationale = { showNotificationPermissionRationaleDialog = true },
+                    onCheckedChange = { enable ->
+                        pendingEnableWorkflowNotifications = false
+                        viewModel.toggleShowWorkflowNotifications(enable)
+                    },
+                    onRequestEnableWithoutPermission = {
+                        pendingEnableWorkflowNotifications = true
+                        val shouldShowRationale = activity?.shouldShowRequestPermissionRationale(
+                            Manifest.permission.POST_NOTIFICATIONS,
+                        ) == true
+                        val hasRequestedBefore = uiPrefs.getBoolean("notif_permission_requested", false)
+                        if (shouldShowRationale || hasRequestedBefore) {
+                            showNotificationPermissionRationaleDialog = true
+                        } else {
+                            uiPrefs.edit { putBoolean("notif_permission_requested", true) }
+                            onRequestNotificationPermission()
+                        }
+                    },
+                )
+            }
+
+            item {
+                SettingsThemeSection(
+                    selectedMode = AppThemeMode.fromId(uiState.themeMode),
+                    onSelectMode = { mode -> viewModel.updateThemeMode(mode.id) },
+                    selectedPalette = AppThemePalette.fromId(uiState.themePalette),
+                    onSelectPalette = { palette -> viewModel.updateThemePalette(palette.id) },
                 )
             }
 
@@ -316,18 +317,25 @@ fun SettingsScreen(
 
     if (showNotificationPermissionRationaleDialog) {
         NotificationPermissionRationaleDialog(
-            onDismiss = { showNotificationPermissionRationaleDialog = false },
+            onDismiss = {
+                showNotificationPermissionRationaleDialog = false
+                pendingEnableWorkflowNotifications = false
+            },
             onOpenSettings = {
                 showNotificationPermissionRationaleDialog = false
                 try {
                     val intent =
-                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                            data = Uri.fromParts("package", context.packageName, null)
+                        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                            putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
                         }
                     context.startActivity(intent)
                 } catch (_: Exception) {
                     try {
-                        context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                        val intent =
+                            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                data = Uri.fromParts("package", context.packageName, null)
+                            }
+                        context.startActivity(intent)
                     } catch (_: Exception) {
                     }
                 }
@@ -381,7 +389,7 @@ private fun BackupAndRestoreCard(
                 ) {
                     Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Export")
+                    Text("Export", maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 OutlinedButton(
                     onClick = onImport,
@@ -389,7 +397,7 @@ private fun BackupAndRestoreCard(
                 ) {
                     Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Import")
+                    Text("Import", maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
@@ -427,7 +435,7 @@ private fun GlobalWorkflowsSwitchCard(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
@@ -456,7 +464,7 @@ private fun WorkflowExecutionAlertsCard(
     checked: Boolean,
     hasNotificationPermission: Boolean,
     onCheckedChange: (Boolean) -> Unit,
-    onRequestRationale: () -> Unit,
+    onRequestEnableWithoutPermission: () -> Unit,
 ) {
     OutlinedCard(
         modifier = Modifier.fillMaxWidth(),
@@ -484,7 +492,7 @@ private fun WorkflowExecutionAlertsCard(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
@@ -500,11 +508,12 @@ private fun WorkflowExecutionAlertsCard(
                     )
                 }
                 Switch(
+                    modifier = Modifier.testTag("workflow_execution_alerts_switch"),
                     checked = checked,
                     onCheckedChange = { enable ->
                         val notifGranted = Build.VERSION.SDK_INT < 33 || hasNotificationPermission
                         if (enable && !notifGranted) {
-                            onRequestRationale()
+                            onRequestEnableWithoutPermission()
                         } else {
                             onCheckedChange(enable)
                         }
@@ -546,7 +555,7 @@ private fun VaultSecurityLockCard(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
@@ -606,7 +615,7 @@ private fun ConcurrencyAndQueueCard(
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -621,23 +630,32 @@ private fun ConcurrencyAndQueueCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    SuggestionChip(
-                        onClick = {},
-                        label = { Text("$maxParallel Active", fontWeight = FontWeight.Bold) },
+                    SettingsValueBadge(text = "$maxParallel Active")
+                }
+                val maxParallelState =
+                    rememberSliderState(
+                        value = maxParallel.toFloat(),
+                        steps = 8,
+                        trackRange = 1f..10f,
                     )
+                LaunchedEffect(maxParallel) {
+                    if (maxParallelState.value != maxParallel.toFloat()) {
+                        maxParallelState.value = maxParallel.toFloat()
+                    }
                 }
                 Slider(
-                    value = maxParallel.toFloat(),
-                    onValueChange = { onMaxParallelChange(it.toInt()) },
-                    valueRange = 1f..10f,
-                    steps = 8,
+                    state = maxParallelState,
+                    onValueChange = {
+                        maxParallelState.value = it
+                        onMaxParallelChange(it.roundToInt())
+                    },
                 )
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -652,23 +670,32 @@ private fun ConcurrencyAndQueueCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    SuggestionChip(
-                        onClick = {},
-                        label = { Text("Max $maxQueue", fontWeight = FontWeight.Bold) },
+                    SettingsValueBadge(text = "Max $maxQueue")
+                }
+                val maxQueueState =
+                    rememberSliderState(
+                        value = maxQueue.toFloat(),
+                        steps = 18,
+                        trackRange = 5f..100f,
                     )
+                LaunchedEffect(maxQueue) {
+                    if (maxQueueState.value != maxQueue.toFloat()) {
+                        maxQueueState.value = maxQueue.toFloat()
+                    }
                 }
                 Slider(
-                    value = maxQueue.toFloat(),
-                    onValueChange = { onMaxQueueChange(it.toInt()) },
-                    valueRange = 5f..100f,
-                    steps = 18,
+                    state = maxQueueState,
+                    onValueChange = {
+                        maxQueueState.value = it
+                        onMaxQueueChange(it.roundToInt())
+                    },
                 )
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -683,16 +710,25 @@ private fun ConcurrencyAndQueueCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    SuggestionChip(
-                        onClick = {},
-                        label = { Text("${queueTimeoutMinutes}m Timeout", fontWeight = FontWeight.Bold) },
+                    SettingsValueBadge(text = "${queueTimeoutMinutes}m Timeout")
+                }
+                val queueTimeoutState =
+                    rememberSliderState(
+                        value = queueTimeoutMinutes.toFloat(),
+                        steps = 58,
+                        trackRange = 1f..60f,
                     )
+                LaunchedEffect(queueTimeoutMinutes) {
+                    if (queueTimeoutState.value != queueTimeoutMinutes.toFloat()) {
+                        queueTimeoutState.value = queueTimeoutMinutes.toFloat()
+                    }
                 }
                 Slider(
-                    value = queueTimeoutMinutes.toFloat(),
-                    onValueChange = { onQueueTimeoutMinutesChange(it.toInt()) },
-                    valueRange = 1f..60f,
-                    steps = 58,
+                    state = queueTimeoutState,
+                    onValueChange = {
+                        queueTimeoutState.value = it
+                        onQueueTimeoutMinutesChange(it.roundToInt())
+                    },
                 )
             }
         }
@@ -774,7 +810,25 @@ private fun InstalledNodePluginsCard(
 }
 
 @Composable
-private fun PluginItemView(plugin: ExternalPluginServiceInfo) {
+private fun SettingsValueBadge(text: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        shape = RoundedCornerShape(8.dp),
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            softWrap = false,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+    }
+}
+
+@Composable
+internal fun PluginItemView(plugin: ExternalPluginServiceInfo) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer,
         shape = RoundedCornerShape(8.dp),
@@ -786,13 +840,16 @@ private fun PluginItemView(plugin: ExternalPluginServiceInfo) {
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     text = plugin.manifest.displayName,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
                 Surface(
                     color = MaterialTheme.colorScheme.primaryContainer,
@@ -801,6 +858,8 @@ private fun PluginItemView(plugin: ExternalPluginServiceInfo) {
                     Text(
                         text = "v${plugin.apiVersion}",
                         style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        softWrap = false,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                     )
@@ -814,6 +873,8 @@ private fun PluginItemView(plugin: ExternalPluginServiceInfo) {
             Text(
                 text = "Package: ${plugin.packageName}",
                 style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 color = MaterialTheme.colorScheme.outline,
             )
         }
@@ -860,7 +921,7 @@ private fun AboutAppCard(
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "About ZopHop",
                         style = MaterialTheme.typography.titleMedium,

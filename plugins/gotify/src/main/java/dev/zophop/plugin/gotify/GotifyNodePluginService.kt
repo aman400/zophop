@@ -24,6 +24,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 object GotifyPluginModule : NodePluginModule {
@@ -232,7 +233,19 @@ class GotifyNodePluginService : Service() {
             }
 
             private fun dispatchGotifyRequest(params: GotifyServiceParams): String {
-                val targetUrl = "${params.serverUrl}/message" + (if (params.appToken.isNotBlank()) "?token=${params.appToken}" else "")
+                val safeToken = params.appToken.replace("\r", "").replace("\n", "").replace("\u0000", "").trim()
+                val encodedToken =
+                    if (safeToken.isNotBlank()) {
+                        URLEncoder.encode(safeToken, Charsets.UTF_8.name())
+                    } else {
+                        ""
+                    }
+                val targetUrl =
+                    if (encodedToken.isNotBlank()) {
+                        "${params.serverUrl}/message?token=$encodedToken"
+                    } else {
+                        "${params.serverUrl}/message"
+                    }
                 val jsonBody =
                     buildJsonObject {
                         put("title", params.title)
@@ -246,7 +259,7 @@ class GotifyNodePluginService : Service() {
                             .Builder()
                             .url(targetUrl)
                             .post(jsonBody.toRequestBody("application/json; charset=utf-8".toMediaType()))
-                    if (params.appToken.isNotBlank()) requestBuilder.addHeader("X-Gotify-Key", params.appToken)
+                    if (safeToken.isNotBlank()) requestBuilder.addHeader("X-Gotify-Key", safeToken)
 
                     val response = okHttpClient.newCall(requestBuilder.build()).execute()
                     response.use { resp ->
@@ -254,14 +267,21 @@ class GotifyNodePluginService : Service() {
                         if (resp.isSuccessful) {
                             success("Delivered to Gotify server")
                         } else {
-                            fail("Gotify request failed: HTTP ${resp.code} - $respBody")
+                            fail("Gotify request failed: HTTP ${resp.code} - ${redactToken(respBody, safeToken, encodedToken)}")
                         }
                     }
                 } catch (e: IOException) {
-                    fail("Gotify dispatch failed: ${e.message}")
+                    fail("Gotify dispatch failed: ${redactToken(e.message, safeToken, encodedToken)}")
                 } catch (e: IllegalArgumentException) {
-                    fail("Gotify dispatch failed: ${e.message}")
+                    fail("Gotify dispatch failed: ${redactToken(e.message, safeToken, encodedToken)}")
                 }
+            }
+
+            private fun redactToken(text: String?, rawToken: String, encodedToken: String): String {
+                var result = text ?: ""
+                if (rawToken.isNotBlank()) result = result.replace(rawToken, "***")
+                if (encodedToken.isNotBlank()) result = result.replace(encodedToken, "***")
+                return result
             }
 
             private fun success(msg: String) =

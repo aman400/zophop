@@ -37,6 +37,8 @@ interface WorkflowRepository {
 
     suspend fun getQueuedWorkflowLogs(): List<WorkflowExecutionLogEntity>
 
+    suspend fun getRunningWorkflowLogs(): List<WorkflowExecutionLogEntity> = emptyList()
+
     suspend fun deleteExecutionLogById(id: String)
 
     suspend fun clearLogsForWorkflow(workflowId: String)
@@ -116,6 +118,9 @@ class RoomWorkflowRepository(
 
     override suspend fun getQueuedWorkflowLogs(): List<WorkflowExecutionLogEntity> =
         workflowDao.getQueuedWorkflowLogs()
+
+    override suspend fun getRunningWorkflowLogs(): List<WorkflowExecutionLogEntity> =
+        workflowDao.getRunningWorkflowLogs()
 
     override suspend fun deleteExecutionLogById(id: String) {
         workflowDao.deleteExecutionLogById(id)

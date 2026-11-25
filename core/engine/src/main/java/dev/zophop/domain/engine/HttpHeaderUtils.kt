@@ -1,6 +1,13 @@
 package dev.zophop.domain.engine
 
 object HttpHeaderUtils {
+    private val HEADER_NAME_REGEX = Regex("^[!#\$%&'*+\\-.^_`|~0-9A-Za-z]+$")
+    private val CONTROL_CHARS_REGEX = Regex("[\\r\\n\\u0000]")
+
+    fun sanitizeHeaderValue(value: String): String = CONTROL_CHARS_REGEX.replace(value, "").trim()
+
+    fun isValidHeaderName(name: String): Boolean = HEADER_NAME_REGEX.matches(name)
+
     /**
      * Parses a custom HTTP headers string into a list of [Pair<String, String>] (key, value).
      * Correctly handles multi-valued headers containing commas (such as Accept, Cache-Control, or User-Agent)
@@ -24,8 +31,9 @@ object HttpHeaderUtils {
                 null
             } else {
                 val parts = trimmed.split(":", limit = 2)
-                if (parts.size == 2 && parts[0].isNotBlank()) {
-                    parts[0].trim() to parts[1].trim()
+                val name = parts.getOrNull(0)?.trim().orEmpty()
+                if (parts.size == 2 && isValidHeaderName(name)) {
+                    name to sanitizeHeaderValue(parts[1])
                 } else {
                     null
                 }

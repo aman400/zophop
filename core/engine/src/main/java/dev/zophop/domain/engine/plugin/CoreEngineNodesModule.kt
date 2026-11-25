@@ -315,6 +315,9 @@ object CoreEngineNodesModule : NodePluginModule {
                                     "POST" to "POST",
                                     "GET" to "GET",
                                     "PUT" to "PUT",
+                                    "PATCH" to "PATCH",
+                                    "DELETE" to "DELETE",
+                                    "HEAD" to "HEAD",
                                 ),
                         ),
                         ConfigFieldSpec.CodeTemplateField(
@@ -328,10 +331,28 @@ object CoreEngineNodesModule : NodePluginModule {
                             label = "HTTP Headers",
                             minLines = 2,
                         ),
+                        ConfigFieldSpec.DropdownField(
+                            key = "bodyType",
+                            label = "Body Type",
+                            options =
+                                listOf(
+                                    "JSON" to "JSON (application/json)",
+                                    "FORM_DATA" to "Form Data (x-www-form-urlencoded)",
+                                    "RAW" to "Raw Text (text/plain)",
+                                    "NONE" to "None (No Body)",
+                                ),
+                        ),
                         ConfigFieldSpec.CodeTemplateField(
                             key = "bodyTemplate",
                             label = "Body Template / Payload",
                             minLines = 3,
+                        ),
+                        ConfigFieldSpec.TextField(
+                            key = "expectedStatus",
+                            label = "Expected HTTP Status (Optional)",
+                            placeholder = "200",
+                            tooltip = "Expected response status code (defaults to 200, accepting any 2xx response).",
+                            singleLine = true,
                         ),
                     ),
             ),
@@ -670,11 +691,15 @@ object CoreEngineNodesModule : NodePluginModule {
     private fun validateHttpAction(config: JsonObject): String? {
         val credentialId = config.optString("credentialId", "").trim()
         val url = config.optString("url", "").ifBlank { config.optString("serverUrl", "") }.trim()
+        val expectedStatus = config.optString("expectedStatus", "").trim()
+        val expectedCode = expectedStatus.toIntOrNull()
         return when {
             url.isBlank() && credentialId.isBlank() -> "HTTP URL cannot be blank."
             url.isNotBlank() &&
                 !url.startsWith("http://", ignoreCase = true) &&
                 !url.startsWith("https://", ignoreCase = true) -> "HTTP URL must start with http:// or https://."
+            expectedStatus.isNotBlank() && (expectedCode == null || expectedCode !in 100..599) ->
+                "Expected HTTP status must be a valid status code (100-599)."
             else -> null
         }
     }

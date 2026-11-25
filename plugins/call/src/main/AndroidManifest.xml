@@ -16,7 +16,7 @@
 
         <service
             android:name=".CallNodePluginService"
-            android:exported="true">
+            android:exported="false">
             <intent-filter>
                 <action android:name="dev.zophop.plugin.ACTION_NODE_SERVICE" />
             </intent-filter>

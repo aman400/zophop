@@ -1,3 +1,5 @@
+import androidx.biometric.BiometricManager
+import dev.zophop.core.ui.components.BiometricAuthHelper
 import dev.zophop.core.ui.components.KeyValueItem
 import dev.zophop.core.ui.components.isLikelySecretHeader
 import org.junit.Assert.assertEquals
@@ -169,4 +171,23 @@ class UiComponentsLogicTest {
         } else {
             items.filter { it.contains(query.trim(), ignoreCase = true) }
         }
+
+    @Test
+    fun testBiometricAuthHelper_failsClosedWhenDeviceSecureOrHardwareUnavailable() {
+        // Only bypass when device is confirmed NOT secure AND no lock/hardware is enrolled
+        assertTrue(BiometricAuthHelper.canBypassWhenNoLockEnrolled(false, BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED))
+        assertTrue(BiometricAuthHelper.canBypassWhenNoLockEnrolled(false, BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE))
+
+        // Must NEVER bypass when device lock is enabled or unknown
+        assertFalse(BiometricAuthHelper.canBypassWhenNoLockEnrolled(true, BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED))
+        assertFalse(BiometricAuthHelper.canBypassWhenNoLockEnrolled(true, BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE))
+        assertFalse(BiometricAuthHelper.canBypassWhenNoLockEnrolled(true, BiometricManager.BIOMETRIC_SUCCESS))
+        assertFalse(BiometricAuthHelper.canBypassWhenNoLockEnrolled(null, BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED))
+
+        // Must NEVER bypass for transient hardware errors or security update required
+        assertFalse(BiometricAuthHelper.canBypassWhenNoLockEnrolled(false, BiometricManager.BIOMETRIC_SUCCESS))
+        assertFalse(BiometricAuthHelper.canBypassWhenNoLockEnrolled(false, BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE))
+        assertFalse(BiometricAuthHelper.canBypassWhenNoLockEnrolled(false, BiometricManager.BIOMETRIC_ERROR_SECURITY_UPDATE_REQUIRED))
+        assertFalse(BiometricAuthHelper.canBypassWhenNoLockEnrolled(false, BiometricManager.BIOMETRIC_STATUS_UNKNOWN))
+    }
 }

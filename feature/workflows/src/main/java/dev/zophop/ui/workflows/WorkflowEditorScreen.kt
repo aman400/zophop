@@ -1,7 +1,6 @@
 package dev.zophop.ui.workflows
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -48,8 +47,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import dev.zophop.core.ui.EditorDarkColorScheme
-import dev.zophop.core.ui.EditorLightColorScheme
+import dev.zophop.core.ui.LocalAppIsDark
+import dev.zophop.core.ui.ZopHopTheme
 import dev.zophop.core.ui.components.IconPickerModalBottomSheet
 import dev.zophop.core.ui.components.IconSelectorBadge
 import dev.zophop.core.ui.components.InfoTooltipField
@@ -128,9 +127,7 @@ fun WorkflowEditorScreen(
         handleBack()
     }
 
-    MaterialTheme(
-        colorScheme = if (isSystemInDarkTheme()) EditorDarkColorScheme else EditorLightColorScheme,
-    ) {
+    EnsureZopHopTheme {
         Box(modifier = Modifier.fillMaxSize()) {
             when {
                 editingNode != null -> {
@@ -382,6 +379,15 @@ fun WorkflowEditorScreen(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun EnsureZopHopTheme(content: @Composable () -> Unit) {
+    if (LocalAppIsDark.current != null) {
+        content()
+    } else {
+        ZopHopTheme(content = content)
     }
 }
 

@@ -84,13 +84,16 @@ private fun matchesPackageFilter(
     return filters.isEmpty() || anyFilterMatches(packageName, filters)
 }
 
+private val STANDALONE_WILDCARD_REGEX = Regex("(?<![.\\])+?*])\\*")
+
 private fun anyFilterMatches(
     packageName: String,
     filters: List<String>,
 ): Boolean =
     filters.any { filter ->
         try {
-            val regex = Pattern.compile(filter.replace("*", ".*"), Pattern.CASE_INSENSITIVE)
+            val normalized = STANDALONE_WILDCARD_REGEX.replace(filter, ".*")
+            val regex = Pattern.compile(normalized, Pattern.CASE_INSENSITIVE)
             regex.matcher(packageName).find()
         } catch (_: PatternSyntaxException) {
             false

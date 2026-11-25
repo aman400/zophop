@@ -1,7 +1,7 @@
 package dev.zophop.core.ui.components
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +19,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.TextObfuscationMode
+import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountTree
@@ -30,7 +33,6 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenu
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -38,6 +40,7 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedSecureTextField
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -45,25 +48,25 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import dev.zophop.domain.engine.plugin.CredentialSpecRegistry
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import dev.zophop.domain.model.Credential
 import dev.zophop.domain.model.CredentialType
-import dev.zophop.plugin.api.CredentialSpec
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CredentialBottomSheet(
     credential: Credential?,
@@ -310,7 +313,6 @@ private fun CredentialUsageBadges(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CredentialTypeSelector(
     selectedTypeId: String,
@@ -416,73 +418,68 @@ fun SensitiveTextField(
     val context = LocalContext.current
     var passwordVisible by remember { mutableStateOf(false) }
     var showTooltip by remember { mutableStateOf(false) }
+    val textFieldState = rememberTextFieldState(value)
+    val currentValue by rememberUpdatedState(value)
+    val currentOnValueChange by rememberUpdatedState(onValueChange)
+    var lastEmittedValue by remember { mutableStateOf(value) }
 
-    val intentLauncher =
-        rememberLauncherForActivityResult(
-            contract = ActivityResultContracts.StartActivityForResult(),
-        ) { result ->
-            if (result.resultCode == android.app.Activity.RESULT_OK) {
-                passwordVisible = true
-            }
+    LaunchedEffect(value) {
+        if (value != lastEmittedValue && textFieldState.text.toString() != value) {
+            lastEmittedValue = value
+            textFieldState.setTextAndPlaceCursorAtEnd(value)
         }
-
-    fun requestUnlock() {
-        val activity = context as? androidx.fragment.app.FragmentActivity
-        if (activity != null) {
-            try {
-                val executor =
-                    androidx.core.content.ContextCompat
-                        .getMainExecutor(context)
-                val prompt =
-                    androidx.biometric.BiometricPrompt(
-                        activity,
-                        executor,
-                        object : androidx.biometric.BiometricPrompt.AuthenticationCallback() {
-                            override fun onAuthenticationSucceeded(result: androidx.biometric.BiometricPrompt.AuthenticationResult) {
-                                super.onAuthenticationSucceeded(result)
-                                passwordVisible = true
-                            }
-                        },
-                    )
-                val promptInfo =
-                    androidx.biometric.BiometricPrompt.PromptInfo
-                        .Builder()
-                        .setTitle("Unlock Vault Credential")
-                        .setSubtitle("Authenticate using biometrics or device PIN/pattern to view secret password")
-                        .setAllowedAuthenticators(
-                            androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG or
-                                androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL,
-                        ).build()
-
-                prompt.authenticate(promptInfo)
-                return
-            } catch (_: Exception) {
-            }
-        }
-
-        val keyguardManager = context.getSystemService(android.content.Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager
-        if (keyguardManager != null && keyguardManager.isDeviceSecure) {
-            val intent =
-                keyguardManager.createConfirmDeviceCredentialIntent(
-                    "Unlock Vault Credential",
-                    "Authenticate using device PIN, pattern, or password to view secret credential.",
-                )
-            if (intent != null) {
-                intentLauncher.launch(intent)
-                return
-            }
-        }
-
-        passwordVisible = true
     }
 
-    OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
+    LaunchedEffect(textFieldState) {
+        snapshotFlow { textFieldState.text.toString() }
+            .collect { updated ->
+                lastEmittedValue = updated
+                if (updated != currentValue) {
+                    currentOnValueChange(updated)
+                }
+            }
+    }
+
+    fun requestUnlock() {
+        val authenticators = BiometricAuthHelper.allowedAuthenticators()
+        val biometricManager = BiometricManager.from(context)
+        val canAuthenticate = biometricManager.canAuthenticate(authenticators)
+        if (BiometricAuthHelper.canBypassWhenNoLockEnrolled(context)) {
+            passwordVisible = true
+            return
+        }
+        val activity = context as? FragmentActivity
+        if (activity != null && canAuthenticate == BiometricManager.BIOMETRIC_SUCCESS) {
+            val executor = ContextCompat.getMainExecutor(context)
+            val prompt =
+                BiometricPrompt(
+                    activity,
+                    executor,
+                    object : BiometricPrompt.AuthenticationCallback() {
+                        override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                            super.onAuthenticationSucceeded(result)
+                            passwordVisible = true
+                        }
+                    },
+                )
+            val promptInfo =
+                BiometricPrompt.PromptInfo
+                    .Builder()
+                    .setTitle("Unlock Vault Credential")
+                    .setSubtitle("Authenticate using biometrics or device PIN/pattern to view secret password")
+                    .setAllowedAuthenticators(authenticators)
+                    .build()
+
+            prompt.authenticate(promptInfo)
+        }
+    }
+
+    OutlinedSecureTextField(
+        state = textFieldState,
         label = { Text(label) },
         modifier = modifier,
-        singleLine = true,
-        visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+        textObfuscationMode =
+            if (passwordVisible) TextObfuscationMode.Visible else TextObfuscationMode.Hidden,
         keyboardOptions =
             KeyboardOptions(
                 keyboardType = KeyboardType.Password,

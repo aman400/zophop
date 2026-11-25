@@ -85,4 +85,16 @@ class MessageTemplateParserTest {
 
         assertEquals("Gate: VM | Provider: HDFCBK | OTP is 112233", formatted)
     }
+
+    @Test
+    fun testTemplateFormattingBlocksSecondOrderExpansion() {
+        val formatted =
+            MessageTemplateParser.formatPayload(
+                sender = "REAL_SENDER",
+                body = "Use code \${sender} or {code} (OTP 654321)",
+                template = "Msg: \${body} | Code: \${code}",
+            )
+
+        assertEquals("Msg: Use code \${sender} or {code} (OTP 654321) | Code: 654321", formatted)
+    }
 }

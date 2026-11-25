@@ -1,15 +1,23 @@
 package dev.zophop.domain.engine
 
 import dev.zophop.domain.engine.executors.ConditionExecutor
+import dev.zophop.domain.engine.executors.HttpActionExecutor
 import dev.zophop.domain.engine.executors.JsonParserExecutor
+import dev.zophop.domain.engine.executors.NotificationTriggerExecutor
 import dev.zophop.domain.model.NodeType
+import dev.zophop.domain.model.Precondition
 import dev.zophop.domain.model.Workflow
 import dev.zophop.domain.model.WorkflowConnection
 import dev.zophop.domain.model.WorkflowNode
 import dev.zophop.plugin.api.ExecutionContext
 import dev.zophop.plugin.api.NodeExecutionResult
 import kotlinx.coroutines.test.runTest
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -25,9 +33,6 @@ class SecurityAndEdgeCaseTest {
 
     @Test
     fun testTemplateInjection_untrustedInputCannotExfiltrateSecretsDeterministically() {
-        // Vulnerability Demonstration:
-        // If an untrusted variable (like incoming SMS body) contains placeholders referencing internal secrets,
-        // iterative replacement allows second-order expansion depending on map iteration order.
         val context = ExecutionContext()
         context.set("secret_token", "SUPER_CONFIDENTIAL_KEY_99999")
         context.set("untrusted_body", "Hello, my referral code is \${secret_token}")
@@ -35,9 +40,9 @@ class SecurityAndEdgeCaseTest {
         val template = "Notification received: \${untrusted_body}"
         val result = context.interpolate(template)
 
-        // As a security researcher, we observe how the engine handles this string.
         assertNotNull(result)
-        assertTrue(result.contains("Hello, my referral code is"))
+        assertFalse("Untrusted body must NOT trigger second-order expansion of secrets", result.contains("SUPER_CONFIDENTIAL_KEY_99999"))
+        assertEquals("Notification received: Hello, my referral code is \${secret_token}", result)
     }
 
     @Test
@@ -283,5 +288,187 @@ class SecurityAndEdgeCaseTest {
         // All 4 nodes are accounted for in steps
         assertEquals(4, steps.size)
         assertTrue(steps.all { it.state == NodeStepState.SUCCESS })
+    }
+
+    @Test
+    fun testHttpActionExecutor_rejectsUserInfoAndSanitizesCrlfAndLogs() = runTest {
+        var capturedHeaderValue: String? = null
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val req = chain.request()
+            capturedHeaderValue = req.header("X-Custom")
+            Response.Builder()
+                .request(req)
+                .protocol(Protocol.HTTP_1_1)
+                .code(200)
+                .message("OK")
+                .body("ok".toResponseBody())
+                .build()
+        }.build()
+
+        val executor = HttpActionExecutor(client)
+
+        // 1. Userinfo in URL must fail before network dispatch
+        val userInfoNode = WorkflowNode(
+            id = "http_userinfo",
+            name = "UserInfo",
+            type = NodeType.HTTP_ACTION,
+            configJson = """{"url":"https://user:pass@example.com/hook","method":"GET"}""",
+        )
+        val userInfoRes = executor.execute(userInfoNode, ExecutionContext(), null)
+        assertTrue(userInfoRes is NodeExecutionResult.Failed)
+        assertTrue((userInfoRes as NodeExecutionResult.Failed).reason.contains("credentials"))
+
+        // 2. Interpolated CRLF in header value is stripped and sensitive query param is redacted from logs
+        val crlfNode = WorkflowNode(
+            id = "http_crlf",
+            name = "CRLF",
+            type = NodeType.HTTP_ACTION,
+            configJson = """{"url":"https://example.com/hook?api_key=super_secret_123&mode=1","method":"GET","headers":"X-Custom: ${'$'}{untrusted}"}""",
+        )
+        val ctx = ExecutionContext(mapOf("untrusted" to "abc\r\nX-Injected: evil"))
+        val crlfRes = executor.execute(crlfNode, ctx, null)
+        assertTrue(crlfRes is NodeExecutionResult.Success)
+        assertEquals("abcX-Injected: evil", capturedHeaderValue)
+        val logMsg = (crlfRes as NodeExecutionResult.Success).logMessage
+        assertFalse("Sensitive query param must be redacted from logs", logMsg.contains("super_secret_123"))
+        assertTrue(logMsg.contains("api_key=***"))
+    }
+
+    @Test
+    fun testWorkflowEngine_disabledConditionDoesNotExecuteOutgoingBranches() = runTest {
+        val n1 = WorkflowNode(id = "n1", name = "Start", type = NodeType.MANUAL_TRIGGER)
+        val cond = WorkflowNode(
+            id = "n_cond",
+            name = "Disabled Cond",
+            type = NodeType.CONDITION,
+            isEnabled = false,
+            configJson = """{"variable":"x","operator":"==","value":"1"}""",
+        )
+        val trueBranch = WorkflowNode(id = "n_true", name = "True Branch", type = NodeType.TEMPLATE_FORMATTER, configJson = """{"template":"T"}""")
+        val falseBranch = WorkflowNode(id = "n_false", name = "False Branch", type = NodeType.TEMPLATE_FORMATTER, configJson = """{"template":"F"}""")
+
+        val workflow = Workflow(
+            id = "wf_disabled_cond",
+            name = "Disabled Condition",
+            nodes = listOf(n1, cond, trueBranch, falseBranch),
+            connections = listOf(
+                WorkflowConnection("n1", "n_cond"),
+                WorkflowConnection("n_cond", "n_true", outputPort = "true"),
+                WorkflowConnection("n_cond", "n_false", outputPort = "false"),
+            ),
+        )
+
+        val engine = WorkflowEngine(PreconditionEvaluator(null))
+        val result = engine.executeWorkflow(workflow, ExecutionContext(), null)
+        assertTrue(result is WorkflowExecutionResult.Success)
+        val steps = (result as WorkflowExecutionResult.Success).steps
+        assertEquals(NodeStepState.SKIPPED, steps.first { it.nodeId == "n_cond" }.state)
+        assertTrue(steps.none { it.nodeId == "n_true" && it.state == NodeStepState.SUCCESS })
+        assertTrue(steps.none { it.nodeId == "n_false" && it.state == NodeStepState.SUCCESS })
+    }
+
+    @Test
+    fun testNotificationTriggerExecutor_dotStarRegexMatchesExactPackageName() = runTest {
+        val executor = NotificationTriggerExecutor()
+        val node = WorkflowNode(
+            id = "n_notif",
+            name = "Notif",
+            type = NodeType.NOTIFICATION_TRIGGER,
+            configJson = """{"packageFilter":".*com\\.bank.*","keywordRegex":".*"}""",
+        )
+        val ctx = ExecutionContext(mapOf("package_name" to "com.bank", "text" to "OTP 1234"))
+        val res = executor.execute(node, ctx, null)
+        assertTrue("Regex .*com\\.bank.* must match exact package 'com.bank'", res is NodeExecutionResult.Success)
+    }
+
+    @Test
+    fun testPreconditionEvaluator_cyclicChainCheckWithRetriesDoesNotExceedMaxDepth() = runTest {
+        val evaluator = PreconditionEvaluator(context = null, delayDuration = {})
+        val innerCyclicRef = Precondition.ChainCheck(
+            id = "chain_self_1",
+            name = "Inner Self Ref",
+            nodes = emptyList(),
+            connections = emptyList(),
+            onFailureAction = "RETRY",
+            maxRetries = 2,
+            retryIntervalSeconds = 1,
+        )
+        val outerChain = Precondition.ChainCheck(
+            id = "chain_self_1",
+            name = "Outer Chain",
+            nodes = listOf(
+                WorkflowNode(
+                    id = "cn1",
+                    name = "Step 1",
+                    type = NodeType.TEMPLATE_FORMATTER,
+                    configJson = """{"template":"ok"}""",
+                    preconditions = listOf(innerCyclicRef),
+                ),
+            ),
+            connections = emptyList(),
+            onFailureAction = "RETRY",
+            maxRetries = 2,
+            retryIntervalSeconds = 1,
+        )
+        val result = evaluator.evaluate(outerChain)
+        assertTrue(result is PreconditionResult.Failed)
+        assertTrue((result as PreconditionResult.Failed).reason.contains("Circular precondition"))
+    }
+
+    @Test
+    fun testQueueTimeout_marksIsQueueTimeoutTrueAndEnforcesWallClockDeadline() = runTest {
+        var fakeWallMs = 1_000_000L
+        val failingClient = OkHttpClient.Builder().addInterceptor { chain ->
+            fakeWallMs += 25_000L // simulate slow probe/network attempt
+            Response.Builder()
+                .request(chain.request())
+                .protocol(Protocol.HTTP_1_1)
+                .code(503)
+                .message("Down")
+                .body("down".toResponseBody())
+                .build()
+        }.build()
+
+        val evaluator = PreconditionEvaluator(
+            context = null,
+            okHttpClient = failingClient,
+            delayDuration = { fakeWallMs += 1_000L },
+            currentTimeMs = { fakeWallMs },
+        )
+        val engine = WorkflowEngine(evaluator, executorFactory = NodeExecutorFactory(failingClient))
+
+        val trigger = WorkflowNode("t1", "Trigger", NodeType.MANUAL_TRIGGER)
+        val action = WorkflowNode(
+            id = "a1",
+            name = "Queued Action",
+            type = NodeType.HTTP_ACTION,
+            configJson = """{"url":"https://example.com/hook"}""",
+            preconditions = listOf(
+                Precondition.HealthCheck(
+                    id = "hc_q",
+                    isEnabled = true,
+                    targetUrl = "https://example.com/health",
+                    expectedStatus = 200,
+                    onFailureAction = "QUEUE",
+                    queueTimeoutMinutes = 1,
+                    retryIntervalSeconds = 10,
+                ),
+            ),
+        )
+        val workflow = Workflow(
+            id = "WFTOUT01",
+            name = "Queue Timeout WF",
+            isEnabled = true,
+            nodes = listOf(trigger, action),
+            connections = listOf(WorkflowConnection("t1", "a1")),
+        )
+
+        val ctx = ExecutionContext(mapOf("_queue_deadline_ms" to (fakeWallMs + 30_000L)))
+        val result = engine.executeWorkflow(workflow, ctx, null)
+
+        assertTrue(result is WorkflowExecutionResult.PreconditionFailed)
+        val pf = result as WorkflowExecutionResult.PreconditionFailed
+        assertTrue("isQueueTimeout must be true when deadline exceeded", pf.isQueueTimeout)
+        assertTrue("Execution logs must not stay marked queued on timeout", pf.logs.none { it.contains("⏸️ Precondition Queued") })
     }
 }

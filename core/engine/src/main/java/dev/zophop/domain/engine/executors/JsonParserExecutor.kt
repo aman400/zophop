@@ -8,6 +8,7 @@ import dev.zophop.domain.model.optJsonObject
 import dev.zophop.domain.model.optString
 import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ExecutionContext
+import dev.zophop.plugin.api.ExecutionLogFormatter
 import dev.zophop.plugin.api.NodeExecutionResult
 import dev.zophop.plugin.api.NodeExecutor
 import kotlinx.serialization.json.JsonArray
@@ -365,8 +366,10 @@ class JsonParserExecutor : NodeExecutor {
         context: ExecutionContext,
         outputKey: String,
         defaultValue: String,
+        inputLength: Int,
     ): NodeExecutionResult {
         val extractedKeys = mutableListOf<String>()
+        val mappedLines = mutableListOf<String>()
         for ((path, outK, tType) in multiExtractions) {
             val interpPath = context.interpolate(path).trim()
             val extracted = extractJsonPath(jsonRoot, interpPath)
@@ -374,17 +377,26 @@ class JsonParserExecutor : NodeExecutor {
             if (converted != null) {
                 context.set(outK, converted)
                 extractedKeys.add(outK)
+                mappedLines.add("$outK ($interpPath [$tType]) = ${ExecutionLogFormatter.previewText(converted.toString(), 200)}")
             }
         }
         return if (extractedKeys.isNotEmpty()) {
-            NodeExecutionResult.Success(logMessage = "Parsed ${extractedKeys.size} JSON fields: $extractedKeys")
+            val log =
+                ExecutionLogFormatter.buildStructuredLog(
+                    summary = "Parsed ${extractedKeys.size} JSON fields: $extractedKeys",
+                    sections =
+                        listOf(
+                            "JSON Extraction Details" to "Input Length: $inputLength chars\n${mappedLines.joinToString("\n")}",
+                        ),
+                )
+            NodeExecutionResult.Success(logMessage = log)
         } else if (defaultValue.isNotBlank()) {
             context.set(outputKey, defaultValue)
             NodeExecutionResult.Success(
                 logMessage = "No mapped fields found, used default -> '$outputKey' = $defaultValue",
             )
         } else {
-            NodeExecutionResult.Failed("None of the mapped JSON paths were found in payload")
+            NodeExecutionResult.Failed("None of the mapped JSON paths were found in payload (Input length: $inputLength chars)")
         }
     }
 
@@ -394,6 +406,7 @@ class JsonParserExecutor : NodeExecutor {
         targetType: String,
         defaultValue: String,
         outputKey: String,
+        inputLength: Int,
         context: ExecutionContext,
     ): NodeExecutionResult {
         val extracted = extractJsonPath(jsonRoot, jsonKey)
@@ -404,7 +417,16 @@ class JsonParserExecutor : NodeExecutor {
             if (outputKey != "json_output") {
                 context.set("json_output", converted)
             }
-            NodeExecutionResult.Success(logMessage = "Parsed '$jsonKey' [$targetType] -> '$outputKey' = $converted")
+            val details =
+                "Path: $jsonKey\nTarget Type: $targetType\nOutput Variable: $outputKey\n" +
+                    "Input Length: $inputLength chars\nExtracted Value: ${ExecutionLogFormatter.previewText(converted.toString(), 400)}"
+            NodeExecutionResult.Success(
+                logMessage =
+                    ExecutionLogFormatter.buildStructuredLog(
+                        summary = "Parsed '$jsonKey' [$targetType] -> '$outputKey' = $converted",
+                        sections = listOf("JSON Extraction Details" to details),
+                    ),
+            )
         } else if (defaultValue.isNotBlank()) {
             context.set(outputKey, defaultValue)
             if (outputKey != "json_output") {
@@ -414,7 +436,7 @@ class JsonParserExecutor : NodeExecutor {
                 logMessage = "Parsed '$jsonKey' null/missing, used default -> '$outputKey' = $defaultValue",
             )
         } else {
-            NodeExecutionResult.Failed("JSON path '$jsonKey' not found or null")
+            NodeExecutionResult.Failed("JSON path '$jsonKey' not found or null (Input length: $inputLength chars)")
         }
     }
 
@@ -446,9 +468,9 @@ class JsonParserExecutor : NodeExecutor {
 
             val multiExtractions = extractMultiMappings(config)
             if (multiExtractions.isNotEmpty()) {
-                executeMulti(multiExtractions, jsonRoot, context, outputKey, defaultValue)
+                executeMulti(multiExtractions, jsonRoot, context, outputKey, defaultValue, rawInput.length)
             } else {
-                executeSingle(jsonRoot, jsonKey, targetType, defaultValue, outputKey, context)
+                executeSingle(jsonRoot, jsonKey, targetType, defaultValue, outputKey, rawInput.length, context)
             }
         } catch (e: IllegalArgumentException) {
             NodeExecutionResult.Failed("JSON parsing error for '$jsonKey': ${e.message}")

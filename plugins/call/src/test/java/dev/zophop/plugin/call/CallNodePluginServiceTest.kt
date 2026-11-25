@@ -240,4 +240,27 @@ class CallNodePluginServiceTest {
         val json = parseJsonObjectSafe(resultJson)
         assertTrue(json.containsKey("isSuccess"))
     }
+
+    @Test
+    fun testAnswerCallActionHandlesNullTelecomManagerGracefully() {
+        val app = org.robolectric.RuntimeEnvironment.getApplication()
+        Shadows.shadowOf(app).grantPermissions(Manifest.permission.ANSWER_PHONE_CALLS)
+        val service =
+            object : CallNodePluginService() {
+                init {
+                    attachBaseContext(app)
+                }
+
+                override fun getSystemService(name: String): Any? =
+                    if (name == TELECOM_SERVICE) null else super.getSystemService(name)
+            }
+
+        val binder = service.onBind(null) as dev.zophop.plugin.api.INodePluginService
+        val configJson = """{"typeId":"dev.zophop.plugin.call.ANSWER_CALL_ACTION"}"""
+        val resultJson = binder.executeNode("node_answer", configJson, """{"caller_number":"+15550001"}""")
+
+        val json = parseJsonObjectSafe(resultJson)
+        assertFalse(json.optBoolean("isSuccess"))
+        assertTrue(json.optString("errorReason").contains("TelecomManager", ignoreCase = true))
+    }
 }

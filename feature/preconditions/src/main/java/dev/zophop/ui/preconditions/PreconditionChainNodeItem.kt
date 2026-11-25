@@ -32,9 +32,11 @@ import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,22 +61,25 @@ fun PreconditionChainNodeItem(
     onMoveDown: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val dismissState =
-        rememberSwipeToDismissBoxState(
-            confirmValueChange = { dismissValue ->
-                if (dismissValue == SwipeToDismissBoxValue.EndToStart) {
-                    if (!isRootNode) {
-                        onDelete()
-                    }
-                    false
-                } else if (dismissValue == SwipeToDismissBoxValue.StartToEnd) {
-                    onEdit()
-                    false
-                } else {
-                    false
+    val dismissState = rememberSwipeToDismissBoxState()
+    val currentOnEdit by rememberUpdatedState(onEdit)
+    val currentOnDelete by rememberUpdatedState(onDelete)
+
+    LaunchedEffect(dismissState.settledValue) {
+        when (dismissState.settledValue) {
+            SwipeToDismissBoxValue.EndToStart -> {
+                if (!isRootNode) {
+                    currentOnDelete()
                 }
-            },
-        )
+                dismissState.reset()
+            }
+            SwipeToDismissBoxValue.StartToEnd -> {
+                currentOnEdit()
+                dismissState.reset()
+            }
+            SwipeToDismissBoxValue.Settled -> Unit
+        }
+    }
 
     SwipeToDismissBox(
         state = dismissState,

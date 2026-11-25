@@ -48,10 +48,13 @@ interface WorkflowDao {
     @Query("SELECT * FROM workflow_execution_logs WHERE status = 'QUEUED' ORDER BY timestamp DESC")
     suspend fun getQueuedWorkflowLogs(): List<WorkflowExecutionLogEntity>
 
+    @Query("SELECT * FROM workflow_execution_logs WHERE status = 'RUNNING' ORDER BY timestamp DESC")
+    suspend fun getRunningWorkflowLogs(): List<WorkflowExecutionLogEntity>
+
     @Query("DELETE FROM workflow_execution_logs WHERE id = :id")
     suspend fun deleteExecutionLogById(id: String)
 
-    @Query("DELETE FROM workflow_execution_logs WHERE workflowId = :workflowId")
+    @Query("DELETE FROM workflow_execution_logs WHERE workflowId = :workflowId AND status != 'QUEUED'")
     suspend fun clearLogsForWorkflow(workflowId: String)
 
     @Query("DELETE FROM workflow_execution_logs")

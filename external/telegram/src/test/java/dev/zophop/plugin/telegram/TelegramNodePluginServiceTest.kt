@@ -2,6 +2,7 @@ package dev.zophop.plugin.telegram
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.zophop.domain.model.WorkflowNode
+import dev.zophop.domain.model.optBoolean
 import dev.zophop.domain.model.optString
 import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ExecutionContext
@@ -252,4 +253,26 @@ class TelegramNodePluginServiceTest {
             assertEquals("Hello Alice", json.optString("text"))
             org.junit.Assert.assertFalse(json.containsKey("parse_mode"))
         }
+
+    @Test
+    fun testTelegramServiceRejectsMalformedBotTokenWithUrlMetacharacters() {
+        val serviceController = Robolectric.buildService(TelegramNodePluginService::class.java).create()
+        val service = serviceController.get()
+        val binder = service.onBind(null) as dev.zophop.plugin.api.INodePluginService
+
+        val configJson = """{
+            "typeId":"dev.zophop.plugin.telegram.TELEGRAM_ACTION",
+            "botToken":"123:abc/../../getMe?x=1",
+            "chatId":"12345"
+        }"""
+        val resultJson = binder.executeNode("t1", configJson, "{}")
+        val json = parseJsonObjectSafe(resultJson)
+
+        org.junit.Assert.assertFalse(json.optBoolean("isSuccess"))
+        assertTrue(json.optString("errorReason").contains("Invalid Telegram botToken format"))
+        org.junit.Assert.assertFalse(
+            "Error message must not leak raw botToken",
+            json.optString("errorReason").contains("123:abc"),
+        )
+    }
 }

@@ -252,7 +252,14 @@ class NtfyNodePluginService : Service() {
             }
 
             private fun dispatchNtfyRequest(params: NtfyServiceParams): String {
-                val targetUrl = "${params.serverUrl}/${params.topic}"
+                val targetUrl =
+                    if (params.topic.isNotBlank()) {
+                        "${params.serverUrl}/${params.topic}"
+                    } else {
+                        params.serverUrl
+                    }
+                val safeToken = sanitizeHeaderValue(params.token).trim()
+                val safePriority = sanitizeHeaderValue(params.priority).trim()
 
                 return try {
                     val requestBuilder =
@@ -262,9 +269,9 @@ class NtfyNodePluginService : Service() {
                             .post(params.payload.toRequestBody("text/plain; charset=utf-8".toMediaType()))
 
                     if (params.title.isNotBlank()) requestBuilder.addHeader("Title", toSafeHeaderValue(params.title))
-                    if (params.priority.isNotBlank()) requestBuilder.addHeader("Priority", params.priority)
+                    if (safePriority.isNotBlank()) requestBuilder.addHeader("Priority", safePriority)
                     if (params.tags.isNotBlank()) requestBuilder.addHeader("Tags", toSafeHeaderValue(params.tags))
-                    if (params.token.isNotBlank()) requestBuilder.addHeader("Authorization", "Bearer ${params.token}")
+                    if (safeToken.isNotBlank()) requestBuilder.addHeader("Authorization", "Bearer $safeToken")
 
                     val response = okHttpClient.newCall(requestBuilder.build()).execute()
                     response.use { resp ->
@@ -272,13 +279,13 @@ class NtfyNodePluginService : Service() {
                         if (resp.isSuccessful) {
                             success("Delivered to ntfy topic '${params.topic}'")
                         } else {
-                            fail("ntfy request failed: HTTP ${resp.code} - $respBody")
+                            fail("ntfy request failed: HTTP ${resp.code} - ${redactToken(respBody, safeToken)}")
                         }
                     }
                 } catch (e: IOException) {
-                    fail("ntfy dispatch failed: ${e.message}")
+                    fail("ntfy dispatch failed: ${redactToken(e.message, safeToken)}")
                 } catch (e: IllegalArgumentException) {
-                    fail("ntfy dispatch failed: ${e.message}")
+                    fail("ntfy dispatch failed: ${redactToken(e.message, safeToken)}")
                 }
             }
 
@@ -295,12 +302,22 @@ class NtfyNodePluginService : Service() {
                     put("errorReason", reason)
                 }.toString()
 
-            private fun toSafeHeaderValue(value: String): String =
-                if (value.any { it.code !in 32..126 }) {
-                    "=?utf-8?B?" + android.util.Base64.encodeToString(value.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP) + "?="
+            private fun sanitizeHeaderValue(value: String): String =
+                value.replace("\r", "").replace("\n", "").replace("\u0000", "")
+
+            private fun redactToken(text: String?, token: String): String {
+                if (text.isNullOrBlank() || token.isBlank()) return text ?: ""
+                return text.replace(token, "***")
+            }
+
+            private fun toSafeHeaderValue(value: String): String {
+                val cleaned = sanitizeHeaderValue(value)
+                return if (cleaned.any { it.code !in 32..126 }) {
+                    "=?utf-8?B?" + android.util.Base64.encodeToString(cleaned.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP) + "?="
                 } else {
-                    value
+                    cleaned
                 }
+            }
         }
 
     override fun onBind(intent: Intent?): IBinder = binder

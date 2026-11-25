@@ -15,13 +15,19 @@ import dev.zophop.domain.engine.PreconditionEvaluator
 import dev.zophop.domain.engine.WorkflowEngine
 import dev.zophop.domain.engine.WorkflowExecutionResult
 import dev.zophop.domain.engine.toJsonString
+import dev.zophop.domain.model.generateShortWorkflowId
 import dev.zophop.plugin.api.ExecutionContext
+import dev.zophop.worker.ExecutionStepLogSync
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
-import java.util.UUID
 
 class ZopHopNotificationListenerService : NotificationListenerService() {
+    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
     private data class NotificationData(
         val packageName: String,
         val title: String,
@@ -31,7 +37,7 @@ class ZopHopNotificationListenerService : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         val data = extractNotificationData(sbn) ?: return
-        CoroutineScope(Dispatchers.IO).launch {
+        serviceScope.launch {
             processNotificationWorkflows(data)
         }
     }
@@ -81,10 +87,18 @@ class ZopHopNotificationListenerService : NotificationListenerService() {
             "show_workflow_notifications" to showWorkflowNotifications,
         )
 
+        val jobs = mutableListOf<Job>()
         for (workflow in notifWorkflows) {
             val workflowContext = ExecutionContext(baseContextMap)
-            val executionId = UUID.randomUUID().toString()
-            val job = CoroutineScope(Dispatchers.IO).launch {
+            val executionId = generateShortWorkflowId()
+            val stepLogSync =
+                ExecutionStepLogSync(
+                    executionId = executionId,
+                    workflowId = workflow.id,
+                    workflowRepository = workflowRepository,
+                    scope = serviceScope,
+                )
+            val job = serviceScope.launch {
                 val initialLog = WorkflowExecutionLogEntity(
                     id = executionId,
                     workflowId = workflow.id,
@@ -102,29 +116,23 @@ class ZopHopNotificationListenerService : NotificationListenerService() {
                     appContext = applicationContext,
                     startNodeId = null,
                     onStepUpdate = { steps ->
-                        if (steps.any { it.nodeId.startsWith("queue") }) {
-                            val waitingStep = steps.lastOrNull { it.nodeId.startsWith("queue") }
-                            val queuedLog = WorkflowExecutionLogEntity(
-                                id = executionId,
-                                workflowId = workflow.id,
-                                status = "QUEUED",
-                                timestamp = System.currentTimeMillis(),
-                                messageId = null,
-                                logs = steps.toJsonString(),
-                                errorReason = waitingStep?.logMessage ?: "Waiting for preconditions in queue",
-                            )
-                            CoroutineScope(Dispatchers.IO).launch {
-                                workflowRepository.saveExecutionLog(queuedLog)
-                            }
-                        }
+                        stepLogSync.onStepUpdate(steps)
                     },
                 )
+
+                if (result is WorkflowExecutionResult.Ignored) {
+                    // Trigger filtered out the event — discard the RUNNING log, no history needed.
+                    stepLogSync.finalize(finalLog = null, deleteOnIgnored = true)
+                    return@launch
+                }
+
                 val logEntity = createLogEntity(executionId, workflow.id, result)
-                workflowRepository.saveExecutionLog(logEntity)
+                stepLogSync.finalize(finalLog = logEntity)
             }
             ExecutionJobRegistry.registerJob(workflow.id, job)
-            job.join()
+            jobs.add(job)
         }
+        jobs.joinAll()
     }
 
     private fun createLogEntity(executionId: String, workflowId: String, result: WorkflowExecutionResult): WorkflowExecutionLogEntity =
@@ -133,9 +141,11 @@ class ZopHopNotificationListenerService : NotificationListenerService() {
             workflowId = workflowId,
             status = when (result) {
                 is WorkflowExecutionResult.Success -> "SUCCESS"
-                is WorkflowExecutionResult.PreconditionFailed -> if (result.shouldQueue) "QUEUED" else "PRECONDITION_FAILED"
+                is WorkflowExecutionResult.PreconditionFailed ->
+                    if (result.shouldQueue && !result.isQueueTimeout) "QUEUED" else "PRECONDITION_FAILED"
                 is WorkflowExecutionResult.Failed -> "FAILED"
                 is WorkflowExecutionResult.Cancelled -> "CANCELLED"
+                is WorkflowExecutionResult.Ignored -> "IGNORED" // should never reach here
             },
             timestamp = System.currentTimeMillis(),
             messageId = null,
@@ -145,6 +155,7 @@ class ZopHopNotificationListenerService : NotificationListenerService() {
                 is WorkflowExecutionResult.PreconditionFailed -> result.reason
                 is WorkflowExecutionResult.Failed -> result.reason
                 is WorkflowExecutionResult.Cancelled -> "Execution cancelled by user"
+                is WorkflowExecutionResult.Ignored -> result.reason
             },
         )
 }

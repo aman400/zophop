@@ -7,6 +7,7 @@ import dev.zophop.domain.model.optInt
 import dev.zophop.domain.model.optString
 import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ExecutionContext
+import dev.zophop.plugin.api.ExecutionLogFormatter
 import dev.zophop.plugin.api.NodeExecutionResult
 import dev.zophop.plugin.api.NodeExecutor
 import kotlinx.serialization.json.buildJsonObject
@@ -38,7 +39,11 @@ class GotifyActionExecutor(
     }
 
     private fun sendGotifyMessage(params: GotifyParams): NodeExecutionResult {
-        val targetUrl = "${params.serverUrl}/message" + (if (params.appToken.isNotBlank()) "?token=${params.appToken}" else "")
+        val cleanToken = params.appToken.replace(Regex("[\\r\\n\\u0000]"), "").trim()
+        val encodedToken = java.net.URLEncoder.encode(cleanToken, Charsets.UTF_8.name())
+        val baseMessageUrl = "${params.serverUrl}/message"
+        val targetUrl = if (cleanToken.isNotBlank()) "$baseMessageUrl?token=$encodedToken" else baseMessageUrl
+        val authMode = if (cleanToken.isNotBlank()) "X-Gotify-Key ***" else "None"
         val jsonBody =
             buildJsonObject {
                 put("title", params.title)
@@ -52,23 +57,55 @@ class GotifyActionExecutor(
                     .Builder()
                     .url(targetUrl)
                     .post(jsonBody.toRequestBody("application/json; charset=utf-8".toMediaType()))
-            if (params.appToken.isNotBlank()) requestBuilder.addHeader("X-Gotify-Key", params.appToken)
+            if (cleanToken.isNotBlank()) requestBuilder.addHeader("X-Gotify-Key", cleanToken)
 
             val response = okHttpClient.newCall(requestBuilder.build()).execute()
-            response.use { resp ->
-                val respBody = resp.body?.string() ?: ""
-                if (resp.isSuccessful) {
-                    val detailedLog =
-                        "Delivered to Gotify server (HTTP ${resp.code})\nURL: $targetUrl\nTitle: ${params.title}\nBody: ${params.payload}"
-                    NodeExecutionResult.Success(outputPort = "main", logMessage = detailedLog)
-                } else {
-                    NodeExecutionResult.Failed("Gotify request failed: HTTP ${resp.code} - $respBody")
-                }
-            }
+            response.use { resp -> buildGotifyResponseResult(resp, baseMessageUrl, cleanToken, authMode, params) }
         } catch (e: IOException) {
-            NodeExecutionResult.Failed("Gotify dispatch failed: ${e.message}")
+            val msg = e.message?.let { m -> if (cleanToken.isNotBlank()) m.replace(cleanToken, "***") else m }
+            NodeExecutionResult.Failed("Gotify dispatch to $baseMessageUrl failed: $msg")
         } catch (e: IllegalArgumentException) {
-            NodeExecutionResult.Failed("Gotify dispatch failed: ${e.message}")
+            val msg = e.message?.let { m -> if (cleanToken.isNotBlank()) m.replace(cleanToken, "***") else m }
+            NodeExecutionResult.Failed("Gotify dispatch to $baseMessageUrl failed: $msg")
+        }
+    }
+
+    private fun buildGotifyResponseResult(
+        resp: okhttp3.Response,
+        baseMessageUrl: String,
+        cleanToken: String,
+        authMode: String,
+        params: GotifyParams,
+    ): NodeExecutionResult {
+        val respBody = resp.body?.string() ?: ""
+        val details =
+            "URL: $baseMessageUrl\nTitle: ${params.title}\nPriority: ${params.priority}\nAuth: $authMode\nStatus: ${resp.code} ${resp.message}"
+        return if (resp.isSuccessful) {
+            val sections = mutableListOf(
+                "Gotify Request Details" to details,
+                "Message Body" to ExecutionLogFormatter.previewText(params.payload, 1000),
+            )
+            if (respBody.isNotBlank()) {
+                sections.add("Response Body" to ExecutionLogFormatter.previewText(respBody, 1000))
+            }
+            val detailedLog =
+                ExecutionLogFormatter.buildStructuredLog(
+                    summary = "Delivered to Gotify server (HTTP ${resp.code})",
+                    sections = sections,
+                )
+            NodeExecutionResult.Success(outputPort = "main", logMessage = detailedLog)
+        } else {
+            val safeResp = if (cleanToken.isNotBlank()) respBody.replace(cleanToken, "***") else respBody
+            val failedLog =
+                ExecutionLogFormatter.buildStructuredLog(
+                    summary = "Gotify request failed: HTTP ${resp.code} ${resp.message}",
+                    sections =
+                        listOfNotNull(
+                            "Gotify Request Details" to details,
+                            safeResp.takeIf { it.isNotBlank() }?.let { "Response Body" to ExecutionLogFormatter.previewText(it, 1000) },
+                        ),
+                )
+            NodeExecutionResult.Failed(failedLog)
         }
     }
 }

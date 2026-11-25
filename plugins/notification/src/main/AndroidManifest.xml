@@ -3,7 +3,7 @@
     package="dev.zophop.plugin.notification">
 
     <application>
-        <service android:name=".NotificationNodePluginService" android:exported="true">
+        <service android:name=".NotificationNodePluginService" android:exported="false">
             <intent-filter>
                 <action android:name="dev.zophop.plugin.ACTION_NODE_SERVICE" />
             </intent-filter>

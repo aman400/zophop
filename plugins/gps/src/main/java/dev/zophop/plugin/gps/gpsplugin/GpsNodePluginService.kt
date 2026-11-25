@@ -84,10 +84,19 @@ class GpsNodePluginService : Service() {
                 val acc = location?.accuracy?.toString() ?: "0.0"
                 val mapsUrl = "https://maps.google.com/?q=$lat,$lon"
 
+                val outputMap =
+                    buildJsonObject {
+                        put("latitude", lat)
+                        put("longitude", lon)
+                        put("accuracy", acc)
+                        put("maps_url", mapsUrl)
+                    }
+
                 return buildJsonObject {
                     put("isSuccess", true)
                     put("outputPort", "main")
                     put("logMessage", "Location: ($lat, $lon)")
+                    put("outputDataMap", outputMap)
                     put("latitude", lat)
                     put("longitude", lon)
                     put("accuracy", acc)

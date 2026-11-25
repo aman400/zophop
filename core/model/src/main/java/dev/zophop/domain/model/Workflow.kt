@@ -1,7 +1,18 @@
 package dev.zophop.domain.model
 
 import kotlinx.serialization.Serializable
+import java.security.SecureRandom
 import java.util.UUID
+
+private const val WORKFLOW_ID_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+private val workflowIdRandom = SecureRandom()
+
+fun generateShortWorkflowId(length: Int = 8): String =
+    buildString(length) {
+        repeat(length) {
+            append(WORKFLOW_ID_ALPHABET[workflowIdRandom.nextInt(WORKFLOW_ID_ALPHABET.length)])
+        }
+    }
 
 object NodeType {
     // Triggers
@@ -62,7 +73,7 @@ data class WorkflowGraph(
 
 @Serializable
 data class Workflow(
-    val id: String = UUID.randomUUID().toString(),
+    val id: String = generateShortWorkflowId(),
     val name: String,
     val description: String = "",
     val isEnabled: Boolean = true,

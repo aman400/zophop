@@ -51,6 +51,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -85,22 +86,23 @@ fun WorkflowNodeCardItem(
 ) {
     val context = LocalContext.current
 
-    val dismissState =
-        rememberSwipeToDismissBoxState(
-            confirmValueChange = { dismissValue ->
-                when (dismissValue) {
-                    SwipeToDismissBoxValue.EndToStart -> {
-                        if (!isFirst) onDeleteNode()
-                        false
-                    }
-                    SwipeToDismissBoxValue.StartToEnd -> {
-                        onEditNode()
-                        false
-                    }
-                    else -> false
-                }
-            },
-        )
+    val dismissState = rememberSwipeToDismissBoxState()
+    val currentOnEditNode by rememberUpdatedState(onEditNode)
+    val currentOnDeleteNode by rememberUpdatedState(onDeleteNode)
+
+    LaunchedEffect(dismissState.settledValue) {
+        when (dismissState.settledValue) {
+            SwipeToDismissBoxValue.EndToStart -> {
+                if (!isFirst) currentOnDeleteNode()
+                dismissState.reset()
+            }
+            SwipeToDismissBoxValue.StartToEnd -> {
+                currentOnEditNode()
+                dismissState.reset()
+            }
+            SwipeToDismissBoxValue.Settled -> Unit
+        }
+    }
 
     var permissionCheckTrigger by remember { mutableIntStateOf(0) }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -299,6 +301,7 @@ fun WorkflowNodeCardItem(
 
     SwipeToDismissBox(
         state = dismissState,
+        enableDismissFromEndToStart = !isFirst,
         backgroundContent = {
             WorkflowNodeDismissBackground(
                 dismissState = dismissState,

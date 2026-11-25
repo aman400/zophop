@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Shield
@@ -25,8 +26,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
-import androidx.compose.material3.SuggestionChip
-import androidx.compose.material3.SuggestionChipDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -35,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.zophop.domain.engine.plugin.ExternalPluginServiceInfo
@@ -163,7 +164,7 @@ fun SettingsPermissionsSection(
             // Battery Optimization Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
@@ -180,7 +181,7 @@ fun SettingsPermissionsSection(
                 }
                 if (isBatteryOptimized) {
                     OutlinedButton(onClick = onRequestIgnoreBatteryOptimizations) {
-                        Text("Fix", fontSize = 12.sp)
+                        Text("Fix", fontSize = 12.sp, maxLines = 1, softWrap = false)
                     }
                 }
             }
@@ -301,7 +302,7 @@ fun PermissionStatusRow(
 ) {
     Row(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
@@ -317,21 +318,31 @@ fun PermissionStatusRow(
             )
         }
         if (isGranted) {
-            SuggestionChip(
-                onClick = {},
-                label = { Text("Granted", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
-                colors =
-                    SuggestionChipDefaults.suggestionChipColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        labelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    ),
-            )
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                shape = RoundedCornerShape(8.dp),
+            ) {
+                Text(
+                    text = "Granted",
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    softWrap = false,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
         } else {
             Button(
                 onClick = onGrantClick,
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
             ) {
-                Text(grantButtonLabel, fontSize = 11.sp)
+                Text(
+                    text = grantButtonLabel,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }

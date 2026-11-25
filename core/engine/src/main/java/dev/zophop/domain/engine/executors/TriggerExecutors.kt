@@ -16,6 +16,7 @@ import dev.zophop.domain.model.optJsonArray
 import dev.zophop.domain.model.optString
 import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ExecutionContext
+import dev.zophop.plugin.api.ExecutionLogFormatter
 import dev.zophop.plugin.api.NodeExecutionResult
 import dev.zophop.plugin.api.NodeExecutor
 import kotlinx.serialization.json.JsonArray
@@ -47,7 +48,17 @@ class ManualTriggerExecutor : NodeExecutor {
             context.set("timestamp", System.currentTimeMillis().toString())
         }
 
-        return NodeExecutionResult.Success(logMessage = "Manual trigger executed on demand")
+        val log =
+            ExecutionLogFormatter.buildStructuredLog(
+                summary = "Manual trigger executed on demand",
+                sections =
+                    listOf(
+                        "Trigger Context" to
+                            "Body Length: ${body.length} chars\nVariables Set: body, text, timestamp",
+                        "Payload" to ExecutionLogFormatter.previewText(body, 600),
+                    ),
+            )
+        return NodeExecutionResult.Success(logMessage = log)
     }
 }
 
@@ -78,7 +89,22 @@ class NotificationTriggerExecutor : NodeExecutor {
                 NodeExecutionResult.Ignored("Package '$packageName' did not match filter '$packageFilter'")
             !checkTextRegex(textRegex, "$title $text") ->
                 NodeExecutionResult.Ignored("Notification content did not match text regex '$textRegex'")
-            else -> NodeExecutionResult.Success(logMessage = "Notification trigger matched app: $packageName")
+            else -> {
+                val details =
+                    "App Package: $packageName\nTitle: ${ExecutionLogFormatter.previewText(title, 200)}\n" +
+                        "Package Filter: $packageFilter\nText Regex: $textRegex\n" +
+                        "Text Length: ${text.length} chars\nVariables Set: package_name, title, text, body"
+                val log =
+                    ExecutionLogFormatter.buildStructuredLog(
+                        summary = "Notification trigger matched app: $packageName",
+                        sections =
+                            listOf(
+                                "Notification Details" to details,
+                                "Content Preview" to ExecutionLogFormatter.previewText(text, 500),
+                            ),
+                    )
+                NodeExecutionResult.Success(logMessage = log)
+            }
         }
     }
 
@@ -99,11 +125,16 @@ class NotificationTriggerExecutor : NodeExecutor {
         if (filters.isEmpty()) return true
         return filters.any { filter ->
             try {
-                Pattern.compile(filter.replace("*", ".*"), Pattern.CASE_INSENSITIVE).matcher(packageName).find()
+                val normalized = STANDALONE_WILDCARD_REGEX.replace(filter, ".*")
+                Pattern.compile(normalized, Pattern.CASE_INSENSITIVE).matcher(packageName).find()
             } catch (_: PatternSyntaxException) {
                 false
             }
         }
+    }
+
+    private companion object {
+        val STANDALONE_WILDCARD_REGEX = Regex("(?<![.\\])+?*])\\*")
     }
 
     private fun checkTextRegex(textRegex: String, content: String): Boolean {
@@ -156,7 +187,7 @@ class RegexParserExecutor : NodeExecutor {
             inputText.isBlank() -> NodeExecutionResult.Failed("Input text is empty for regex parsing")
             matches == null -> NodeExecutionResult.Failed("Regex execution failed for '$regexStr'")
             matches.isEmpty() -> handleEmptyMatches(defaultValue, outputKey, regexStr, context)
-            else -> handleSuccessfulMatches(matches, matchIndex, config, outputKey, matchAll, outputType, context)
+            else -> handleSuccessfulMatches(matches, matchIndex, config, outputKey, matchAll, outputType, regexStr, inputText.length, context)
         }
     }
 
@@ -227,6 +258,8 @@ class RegexParserExecutor : NodeExecutor {
         outputKey: String,
         matchAll: Boolean,
         outputType: String,
+        regexStr: String,
+        inputLength: Int,
         context: ExecutionContext,
     ): NodeExecutionResult {
         val resolvedIndex = if (matchIndex < 0) matches.size + matchIndex else matchIndex
@@ -244,12 +277,25 @@ class RegexParserExecutor : NodeExecutor {
         populateOutputKeysArray(config.optJsonArray("outputKeys"), chosenMatch.groups, context)
         populateMatchAllArray(matches, outputKey, matchAll, outputType, context)
 
-        val logDetails = if (chosenMatch.namedGroups.isNotEmpty()) {
+        val summary = if (chosenMatch.namedGroups.isNotEmpty()) {
             "Extracted '$outputKey' = '$preferredVal' with named groups: ${chosenMatch.namedGroups.keys}"
         } else {
             "Extracted '$outputKey' = '$preferredVal'"
         }
-        return NodeExecutionResult.Success(logMessage = logDetails)
+        val details =
+            buildString {
+                appendLine("Pattern: $regexStr")
+                appendLine("Input Length: $inputLength chars")
+                appendLine("Matches Found: ${matches.size} (selected #$resolvedIndex)")
+                appendLine("Full Match: ${ExecutionLogFormatter.previewText(chosenMatch.fullMatch, 200)}")
+                append("Output Variable: $outputKey = '$preferredVal'")
+                if (chosenMatch.namedGroups.isNotEmpty()) {
+                    append("\nNamed Groups: ${chosenMatch.namedGroups}")
+                }
+            }
+        return NodeExecutionResult.Success(
+            logMessage = ExecutionLogFormatter.buildStructuredLog(summary, listOf("Regex Extraction Details" to details)),
+        )
     }
 
     private fun populateOutputKeysArray(
@@ -312,7 +358,22 @@ class TemplateFormatterExecutor : NodeExecutor {
             context.set(outputKey, formatted)
         }
 
-        return NodeExecutionResult.Success(logMessage = "Formatted payload created (${formatted.length} chars)")
+        val writtenVars = buildList {
+            add("formatted_payload")
+            add("payload")
+            if (outputKey.isNotBlank()) add(outputKey)
+        }.joinToString(", ")
+
+        val log =
+            ExecutionLogFormatter.buildStructuredLog(
+                summary = "Formatted payload created (${formatted.length} chars)",
+                sections =
+                    listOf(
+                        "Template Details" to "Output Length: ${formatted.length} chars\nVariables Set: $writtenVars",
+                        "Formatted Output" to ExecutionLogFormatter.previewText(formatted, 1500),
+                    ),
+            )
+        return NodeExecutionResult.Success(logMessage = log)
     }
 }
 
@@ -336,20 +397,42 @@ class SendNotificationExecutor : NodeExecutor {
         val title = context.interpolate(titleTemplate).ifBlank { "ZopHop Notification" }
         val text = context.interpolate(messageTemplate).ifBlank { context.getString("body", "Notification alert") }
 
+        val notifSections =
+            listOf(
+                "Notification Details" to "Channel: Workflow Alerts\nTitle: $title\nBody Length: ${text.length} chars",
+                "Notification Body" to ExecutionLogFormatter.previewText(text, 600),
+            )
         return if (appContext != null) {
-            dispatchNotification(appContext, title, text)
+            dispatchNotification(appContext, title, text, notifSections)
         } else {
-            NodeExecutionResult.Success(logMessage = "Posted system notification: '$title' (headless)")
+            NodeExecutionResult.Success(
+                logMessage =
+                    ExecutionLogFormatter.buildStructuredLog(
+                        summary = "Posted system notification: '$title' (headless)",
+                        sections = notifSections,
+                    ),
+            )
         }
     }
 
-    private fun dispatchNotification(ctx: Context, title: String, text: String): NodeExecutionResult {
+    private fun dispatchNotification(
+        ctx: Context,
+        title: String,
+        text: String,
+        sections: List<Pair<String, String>>,
+    ): NodeExecutionResult {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasPostNotificationPermission(ctx)) {
             return NodeExecutionResult.Failed("Missing Post Notifications Permission (POST_NOTIFICATIONS)")
         }
         return try {
             postSystemNotification(ctx, title, text)
-            NodeExecutionResult.Success(logMessage = "Posted system notification: '$title'")
+            NodeExecutionResult.Success(
+                logMessage =
+                    ExecutionLogFormatter.buildStructuredLog(
+                        summary = "Posted system notification: '$title'",
+                        sections = sections,
+                    ),
+            )
         } catch (e: SecurityException) {
             NodeExecutionResult.Failed("Notification posting failed: ${e.message}")
         } catch (e: IllegalStateException) {
@@ -414,6 +497,7 @@ class CronTriggerExecutor : NodeExecutor {
         appContext: Context?,
     ): NodeExecutionResult {
         val config = parseTriggerConfig(node.configJson)
+        val cronExpression = config.optString("cronExpression", "every 30m")
         val payload = config.optString("testPayload", "Scheduled cron trigger executed")
             .ifEmpty { "Scheduled cron trigger executed" }
 
@@ -422,6 +506,15 @@ class CronTriggerExecutor : NodeExecutor {
         context.set("sender", "CronScheduler")
         context.set("timestamp", System.currentTimeMillis().toString())
 
-        return NodeExecutionResult.Success(logMessage = "Cron schedule triggered successfully")
+        val log =
+            ExecutionLogFormatter.buildStructuredLog(
+                summary = "Cron schedule triggered successfully",
+                sections =
+                    listOf(
+                        "Schedule Details" to "Expression: $cronExpression\nVariables Set: body, text, sender, timestamp",
+                        "Payload" to ExecutionLogFormatter.previewText(payload, 500),
+                    ),
+            )
+        return NodeExecutionResult.Success(logMessage = log)
     }
 }

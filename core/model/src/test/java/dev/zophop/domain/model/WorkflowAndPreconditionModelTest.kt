@@ -94,4 +94,15 @@ class WorkflowAndPreconditionModelTest {
         assertEquals(CredentialType.BEARER_TOKEN, cred.type)
         assertEquals("secret_token_123", cred.dataMap["token"])
     }
+
+    @Test
+    fun testWorkflowDefaultId_isEightCharUppercaseAlphanumeric() {
+        val idPattern = Regex("^[A-Z0-9]{8}$")
+        val generatedIds = (1..20).map { Workflow(name = "Workflow $it").id }
+
+        generatedIds.forEach { id ->
+            assertTrue("Expected 8-char uppercase alphanumeric workflow ID, got '$id'", idPattern.matches(id))
+        }
+        assertTrue("Generated workflow IDs should be distinct", generatedIds.toSet().size > 1)
+    }
 }

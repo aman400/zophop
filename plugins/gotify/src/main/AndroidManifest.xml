@@ -5,7 +5,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application>
-        <service android:name=".GotifyNodePluginService" android:exported="true">
+        <service android:name=".GotifyNodePluginService" android:exported="false">
             <intent-filter>
                 <action android:name="dev.zophop.plugin.ACTION_NODE_SERVICE" />
             </intent-filter>

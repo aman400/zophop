@@ -25,13 +25,14 @@ class ExecutionContext(
 
     fun interpolate(template: String): String {
         if (template.isEmpty()) return ""
-        var result = template
-        for ((key, value) in variables) {
-            val placeholder1 = "\${$key}"
-            val placeholder2 = "{$key}"
-            val valStr = value.toString()
-            result = result.replace(placeholder1, valStr).replace(placeholder2, valStr)
+        return TEMPLATE_TOKEN_REGEX.replace(template) { match ->
+            val key = match.groupValues[1].ifEmpty { match.groupValues[2] }
+            val value = variables[key]
+            value?.toString() ?: match.value
         }
-        return result
+    }
+
+    private companion object {
+        val TEMPLATE_TOKEN_REGEX = Regex("\\$\\{([^{}]+)\\}|\\{([^{}]+)\\}")
     }
 }

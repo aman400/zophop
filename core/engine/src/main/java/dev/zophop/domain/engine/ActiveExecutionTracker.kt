@@ -3,6 +3,7 @@ package dev.zophop.domain.engine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 /**
  * Data class representing the state of an actively or recently executing workflow.
@@ -30,21 +31,19 @@ object ActiveExecutionTracker {
         isExecuting: Boolean,
         result: WorkflowExecutionResult? = null,
     ) {
-        val current = _executions.value.toMutableMap()
-        current[workflowId] = ActiveWorkflowExecution(
+        val updatedEntry = ActiveWorkflowExecution(
             workflowId = workflowId,
             workflowName = workflowName,
             steps = steps,
             isExecuting = isExecuting,
             result = result,
         )
-        _executions.value = current
+        _executions.update { current -> current + (workflowId to updatedEntry) }
     }
 
     fun removeExecution(workflowId: String) {
-        val current = _executions.value.toMutableMap()
-        if (current.remove(workflowId) != null) {
-            _executions.value = current
+        _executions.update { current ->
+            if (current.containsKey(workflowId)) current - workflowId else current
         }
     }
 

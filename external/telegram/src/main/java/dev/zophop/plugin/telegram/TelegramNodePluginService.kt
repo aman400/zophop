@@ -2,7 +2,10 @@ package dev.zophop.plugin.telegram
 
 import android.app.Service
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Binder
 import android.os.IBinder
+import android.os.Process
 import dev.zophop.domain.model.WorkflowNode
 import dev.zophop.domain.model.optString
 import dev.zophop.domain.model.parseJsonObjectSafe
@@ -55,6 +58,9 @@ class TelegramActionExecutor(
         message: String,
         parseMode: String,
     ): NodeExecutionResult {
+        if (!BOT_TOKEN_REGEX.matches(botToken)) {
+            return NodeExecutionResult.Failed("Invalid Telegram botToken format")
+        }
         val url = "https://api.telegram.org/bot$botToken/sendMessage"
         val jsonBody =
             buildJsonObject {
@@ -80,14 +86,18 @@ class TelegramActionExecutor(
                 if (resp.isSuccessful) {
                     NodeExecutionResult.Success(logMessage = "Telegram message successfully sent to chat $chatId")
                 } else {
-                    NodeExecutionResult.Failed("Telegram API error (${resp.code}): $responseBody")
+                    NodeExecutionResult.Failed("Telegram API error (${resp.code}): ${responseBody.replace(botToken, "***")}")
                 }
             }
         } catch (e: IOException) {
-            NodeExecutionResult.Failed("Telegram request exception: ${e.message}")
+            NodeExecutionResult.Failed("Telegram request exception: ${e.message?.replace(botToken, "***")}")
         } catch (e: IllegalArgumentException) {
-            NodeExecutionResult.Failed("Telegram request exception: ${e.message}")
+            NodeExecutionResult.Failed("Telegram request exception: ${e.message?.replace(botToken, "***")}")
         }
+    }
+
+    private companion object {
+        val BOT_TOKEN_REGEX = Regex("^[A-Za-z0-9:_-]+$")
     }
 }
 
@@ -262,6 +272,9 @@ class TelegramNodePluginService : Service() {
                 inputContextJson: String,
             ): String =
                 runBlocking(Dispatchers.IO) {
+                    if (!isTrustedCaller()) {
+                        return@runBlocking failNodeExecution("Unauthorized caller")
+                    }
                     try {
                         val node =
                             WorkflowNode(
@@ -311,6 +324,13 @@ class TelegramNodePluginService : Service() {
                     }
                 }
         }
+
+    private fun isTrustedCaller(): Boolean {
+        val callingUid = Binder.getCallingUid()
+        val myUid = Process.myUid()
+        if (callingUid == myUid) return true
+        return packageManager.checkSignatures(myUid, callingUid) == PackageManager.SIGNATURE_MATCH
+    }
 
     private fun failNodeExecution(reason: String): String =
         buildJsonObject {

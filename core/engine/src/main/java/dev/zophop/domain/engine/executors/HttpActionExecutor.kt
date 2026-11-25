@@ -10,6 +10,7 @@ import dev.zophop.domain.model.optInt
 import dev.zophop.domain.model.optString
 import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ExecutionContext
+import dev.zophop.plugin.api.ExecutionLogFormatter
 import dev.zophop.plugin.api.NodeExecutionResult
 import dev.zophop.plugin.api.NodeExecutor
 import kotlinx.coroutines.Dispatchers
@@ -18,6 +19,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import okhttp3.Call
 import okhttp3.FormBody
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -81,20 +83,72 @@ class HttpActionExecutor(
         }
 
         val targetUrl = appendQueryParams(rawTargetUrl, queryParams, context)
+        val parsedHttpUrl = targetUrl.toHttpUrlOrNull()
+        if (parsedHttpUrl == null || (parsedHttpUrl.scheme != "https" && parsedHttpUrl.scheme != "http")) {
+            return@withContext NodeExecutionResult.Failed("Invalid HTTP/HTTPS URL")
+        }
+        if (parsedHttpUrl.username.isNotEmpty() || parsedHttpUrl.password.isNotEmpty()) {
+            return@withContext NodeExecutionResult.Failed("Invalid HTTP/HTTPS URL: embedded credentials are not allowed")
+        }
+
+        val safeUrl = redactSensitiveUrlParams(targetUrl)
+        val bodyType = config.optString("bodyType", "JSON").uppercase()
+        val interpolatedBody = context.interpolate(config.optString("bodyTemplate", ""))
+        val request = buildRequest(config, targetUrl, method, bodyType, interpolatedBody, context, resolvedCred).build()
+        val reqHeadersBlock =
+            ExecutionLogFormatter.formatHeadersBlock(
+                (0 until request.headers.size).map { idx ->
+                    request.headers.name(idx) to request.headers.value(idx)
+                },
+            )
+        val startNs = System.nanoTime()
 
         try {
-            val requestBuilder = buildRequest(config, targetUrl, method, context, resolvedCred)
-            val response = okHttpClient.newCall(requestBuilder.build()).await()
+            val response = okHttpClient.newCall(request).await()
+            val elapsedMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(0L)
             response.use { resp ->
-                handleHttpResponse(resp, method, targetUrl, expectedStatus, context)
+                handleHttpResponse(
+                    resp = resp,
+                    method = method,
+                    safeUrl = safeUrl,
+                    expectedStatus = expectedStatus,
+                    bodyType = bodyType,
+                    requestHeadersBlock = reqHeadersBlock,
+                    requestBody = if (method == "GET" || method == "HEAD") "" else interpolatedBody,
+                    elapsedMs = elapsedMs,
+                    context = context,
+                )
             }
         } catch (e: IOException) {
-            NodeExecutionResult.Failed("HTTP request exception: ${e.message}")
+            val elapsedMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(0L)
+            NodeExecutionResult.Failed(buildFailureDetails(method, safeUrl, bodyType, reqHeadersBlock, elapsedMs, e))
         } catch (e: IllegalArgumentException) {
-            NodeExecutionResult.Failed("HTTP request exception: ${e.message}")
+            val elapsedMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(0L)
+            NodeExecutionResult.Failed(buildFailureDetails(method, safeUrl, bodyType, reqHeadersBlock, elapsedMs, e))
         } catch (e: IllegalStateException) {
-            NodeExecutionResult.Failed("HTTP request exception: ${e.message}")
+            val elapsedMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(0L)
+            NodeExecutionResult.Failed(buildFailureDetails(method, safeUrl, bodyType, reqHeadersBlock, elapsedMs, e))
         }
+    }
+
+    private fun buildFailureDetails(
+        method: String,
+        safeUrl: String,
+        bodyType: String,
+        reqHeadersBlock: String,
+        elapsedMs: Long,
+        error: Throwable,
+    ): String {
+        val summary = "HTTP $method $safeUrl failed (${error::class.simpleName}): ${error.message ?: "Request exception"}"
+        val sections = mutableListOf<Pair<String, String>>()
+        sections.add(
+            "Request Details" to
+                "Method: $method\nURL: $safeUrl\nBody Type: $bodyType\nElapsed: ${elapsedMs}ms",
+        )
+        if (reqHeadersBlock.isNotBlank()) {
+            sections.add("Request Headers" to reqHeadersBlock)
+        }
+        return ExecutionLogFormatter.buildStructuredLog(summary, sections)
     }
 
     private fun appendQueryParams(
@@ -132,14 +186,13 @@ class HttpActionExecutor(
         config: JsonObject,
         targetUrl: String,
         method: String,
+        bodyType: String,
+        interpolatedBody: String,
         context: ExecutionContext,
         resolvedCred: Credential?,
     ): Request.Builder {
         val requestBuilder = Request.Builder().url(targetUrl)
 
-        val bodyType = config.optString("bodyType", "JSON").uppercase()
-        val bodyTemplate = config.optString("bodyTemplate", "")
-        val interpolatedBody = context.interpolate(bodyTemplate)
         val requestBody = buildRequestBody(bodyType, interpolatedBody)
         applyMethod(requestBuilder, method, requestBody)
 
@@ -151,9 +204,11 @@ class HttpActionExecutor(
 
         val headers = config.optString("headers", "")
         if (headers.isNotBlank()) {
-            HttpHeaderUtils.parseHeaders(context.interpolate(headers)).forEach { (k, v) ->
-                if (v.isNotBlank()) {
-                    requestBuilder.header(k, v)
+            HttpHeaderUtils.parseHeaders(headers).forEach { (rawKey, rawVal) ->
+                val interpolatedKey = HttpHeaderUtils.sanitizeHeaderValue(context.interpolate(rawKey))
+                val interpolatedVal = HttpHeaderUtils.sanitizeHeaderValue(context.interpolate(rawVal))
+                if (HttpHeaderUtils.isValidHeaderName(interpolatedKey) && interpolatedVal.isNotBlank()) {
+                    requestBuilder.header(interpolatedKey, interpolatedVal)
                 }
             }
         }
@@ -193,12 +248,12 @@ class HttpActionExecutor(
         val authType = config.optString("authType", "NONE").uppercase()
         when (authType) {
             "BEARER" -> {
-                val token = context.interpolate(config.optString("bearerToken", "")).trim()
+                val token = HttpHeaderUtils.sanitizeHeaderValue(context.interpolate(config.optString("bearerToken", "")))
                 if (token.isNotBlank()) builder.addHeader("Authorization", "Bearer $token")
             }
             "BASIC" -> {
-                val user = context.interpolate(config.optString("basicUser", "")).trim()
-                val pass = context.interpolate(config.optString("basicPassword", "")).trim()
+                val user = HttpHeaderUtils.sanitizeHeaderValue(context.interpolate(config.optString("basicUser", "")))
+                val pass = HttpHeaderUtils.sanitizeHeaderValue(context.interpolate(config.optString("basicPassword", "")))
                 val authHeader = okhttp3.Credentials.basic(user, pass)
                 builder.addHeader("Authorization", authHeader)
             }
@@ -208,33 +263,70 @@ class HttpActionExecutor(
     private fun handleHttpResponse(
         resp: Response,
         method: String,
-        targetUrl: String,
+        safeUrl: String,
         expectedStatus: Int,
+        bodyType: String,
+        requestHeadersBlock: String,
+        requestBody: String,
+        elapsedMs: Long,
         context: ExecutionContext,
     ): NodeExecutionResult {
         val responseBody = resp.body?.string() ?: ""
         context.set("http_status", resp.code)
         context.set("http_response", responseBody)
 
-        val responseHeaders = resp.headers.toString().trim()
-        val detailedLog = buildString {
-            appendLine("HTTP $method $targetUrl")
-            appendLine("Status: ${resp.code} ${resp.message}")
-            if (responseHeaders.isNotBlank()) {
-                appendLine("--- Headers ---")
-                appendLine(responseHeaders)
-            }
-            if (responseBody.isNotBlank()) {
-                appendLine("--- Response Body ---")
-                appendLine(responseBody)
-            }
+        val responseHeadersBlock =
+            ExecutionLogFormatter.formatHeadersBlock(
+                (0 until resp.headers.size).map { idx ->
+                    resp.headers.name(idx) to resp.headers.value(idx)
+                },
+            )
+        val sections = mutableListOf<Pair<String, String>>()
+        sections.add(
+            "Request Details" to
+                "Method: $method\nURL: $safeUrl\nBody Type: $bodyType\nExpected Status: $expectedStatus",
+        )
+        if (requestHeadersBlock.isNotBlank()) {
+            sections.add("Request Headers" to requestHeadersBlock)
+        }
+        if (requestBody.isNotBlank()) {
+            sections.add("Request Body" to ExecutionLogFormatter.previewText(requestBody, 2000))
+        }
+        sections.add(
+            "Response Summary" to
+                "Status: ${resp.code} ${resp.message}\nLatency: ${elapsedMs}ms\nBody Size: ${responseBody.length} chars\nVariables Set: http_status, http_response",
+        )
+        if (responseHeadersBlock.isNotBlank()) {
+            sections.add("Headers" to responseHeadersBlock)
+        }
+        if (responseBody.isNotBlank()) {
+            sections.add("Response Body" to ExecutionLogFormatter.previewText(responseBody, 8000))
         }
 
-        return if (resp.code == expectedStatus || (expectedStatus == 200 && resp.isSuccessful)) {
-            NodeExecutionResult.Success(logMessage = detailedLog)
+        val isSuccess = resp.code == expectedStatus || (expectedStatus == 200 && resp.isSuccessful)
+        return if (isSuccess) {
+            val summary = "HTTP $method $safeUrl -> ${resp.code} ${resp.message} (${elapsedMs}ms)"
+            NodeExecutionResult.Success(logMessage = ExecutionLogFormatter.buildStructuredLog(summary, sections))
         } else {
-            NodeExecutionResult.Failed("HTTP request failed with status ${resp.code}\n\n$detailedLog")
+            val summary = "HTTP request failed with status ${resp.code} (${resp.message}) for $method $safeUrl"
+            NodeExecutionResult.Failed(ExecutionLogFormatter.buildStructuredLog(summary, sections))
         }
+    }
+
+    private fun redactSensitiveUrlParams(rawUrl: String): String {
+        val httpUrl = rawUrl.toHttpUrlOrNull() ?: return rawUrl
+        val sensitiveKeys = setOf("token", "apptoken", "bottoken", "apikey", "api_key", "secret", "password", "key")
+        if (httpUrl.queryParameterNames.none { it.lowercase() in sensitiveKeys }) {
+            return rawUrl
+        }
+        val builder = httpUrl.newBuilder()
+        for (name in httpUrl.queryParameterNames) {
+            if (name.lowercase() in sensitiveKeys) {
+                builder.removeAllQueryParameters(name)
+                builder.addQueryParameter(name, "***")
+            }
+        }
+        return builder.build().toString()
     }
 
     private fun applyCredentialToRequest(
@@ -247,7 +339,7 @@ class HttpActionExecutor(
             adapter.applyToRequest(builder, credential.dataMap, context)
             return
         }
-        val token = context.interpolate(credential.dataMap["token"] ?: "").trim()
+        val token = HttpHeaderUtils.sanitizeHeaderValue(context.interpolate(credential.dataMap["token"] ?: ""))
         if (token.isNotBlank()) {
             builder.addHeader("Authorization", "Bearer $token")
         }

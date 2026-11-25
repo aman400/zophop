@@ -51,9 +51,11 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -90,20 +92,23 @@ fun PreconditionCardItem(
     var testSteps by remember { mutableStateOf<List<NodeExecutionStep>>(emptyList()) }
     var showTestStepperSheet by remember { mutableStateOf(false) }
 
-    val dismissState =
-        rememberSwipeToDismissBoxState(
-            confirmValueChange = { dismissValue ->
-                if (dismissValue == SwipeToDismissBoxValue.EndToStart) {
-                    onDelete()
-                    false
-                } else if (dismissValue == SwipeToDismissBoxValue.StartToEnd) {
-                    onEdit()
-                    false
-                } else {
-                    false
-                }
-            },
-        )
+    val dismissState = rememberSwipeToDismissBoxState()
+    val currentOnEdit by rememberUpdatedState(onEdit)
+    val currentOnDelete by rememberUpdatedState(onDelete)
+
+    LaunchedEffect(dismissState.settledValue) {
+        when (dismissState.settledValue) {
+            SwipeToDismissBoxValue.EndToStart -> {
+                currentOnDelete()
+                dismissState.reset()
+            }
+            SwipeToDismissBoxValue.StartToEnd -> {
+                currentOnEdit()
+                dismissState.reset()
+            }
+            SwipeToDismissBoxValue.Settled -> Unit
+        }
+    }
 
     val (iconVector, typeTitle) =
         remember(precondition.type, precondition.pipelineJson) {
@@ -472,7 +477,7 @@ fun PreconditionExecutionStepperBottomSheet(
                     Modifier
                         .fillMaxWidth()
                         .padding(top = 24.dp, bottom = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
@@ -480,30 +485,39 @@ fun PreconditionExecutionStepperBottomSheet(
                         text = "Precondition Execution Stepper",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         text = preconditionName,
                         style = MaterialTheme.typography.bodySmall,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     if (isTesting) {
                         CircularProgressIndicator(
-                            modifier =
-                                Modifier
-                                    .padding(end = 8.dp)
-                                    .size(20.dp),
+                            modifier = Modifier.size(20.dp),
                             strokeWidth = 2.dp,
                         )
                         if (onCancelExecution != null) {
                             OutlinedButton(
                                 onClick = onCancelExecution,
-                                modifier = Modifier.padding(end = 8.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                             ) {
-                                Text("Cancel", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                                Text(
+                                    text = "Cancel",
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
                             }
                         }
                     }
@@ -520,6 +534,7 @@ fun PreconditionExecutionStepperBottomSheet(
             Column(
                 modifier =
                     Modifier
+                        .fillMaxWidth()
                         .weight(1f, fill = false)
                         .verticalScroll(scrollState),
                 verticalArrangement = Arrangement.spacedBy(12.dp),

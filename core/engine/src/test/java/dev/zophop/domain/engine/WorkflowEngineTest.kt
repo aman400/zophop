@@ -416,4 +416,154 @@ class WorkflowEngineTest {
                 assertTrue((step.durationMs ?: -1L) >= 0L)
             }
         }
+
+    @Test
+    fun testWorkflowTriggerFilterMismatchReturnsIgnoredAndSkipsDownstream() =
+        runTest {
+            val okHttpClient =
+                OkHttpClient
+                    .Builder()
+                    .addInterceptor { chain ->
+                        Response
+                            .Builder()
+                            .request(chain.request())
+                            .protocol(Protocol.HTTP_1_1)
+                            .code(200)
+                            .message("OK")
+                            .body("ok".toResponseBody())
+                            .build()
+                    }.build()
+
+            val evaluator = PreconditionEvaluator(context = null, okHttpClient = okHttpClient)
+            val engine =
+                WorkflowEngine(
+                    preconditionEvaluator = evaluator,
+                    credentialRepository = null,
+                    executorFactory = NodeExecutorFactory(okHttpClient),
+                )
+
+            val triggerId = UUID.randomUUID().toString()
+            val actionId = UUID.randomUUID().toString()
+
+            val triggerNode =
+                WorkflowNode(
+                    id = triggerId,
+                    name = "SMS Trigger",
+                    type = NodeType.SMS_TRIGGER,
+                    configJson = "{\"allowlist\":\"BANK.*\",\"keywordRegex\":\".*\"}",
+                )
+
+            val actionNode =
+                WorkflowNode(
+                    id = actionId,
+                    name = "ntfy Target Action",
+                    type = NodeType.NTFY_ACTION,
+                    configJson = "{\"serverUrl\":\"https://ntfy.sh\",\"topic\":\"test-topic\"}",
+                )
+
+            val workflow =
+                Workflow(
+                    id = "w_ignored",
+                    name = "Ignored Test Workflow",
+                    isEnabled = true,
+                    nodes = listOf(triggerNode, actionNode),
+                    connections = listOf(WorkflowConnection(fromNodeId = triggerId, toNodeId = actionId)),
+                )
+
+            val execContext =
+                ExecutionContext(
+                    mapOf("sender" to "PROMO_SPAM", "body" to "Buy now!"),
+                )
+
+            val result = engine.executeWorkflow(workflow, execContext, appContext = null)
+            assertTrue("Expected WorkflowExecutionResult.Ignored", result is WorkflowExecutionResult.Ignored)
+            assertEquals(2, result.steps.size)
+            assertTrue(result.steps.all { it.state == NodeStepState.SKIPPED })
+        }
+
+    @Test
+    fun testQueuePolicySetsIsQueueWaitingOnNodeStepDuringWaitAndClearsOnRecovery() =
+        runTest {
+            val healthAttempts = java.util.concurrent.atomic.AtomicInteger(0)
+            val okHttpClient =
+                OkHttpClient
+                    .Builder()
+                    .addInterceptor { chain ->
+                        val url = chain.request().url.toString()
+                        val code =
+                            if (url.contains("health")) {
+                                if (healthAttempts.incrementAndGet() >= 2) 200 else 503
+                            } else {
+                                200
+                            }
+                        Response
+                            .Builder()
+                            .request(chain.request())
+                            .protocol(Protocol.HTTP_1_1)
+                            .code(code)
+                            .message(if (code == 200) "OK" else "Service Unavailable")
+                            .body("ok".toResponseBody())
+                            .build()
+                    }.build()
+
+            val evaluator =
+                PreconditionEvaluator(
+                    context = null,
+                    okHttpClient = okHttpClient,
+                    delayDuration = { /* skip real delay */ },
+                )
+            val engine =
+                WorkflowEngine(
+                    preconditionEvaluator = evaluator,
+                    credentialRepository = null,
+                    executorFactory = NodeExecutorFactory(okHttpClient),
+                )
+
+            val triggerNode = WorkflowNode(id = "trig", name = "Trigger", type = NodeType.MANUAL_TRIGGER)
+            val actionNode =
+                WorkflowNode(
+                    id = "act",
+                    name = "ntfy Target",
+                    type = NodeType.NTFY_ACTION,
+                    configJson = "{\"serverUrl\":\"https://ntfy.sh\",\"topic\":\"test-topic\"}",
+                    preconditions =
+                        listOf(
+                            Precondition.HealthCheck(
+                                isEnabled = true,
+                                targetUrl = "https://ntfy.sh/health",
+                                expectedStatus = 200,
+                                onFailureAction = dev.zophop.domain.model.PreconditionFailurePolicy.QUEUE,
+                                queueTimeoutMinutes = 5,
+                                retryIntervalSeconds = 10,
+                            ),
+                        ),
+                )
+            val workflow =
+                Workflow(
+                    id = "wf_queue_flag",
+                    name = "Queue Flag Workflow",
+                    isEnabled = true,
+                    nodes = listOf(triggerNode, actionNode),
+                    connections = listOf(WorkflowConnection("trig", "act")),
+                )
+
+            val stepSnapshots = mutableListOf<List<NodeExecutionStep>>()
+            val result =
+                engine.executeWorkflowWithProgress(
+                    workflow = workflow,
+                    context = ExecutionContext(mapOf("body" to "hello")),
+                    appContext = null,
+                    onStepUpdate = { steps -> stepSnapshots.add(steps) },
+                )
+
+            assertTrue(result is WorkflowExecutionResult.Success)
+            assertTrue(
+                "Expected at least one step snapshot with isWaitingInQueue() == true",
+                stepSnapshots.any { it.isWaitingInQueue() },
+            )
+            assertTrue(
+                "Final steps must clear isQueueWaiting",
+                result.steps.none { it.isQueueWaiting },
+            )
+        }
 }

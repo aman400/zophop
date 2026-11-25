@@ -6,7 +6,7 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <application>
-        <service android:name=".GpsNodePluginService" android:exported="true">
+        <service android:name=".GpsNodePluginService" android:exported="false">
             <intent-filter>
                 <action android:name="dev.zophop.plugin.ACTION_NODE_SERVICE" />
             </intent-filter>

@@ -114,4 +114,19 @@ class SettingsRepositoryTest {
         assertEquals(1, active.size)
         assertEquals("n1", active[0].id)
     }
+
+    @Test
+    fun testAppSettingsDefaultAndCustomThemeFields() {
+        val defaultSettings = AppSettings()
+        assertEquals("SYSTEM", defaultSettings.themeMode)
+        assertEquals("EMERALD_AMBER", defaultSettings.themePalette)
+
+        val customSettings =
+            AppSettings(
+                themeMode = "DARK",
+                themePalette = "OCEAN_CYAN",
+            )
+        assertEquals("DARK", customSettings.themeMode)
+        assertEquals("OCEAN_CYAN", customSettings.themePalette)
+    }
 }

@@ -428,4 +428,132 @@ class BackupSerializerTest {
         assertTrue(json.contains("raw_token_xyz"))
         assertFalse(json.contains("enc:raw_token_xyz"))
     }
+
+    @Test
+    fun testResolveConflicts_keepBoth_assignsEightCharUppercaseAlphanumericWorkflowId() {
+        val existingWf = createSampleWorkflow("Flow", "n1", "n2", id = "existing_wf")
+        val resolved = BackupSerializer.resolveConflicts(
+            parsed = ParsedBackupData(workflows = listOf(existingWf)),
+            strategy = ImportConflictStrategy.KEEP_BOTH,
+            existingWorkflows = listOf(existingWf),
+            existingCredentials = emptyList(),
+            existingPreconditions = emptyList(),
+        )
+
+        val newId = resolved.workflows.single().id
+        assertTrue("Expected 8-char uppercase alphanumeric workflow ID, got '$newId'", Regex("^[A-Z0-9]{8}$").matches(newId))
+    }
+
+    @Test
+    fun testCreateBackupJson_decryptsDatabaseEncryptedNodeConfigFields() {
+        val encryptedConfig = dev.zophop.data.DatabaseEncryption.encryptNodeConfig(
+            """{"url":"https://example.com","bearerToken":"my_secret_bearer_token"}""",
+        )
+        assertTrue(encryptedConfig.contains("enc:v1:"))
+
+        val wf = Workflow(
+            id = "WFENC123",
+            name = "Encrypted Node Flow",
+            nodes = listOf(
+                WorkflowNode(
+                    id = "n1",
+                    name = "HTTP",
+                    type = NodeType.HTTP_ACTION,
+                    configJson = encryptedConfig,
+                ),
+            ),
+            connections = emptyList(),
+        )
+        val exportedJson = BackupSerializer.createBackupJson(workflows = listOf(wf), password = null)
+
+        assertFalse("Exported backup must decrypt enc:v1: node secrets", exportedJson.contains("enc:v1:"))
+        assertTrue("Exported backup must contain decrypted secret when unencrypted", exportedJson.contains("my_secret_bearer_token"))
+
+        // Also test parseImport on a workflow JSON whose node still holds enc:v1:
+        val singleWfJson = """{"id":"WF123456","name":"Direct","nodes":[{"id":"n1","name":"HTTP","type":"HTTP_ACTION","configJson":${dev.zophop.domain.model.AppJson.encodeToString(encryptedConfig)}}],"connections":[]}"""
+        val parsed = BackupSerializer.parseImport(singleWfJson)
+        val parsedConfig = parsed.workflows.single().nodes.single().configJson
+        assertFalse(parsedConfig.contains("enc:v1:"))
+        assertTrue(parsedConfig.contains("my_secret_bearer_token"))
+    }
+
+    @Test
+    fun testResolveConflicts_keepBoth_jsonSafeCredentialRemappingDoesNotCorruptSubstrings() {
+        val shortCredId = "1"
+        val cred = Credential(id = shortCredId, name = "Short ID Cred", type = CredentialType.BEARER_TOKEN)
+        val wf = Workflow(
+            id = "WFSUB123",
+            name = "Substring Test",
+            nodes = listOf(
+                WorkflowNode(
+                    id = "n1",
+                    name = "HTTP",
+                    type = NodeType.HTTP_ACTION,
+                    configJson = """{"credentialId":"1","url":"https://api.example.com/v1/items/123","timeout":1000}""",
+                ),
+            ),
+            connections = emptyList(),
+        )
+
+        val resolved = BackupSerializer.resolveConflicts(
+            parsed = ParsedBackupData(workflows = listOf(wf), credentials = listOf(cred)),
+            strategy = ImportConflictStrategy.KEEP_BOTH,
+            existingWorkflows = emptyList(),
+            existingCredentials = listOf(cred),
+            existingPreconditions = emptyList(),
+        )
+
+        val newCredId = resolved.credentials.single().id
+        val remappedConfig = resolved.workflows.single().nodes.first().configJson
+        assertTrue(remappedConfig.contains("\"credentialId\":\"$newCredId\""))
+        assertTrue("URL containing '1' must remain intact", remappedConfig.contains("https://api.example.com/v1/items/123"))
+        assertTrue("Numeric timeout 1000 must remain intact", remappedConfig.contains("1000"))
+    }
+
+    @Test
+    fun testParseImport_preservesChainedCheckNodesAndConnections() {
+        val legacyBundleJson = """
+            {
+              "type": "ZOPHOP_BACKUP",
+              "version": 1,
+              "workflows": [
+                {
+                  "id": "WFCHAIN1",
+                  "name": "Chain Flow",
+                  "nodes": [
+                    {
+                      "id": "n1",
+                      "name": "Trigger",
+                      "type": "MANUAL_TRIGGER",
+                      "configJson": "{}",
+                      "preconditions": [
+                        {
+                          "id": "chain_1",
+                          "type": "CHAINED_CHECK",
+                          "name": "Auth Chain",
+                          "nodes": [
+                            {"id": "cn1", "name": "Step 1", "type": "HTTP_ACTION", "configJson": "{}"}
+                          ],
+                          "connections": [
+                            {"fromNodeId": "cn1", "toNodeId": "cn2", "outputPort": "main", "inputPort": "main"}
+                          ]
+                        }
+                      ]
+                    }
+                  ],
+                  "connections": []
+                }
+              ],
+              "credentials": [],
+              "preconditions": []
+            }
+        """.trimIndent()
+
+        val parsed = BackupSerializer.parseImport(legacyBundleJson)
+        val chain = parsed.workflows.single().nodes.single().preconditions.single() as Precondition.ChainCheck
+        assertEquals(1, chain.nodes.size)
+        assertEquals("cn1", chain.nodes.single().id)
+        assertEquals(1, chain.connections.size)
+        assertEquals("cn2", chain.connections.single().toNodeId)
+    }
 }

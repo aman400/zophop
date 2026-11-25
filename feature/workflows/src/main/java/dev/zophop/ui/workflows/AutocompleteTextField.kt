@@ -20,6 +20,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.InputTransformation
+import androidx.compose.foundation.text.input.OutputTransformation
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.clearText
+import androidx.compose.foundation.text.input.maxLengthTrim
+import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
@@ -45,13 +53,15 @@ import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.TextRange
@@ -59,9 +69,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.zophop.core.ui.components.rememberAlwaysFloatingInteractionSource
@@ -150,7 +157,46 @@ private fun insertTemplateVariableAtCursor(
     return candidate to newCursor
 }
 
-@Suppress("DEPRECATION")
+@Composable
+private fun rememberSyncedTextFieldState(
+    value: String,
+    maxLength: Int?,
+    onValueChange: (String) -> Unit,
+): TextFieldState {
+    val textFieldState = rememberTextFieldState(value)
+    val currentValue by rememberUpdatedState(value)
+    val currentOnValueChange by rememberUpdatedState(onValueChange)
+    var lastEmittedValue by remember { mutableStateOf(value) }
+
+    LaunchedEffect(value) {
+        if (value != lastEmittedValue && textFieldState.text.toString() != value) {
+            lastEmittedValue = value
+            textFieldState.setTextAndPlaceCursorAtEnd(value)
+        }
+    }
+
+    LaunchedEffect(textFieldState, maxLength) {
+        snapshotFlow { textFieldState.text.toString() }
+            .collect { updated ->
+                val constrained =
+                    if (maxLength != null && updated.length > maxLength) {
+                        updated.take(maxLength)
+                    } else {
+                        updated
+                    }
+                if (constrained != updated) {
+                    textFieldState.setTextAndPlaceCursorAtEnd(constrained)
+                }
+                lastEmittedValue = constrained
+                if (constrained != currentValue) {
+                    currentOnValueChange(constrained)
+                }
+            }
+    }
+
+    return textFieldState
+}
+
 @Composable
 fun AutocompleteTextField(
     value: String,
@@ -170,30 +216,25 @@ fun AutocompleteTextField(
     var showSearchSheet by remember { mutableStateOf(value = false) }
     var passwordVisible by remember { mutableStateOf(!isSecret) }
 
-    // Maintain cursor-aware state for precise, non-destructive insertion
-    var textFieldValue by remember {
-        mutableStateOf(TextFieldValue(text = value, selection = TextRange(value.length)))
-    }
-
-    LaunchedEffect(value) {
-        if (value != textFieldValue.text) {
-            val newSelection = TextRange(value.length.coerceAtMost(value.length))
-            textFieldValue = textFieldValue.copy(text = value, selection = newSelection)
-        }
-    }
+    val textFieldState = rememberSyncedTextFieldState(value = value, maxLength = maxLength, onValueChange = onValueChange)
+    val currentOnValueChange by rememberUpdatedState(onValueChange)
 
     val onInsertVar: (String) -> Unit = { v ->
+        val selection = textFieldState.selection
         val (newText, newCursor) =
             insertVariableAtCursor(
-                currentText = textFieldValue.text,
-                selectionStart = textFieldValue.selection.start,
-                selectionEnd = textFieldValue.selection.end,
+                currentText = textFieldState.text.toString(),
+                selectionStart = selection.start,
+                selectionEnd = selection.end,
                 variable = v,
                 insertRaw = insertRawVariable,
                 maxLength = maxLength,
             )
-        textFieldValue = TextFieldValue(text = newText, selection = TextRange(newCursor))
-        onValueChange(newText)
+        textFieldState.edit {
+            replace(0, length, newText)
+            this.selection = TextRange(newCursor)
+        }
+        currentOnValueChange(newText)
     }
 
     Column(
@@ -208,25 +249,7 @@ fun AutocompleteTextField(
         )
 
         OutlinedTextField(
-            value = textFieldValue,
-            onValueChange = { newTfv ->
-                val constrainedText =
-                    if (maxLength != null && newTfv.text.length > maxLength) {
-                        newTfv.text.take(maxLength)
-                    } else {
-                        newTfv.text
-                    }
-
-                val adjustedTfv =
-                    if (constrainedText != newTfv.text) {
-                        newTfv.copy(text = constrainedText, selection = TextRange(constrainedText.length))
-                    } else {
-                        newTfv
-                    }
-
-                textFieldValue = adjustedTfv
-                onValueChange(constrainedText)
-            },
+            state = textFieldState,
             placeholder =
                 if (!placeholder.isNullOrBlank()) {
                     {
@@ -241,13 +264,22 @@ fun AutocompleteTextField(
                 },
             interactionSource = interactionSource,
             modifier = Modifier.fillMaxWidth(),
-            minLines = minLines,
-            singleLine = singleLine,
-            visualTransformation =
-                if (isSecret && !passwordVisible) {
-                    PasswordVisualTransformation()
+            lineLimits =
+                if (singleLine) {
+                    TextFieldLineLimits.SingleLine
                 } else {
-                    VisualTransformation.None
+                    TextFieldLineLimits.MultiLine(minHeightInLines = minLines)
+                },
+            inputTransformation = maxLength?.let { InputTransformation.maxLengthTrim(it) },
+            outputTransformation =
+                if (isSecret && !passwordVisible) {
+                    OutputTransformation {
+                        for (i in 0 until length) {
+                            replace(i, i + 1, "\u2022")
+                        }
+                    }
+                } else {
+                    null
                 },
             keyboardOptions =
                 if (isSecret) {
@@ -268,7 +300,7 @@ fun AutocompleteTextField(
                     unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
                 ),
             trailingIcon =
-                if (isSecret || textFieldValue.text.isNotEmpty()) {
+                if (isSecret || textFieldState.text.isNotEmpty()) {
                     {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             if (isSecret) {
@@ -289,11 +321,11 @@ fun AutocompleteTextField(
                                     )
                                 }
                             }
-                            if (textFieldValue.text.isNotEmpty()) {
+                            if (textFieldState.text.isNotEmpty()) {
                                 IconButton(
                                     onClick = {
-                                        textFieldValue = TextFieldValue(text = "", selection = TextRange.Zero)
-                                        onValueChange("")
+                                        textFieldState.clearText()
+                                        currentOnValueChange("")
                                     },
                                     modifier = Modifier.size(28.dp),
                                 ) {
@@ -316,7 +348,7 @@ fun AutocompleteTextField(
             VariableQuickInsertRow(
                 availableVariables = availableVariables,
                 insertRawVariable = insertRawVariable,
-                currentText = textFieldValue.text,
+                currentText = textFieldState.text.toString(),
                 maxLength = maxLength,
                 onVariableSelected = onInsertVar,
                 onOpenSearch = { showSearchSheet = true },
@@ -328,7 +360,7 @@ fun AutocompleteTextField(
         VariableSearchBottomSheet(
             variables = availableVariables,
             insertRaw = insertRawVariable,
-            currentText = textFieldValue.text,
+            currentText = textFieldState.text.toString(),
             onVariableSelected = { selectedVar ->
                 onInsertVar(selectedVar)
                 showSearchSheet = false
@@ -574,8 +606,9 @@ private fun VariableSearchBottomSheet(
         }
 
     val sheetState =
-        rememberModalBottomSheetState(
-            skipPartiallyExpanded = true,
+        rememberBottomSheetState(
+            initialValue = SheetValue.Hidden,
+            enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
             confirmValueChange = { it != SheetValue.Hidden },
         )
 

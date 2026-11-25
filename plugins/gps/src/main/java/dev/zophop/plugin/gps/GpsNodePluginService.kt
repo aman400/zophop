@@ -182,13 +182,14 @@ object GpsPluginModule : NodePluginModule {
         )
 }
 
-class GpsNodePluginService : Service() {
+open class GpsNodePluginService : Service() {
     private val binder =
         object : INodePluginService.Stub() {
             override fun getPluginApiVersion(): Int = 1
 
             override fun getManifests(): List<NodePluginManifest> = GpsPluginModule.getManifests()
 
+            @android.annotation.SuppressLint("MissingPermission")
             override fun executeNode(
                 nodeId: String,
                 configJson: String,
@@ -198,30 +199,49 @@ class GpsNodePluginService : Service() {
                     checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
                         checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
-                if (!hasLocationPerm) {
-                    return fail("Location permissions (ACCESS_FINE_LOCATION or ACCESS_COARSE_LOCATION) not granted in GPS Plugin App")
+                val locationManager =
+                    if (hasLocationPerm) getSystemService(Context.LOCATION_SERVICE) as? LocationManager else null
+
+                return when {
+                    !hasLocationPerm ->
+                        fail("Location permissions (ACCESS_FINE_LOCATION or ACCESS_COARSE_LOCATION) not granted in GPS Plugin App")
+                    locationManager == null ->
+                        fail("LocationManager unavailable")
+                    else -> {
+                        val location =
+                            try {
+                                locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                                    ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+                                    ?: locationManager.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
+                            } catch (_: SecurityException) {
+                                null
+                            }
+
+                        val lat = location?.latitude?.toString() ?: "0.0"
+                        val lon = location?.longitude?.toString() ?: "0.0"
+                        val acc = location?.accuracy?.toString() ?: "0.0"
+                        val mapsUrl = "https://maps.google.com/?q=$lat,$lon"
+
+                        val outputMap =
+                            buildJsonObject {
+                                put("latitude", lat)
+                                put("longitude", lon)
+                                put("accuracy", acc)
+                                put("maps_url", mapsUrl)
+                            }
+
+                        buildJsonObject {
+                            put("isSuccess", true)
+                            put("outputPort", "main")
+                            put("logMessage", "Location: ($lat, $lon)")
+                            put("outputDataMap", outputMap)
+                            put("latitude", lat)
+                            put("longitude", lon)
+                            put("accuracy", acc)
+                            put("maps_url", mapsUrl)
+                        }.toString()
+                    }
                 }
-
-                val locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-                val location =
-                    locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-                        ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-                        ?: locationManager.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
-
-                val lat = location?.latitude?.toString() ?: "0.0"
-                val lon = location?.longitude?.toString() ?: "0.0"
-                val acc = location?.accuracy?.toString() ?: "0.0"
-                val mapsUrl = "https://maps.google.com/?q=$lat,$lon"
-
-                return buildJsonObject {
-                    put("isSuccess", true)
-                    put("outputPort", "main")
-                    put("logMessage", "Location: ($lat, $lon)")
-                    put("latitude", lat)
-                    put("longitude", lon)
-                    put("accuracy", acc)
-                    put("maps_url", mapsUrl)
-                }.toString()
             }
 
             private fun fail(reason: String) =

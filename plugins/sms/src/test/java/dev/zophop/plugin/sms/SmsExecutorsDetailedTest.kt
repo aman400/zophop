@@ -151,4 +151,22 @@ class SmsExecutorsDetailedTest {
         assertTrue(result is NodeExecutionResult.Failed)
         assertTrue((result as NodeExecutionResult.Failed).reason.contains("recipient or body is empty"))
     }
+
+    @Test
+    fun testSmsTrigger_dotStarRegexAllowlistMatchesExactSender() = runTest {
+        Shadows.shadowOf(app).grantPermissions(Manifest.permission.RECEIVE_SMS)
+
+        val executor = SmsTriggerExecutor()
+        val node = WorkflowNode(
+            id = "n_sms_regex",
+            name = "SMS Trigger",
+            type = NodeType.SMS_TRIGGER,
+            configJson = """{"allowlist":".*HDFCBK.*","keywordRegex":".*"}""",
+        )
+
+        val context = ExecutionContext(mapOf("sender" to "HDFCBK", "body" to "Alert"))
+        val result = executor.execute(node, context, app)
+
+        assertTrue("Regex .*HDFCBK.* must match exact sender 'HDFCBK'", result is NodeExecutionResult.Success)
+    }
 }

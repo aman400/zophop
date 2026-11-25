@@ -6,6 +6,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -25,6 +26,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.TextObfuscationMode
+import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountTree
@@ -52,7 +56,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedSecureTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -64,15 +68,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -723,6 +727,16 @@ private fun toggleId(currentSet: Set<String>, id: String): Set<String> =
 private fun toggleAll(selectAll: Boolean, allIds: List<String>): Set<String> =
     if (selectAll) allIds.toSet() else emptySet()
 
+internal fun canBypassBiometricPrompt(
+    isDeviceSecure: Boolean?,
+    canAuthenticateResult: Int,
+): Boolean =
+    isDeviceSecure == false &&
+        (
+            canAuthenticateResult == BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED ||
+                canAuthenticateResult == BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE
+        )
+
 fun requestBiometricUnlock(
     context: Context,
     title: String,
@@ -730,55 +744,65 @@ fun requestBiometricUnlock(
     onSuccess: () -> Unit,
     onError: (String) -> Unit = {},
 ) {
-    val activity = context as? FragmentActivity
-    if (activity != null) {
-        try {
-            val executor = ContextCompat.getMainExecutor(context)
-            val prompt =
-                BiometricPrompt(
-                    activity,
-                    executor,
-                    object : BiometricPrompt.AuthenticationCallback() {
-                        override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                            super.onAuthenticationSucceeded(result)
-                            onSuccess()
-                        }
-
-                        override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                            super.onAuthenticationError(errorCode, errString)
-                            if (errorCode != BiometricPrompt.ERROR_USER_CANCELED &&
-                                errorCode != BiometricPrompt.ERROR_NEGATIVE_BUTTON
-                            ) {
-                                onError(errString.toString())
-                            }
-                        }
-                    },
-                )
-            val promptInfo =
-                BiometricPrompt.PromptInfo
-                    .Builder()
-                    .setTitle(title)
-                    .setSubtitle(subtitle)
-                    .setAllowedAuthenticators(
-                        BiometricManager.Authenticators.BIOMETRIC_STRONG or
-                            BiometricManager.Authenticators.DEVICE_CREDENTIAL,
-                    ).build()
-
-            prompt.authenticate(promptInfo)
-        } catch (e: SecurityException) {
-            onError(e.message ?: "Authentication failed")
-        } catch (e: IllegalArgumentException) {
-            onError(e.message ?: "Authentication failed")
-        } catch (e: IllegalStateException) {
-            onError(e.message ?: "Authentication failed")
-        }
-    } else {
-        val keyguardManager = context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
-        if (keyguardManager == null || !keyguardManager.isDeviceSecure) {
-            onSuccess()
+    val authenticators =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                BiometricManager.Authenticators.DEVICE_CREDENTIAL
         } else {
-            onError("FragmentActivity not available for biometric prompt")
+            BiometricManager.Authenticators.BIOMETRIC_WEAK or
+                BiometricManager.Authenticators.DEVICE_CREDENTIAL
         }
+    val keyguardManager = context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+    val biometricManager = BiometricManager.from(context)
+    val canAuthenticate = biometricManager.canAuthenticate(authenticators)
+
+    val activity = context as? FragmentActivity
+    when {
+        canBypassBiometricPrompt(isDeviceSecure = keyguardManager?.isDeviceSecure, canAuthenticateResult = canAuthenticate) ->
+            onSuccess()
+        activity == null ->
+            onError("Device authentication required: FragmentActivity unavailable")
+        canAuthenticate != BiometricManager.BIOMETRIC_SUCCESS ->
+            onError("Device authentication unavailable (error code: $canAuthenticate)")
+        else ->
+            try {
+                val executor = ContextCompat.getMainExecutor(context)
+                val prompt =
+                    BiometricPrompt(
+                        activity,
+                        executor,
+                        object : BiometricPrompt.AuthenticationCallback() {
+                            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                                super.onAuthenticationSucceeded(result)
+                                onSuccess()
+                            }
+
+                            override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                                super.onAuthenticationError(errorCode, errString)
+                                if (errorCode != BiometricPrompt.ERROR_USER_CANCELED &&
+                                    errorCode != BiometricPrompt.ERROR_NEGATIVE_BUTTON
+                                ) {
+                                    onError(errString.toString())
+                                }
+                            }
+                        },
+                    )
+                val promptInfo =
+                    BiometricPrompt.PromptInfo
+                        .Builder()
+                        .setTitle(title)
+                        .setSubtitle(subtitle)
+                        .setAllowedAuthenticators(authenticators)
+                        .build()
+
+                prompt.authenticate(promptInfo)
+            } catch (e: SecurityException) {
+                onError(e.message ?: "Authentication failed")
+            } catch (e: IllegalArgumentException) {
+                onError(e.message ?: "Authentication failed")
+            } catch (e: IllegalStateException) {
+                onError(e.message ?: "Authentication failed")
+            }
     }
 }
 
@@ -1421,12 +1445,53 @@ private fun ExportPasswordCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
-                OutlinedTextField(
-                    value = pinOrPassword,
-                    onValueChange = onPasswordChange,
+                val passwordState = rememberTextFieldState(pinOrPassword)
+                val currentPassword by rememberUpdatedState(pinOrPassword)
+                val currentOnPasswordChange by rememberUpdatedState(onPasswordChange)
+                var lastEmittedPassword by remember { mutableStateOf(pinOrPassword) }
+
+                LaunchedEffect(pinOrPassword) {
+                    if (pinOrPassword != lastEmittedPassword && passwordState.text.toString() != pinOrPassword) {
+                        lastEmittedPassword = pinOrPassword
+                        passwordState.setTextAndPlaceCursorAtEnd(pinOrPassword)
+                    }
+                }
+                LaunchedEffect(passwordState) {
+                    snapshotFlow { passwordState.text.toString() }
+                        .collect { updated ->
+                            lastEmittedPassword = updated
+                            if (updated != currentPassword) {
+                                currentOnPasswordChange(updated)
+                            }
+                        }
+                }
+
+                val confirmState = rememberTextFieldState(confirmPinOrPassword)
+                val currentConfirm by rememberUpdatedState(confirmPinOrPassword)
+                val currentOnConfirmChange by rememberUpdatedState(onConfirmChange)
+                var lastEmittedConfirm by remember { mutableStateOf(confirmPinOrPassword) }
+
+                LaunchedEffect(confirmPinOrPassword) {
+                    if (confirmPinOrPassword != lastEmittedConfirm && confirmState.text.toString() != confirmPinOrPassword) {
+                        lastEmittedConfirm = confirmPinOrPassword
+                        confirmState.setTextAndPlaceCursorAtEnd(confirmPinOrPassword)
+                    }
+                }
+                LaunchedEffect(confirmState) {
+                    snapshotFlow { confirmState.text.toString() }
+                        .collect { updated ->
+                            lastEmittedConfirm = updated
+                            if (updated != currentConfirm) {
+                                currentOnConfirmChange(updated)
+                            }
+                        }
+                }
+
+                OutlinedSecureTextField(
+                    state = passwordState,
                     label = { Text("Backup PIN or Password") },
-                    singleLine = true,
-                    visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                    textObfuscationMode =
+                        if (showPassword) TextObfuscationMode.Visible else TextObfuscationMode.Hidden,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     trailingIcon = {
                         IconButton(onClick = onToggleShowPassword) {
@@ -1441,12 +1506,11 @@ private fun ExportPasswordCard(
                     modifier = Modifier.fillMaxWidth(),
                 )
 
-                OutlinedTextField(
-                    value = confirmPinOrPassword,
-                    onValueChange = onConfirmChange,
+                OutlinedSecureTextField(
+                    state = confirmState,
                     label = { Text("Confirm PIN or Password") },
-                    singleLine = true,
-                    visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                    textObfuscationMode =
+                        if (showPassword) TextObfuscationMode.Visible else TextObfuscationMode.Hidden,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.fillMaxWidth(),
@@ -1541,12 +1605,32 @@ private fun ImportUnlockCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            OutlinedTextField(
-                value = unlockPassword,
-                onValueChange = onPasswordChange,
+            val unlockState = rememberTextFieldState(unlockPassword)
+            val currentUnlockPassword by rememberUpdatedState(unlockPassword)
+            val currentOnPasswordChange by rememberUpdatedState(onPasswordChange)
+            var lastEmittedUnlock by remember { mutableStateOf(unlockPassword) }
+
+            LaunchedEffect(unlockPassword) {
+                if (unlockPassword != lastEmittedUnlock && unlockState.text.toString() != unlockPassword) {
+                    lastEmittedUnlock = unlockPassword
+                    unlockState.setTextAndPlaceCursorAtEnd(unlockPassword)
+                }
+            }
+            LaunchedEffect(unlockState) {
+                snapshotFlow { unlockState.text.toString() }
+                    .collect { updated ->
+                        lastEmittedUnlock = updated
+                        if (updated != currentUnlockPassword) {
+                            currentOnPasswordChange(updated)
+                        }
+                    }
+            }
+
+            OutlinedSecureTextField(
+                state = unlockState,
                 label = { Text("Password or PIN") },
-                singleLine = true,
-                visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                textObfuscationMode =
+                    if (showPassword) TextObfuscationMode.Visible else TextObfuscationMode.Hidden,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 trailingIcon = {
                     IconButton(onClick = onToggleShowPassword) {

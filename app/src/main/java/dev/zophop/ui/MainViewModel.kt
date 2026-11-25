@@ -9,6 +9,8 @@ import android.os.PowerManager
 import android.provider.Settings
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import dev.zophop.core.ui.AppThemeMode
+import dev.zophop.core.ui.AppThemePalette
 import dev.zophop.data.AppDatabase
 import dev.zophop.data.AppSettings
 import dev.zophop.data.CredentialRepository
@@ -28,17 +30,18 @@ import dev.zophop.domain.engine.ActiveExecutionTracker
 import dev.zophop.domain.engine.ActiveWorkflowExecution
 import dev.zophop.domain.engine.ExecutionJobRegistry
 import dev.zophop.domain.engine.NodeExecutionStep
-import dev.zophop.domain.engine.NodeStepState
 import dev.zophop.domain.engine.PreconditionEvaluator
 import dev.zophop.domain.engine.PreconditionResult
 import dev.zophop.domain.engine.WorkflowEngine
 import dev.zophop.domain.engine.WorkflowExecutionResult
+import dev.zophop.domain.engine.markStepsAsCancelled
 import dev.zophop.domain.engine.toJsonString
 import dev.zophop.domain.engine.toNodeExecutionSteps
 import dev.zophop.domain.model.Credential
 import dev.zophop.domain.model.NodeType
 import dev.zophop.domain.model.Workflow
 import dev.zophop.domain.model.WorkflowNode
+import dev.zophop.domain.model.generateShortWorkflowId
 import dev.zophop.domain.model.optString
 import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.filter.SmsFilter
@@ -55,7 +58,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
-import java.util.UUID
+import kotlin.time.Duration.Companion.milliseconds
 
 typealias ActiveExecutionState = ActiveWorkflowExecution
 
@@ -78,6 +81,8 @@ data class MainUiState(
     val lockCredentialsWithBiometric: Boolean = false,
     val globalWorkflowsEnabled: Boolean = true,
     val dismissedBiometricBanner: Boolean = false,
+    val themeMode: String = AppThemeMode.SYSTEM.id,
+    val themePalette: String = AppThemePalette.EMERALD_AMBER.id,
     val isRegexValid: Boolean = true,
     val isUrlValid: Boolean = true,
     val isSendingTest: Boolean = false,
@@ -258,23 +263,64 @@ class MainViewModel(
                 } catch (_: Exception) {
                     null
                 }
-            val failedNodeId = steps?.lastOrNull {
-                it.state == NodeStepState.FAILED || it.nodeId.startsWith("queue")
-            }?.nodeId
+            val failedNodeId = dev.zophop.worker.WorkflowQueueManager.resolveRetryStartNodeId(workflow, steps)
+            workflowRepository.deleteExecutionLogById(log.id)
             retryWorkflowFromFailedNode(
                 workflow = workflow,
                 failedNodeId = failedNodeId,
-                originalLogId = log.id,
+                originalLogId = null,
                 onProgressUpdate = {},
                 onResult = {},
             )
         }
     }
 
-    fun deleteQueuedWorkflowLog(logId: String) {
+    fun cancelQueuedWorkflowExecution(logId: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            workflowRepository.deleteExecutionLogById(logId)
+            val log = workflowRepository.getExecutionLogById(logId)
+            if (log != null) {
+                val jobCancelled = ExecutionJobRegistry.cancelJob(log.workflowId)
+                val app = getApplication<Application>()
+                val nm = app.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                nm?.cancel(log.workflowId.hashCode())
+                if (jobCancelled) {
+                    kotlinx.coroutines.delay(150.milliseconds)
+                }
+                val latestLog = workflowRepository.getExecutionLogById(logId) ?: log
+                if (latestLog.status == "QUEUED" || latestLog.status == "RUNNING") {
+                    val cancelReason =
+                        if (latestLog.status == "QUEUED") {
+                            "Execution cancelled from queue by user"
+                        } else {
+                            "Execution cancelled by user"
+                        }
+                    val updatedLogsJson =
+                        latestLog.logs
+                            .toNodeExecutionSteps()
+                            ?.markStepsAsCancelled(cancelReason)
+                            ?.toJsonString()
+                            ?: latestLog.logs
+                    workflowRepository.saveExecutionLog(
+                        latestLog.copy(
+                            status = "CANCELLED",
+                            logs = updatedLogsJson,
+                            errorReason = cancelReason,
+                        ),
+                    )
+                }
+                val currentActive = _activeExecutionState.value
+                if (!jobCancelled && currentActive?.workflowId == log.workflowId && currentActive.isExecuting) {
+                    ActiveExecutionTracker.removeExecution(log.workflowId)
+                    _activeExecutionState.value = null
+                }
+            } else {
+                workflowRepository.deleteExecutionLogById(logId)
+            }
         }
+    }
+
+    fun deleteQueuedWorkflowLog(logId: String) {
+        cancelQueuedWorkflowExecution(logId)
     }
 
     fun deleteQueuedMessage(id: String) {
@@ -288,6 +334,7 @@ class MainViewModel(
         checkPermissionsAndStatus()
         viewModelScope.launch(Dispatchers.IO) {
             workflowInitializer.checkAndInitialize()
+            dev.zophop.worker.WorkflowQueueManager.reconcileStaleRunningLogs(workflowRepository)
         }
         viewModelScope.launch {
             ActiveExecutionTracker.executions.collect { executions ->
@@ -326,6 +373,8 @@ class MainViewModel(
                 lockCredentialsWithBiometric = s.lockCredentialsWithBiometric,
                 globalWorkflowsEnabled = s.globalWorkflowsEnabled,
                 dismissedBiometricBanner = s.dismissedBiometricBanner,
+                themeMode = AppThemeMode.fromId(s.themeMode).id,
+                themePalette = AppThemePalette.fromId(s.themePalette).id,
                 isRegexValid = SmsFilter.isValidRegex(s.keywordRegex),
                 isUrlValid = true,
                 isBatteryOptimized = checkBatteryOptimizedInternal(),
@@ -454,6 +503,18 @@ class MainViewModel(
         saveCurrentSettings()
     }
 
+    fun updateThemeMode(mode: String) {
+        val normalized = AppThemeMode.fromId(mode).id
+        _uiState.value = _uiState.value.copy(themeMode = normalized)
+        saveCurrentSettings()
+    }
+
+    fun updateThemePalette(palette: String) {
+        val normalized = AppThemePalette.fromId(palette).id
+        _uiState.value = _uiState.value.copy(themePalette = normalized)
+        saveCurrentSettings()
+    }
+
     fun updateMaxParallelExecutions(count: Int) {
         _uiState.value = _uiState.value.copy(maxParallelExecutions = count.coerceIn(1, 10))
         saveCurrentSettings()
@@ -548,8 +609,33 @@ class MainViewModel(
         }
     }
 
+    fun deleteExecutionLog(logId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            workflowRepository.deleteExecutionLogById(logId)
+        }
+    }
+
     fun cancelWorkflowExecution(workflowId: String) {
-        ExecutionJobRegistry.cancelJob(workflowId)
+        val jobCancelled = ExecutionJobRegistry.cancelJob(workflowId)
+        val app = getApplication<Application>()
+        val nm = app.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+        nm?.cancel(workflowId.hashCode())
+        viewModelScope.launch(Dispatchers.IO) {
+            if (jobCancelled) {
+                kotlinx.coroutines.delay(150.milliseconds)
+            } else {
+                val currentActive = _activeExecutionState.value
+                if (currentActive?.workflowId == workflowId && currentActive.isExecuting) {
+                    ActiveExecutionTracker.removeExecution(workflowId)
+                    _activeExecutionState.value = null
+                }
+            }
+            dev.zophop.worker.WorkflowQueueManager.cancelPendingLogsForWorkflow(
+                workflowRepository = workflowRepository,
+                workflowId = workflowId,
+                reason = "Execution cancelled by user",
+            )
+        }
     }
 
     fun clearActiveExecutionState() {
@@ -627,7 +713,7 @@ class MainViewModel(
     ): kotlinx.coroutines.Job {
         val job =
             viewModelScope.launch(Dispatchers.IO) {
-                val newExecutionId = UUID.randomUUID().toString()
+                val newExecutionId = generateShortWorkflowId()
                 if (originalLogId != null && failedNodeId != null) {
                     markNodeAsRetriedInOriginalLog(originalLogId, failedNodeId, newExecutionId)
                 }
@@ -696,6 +782,13 @@ class MainViewModel(
                 populateTriggerTestContext(triggerNode, triggerConfig, testContextMap)
 
                 val execContext = ExecutionContext(testContextMap)
+                val stepLogSync =
+                    dev.zophop.worker.ExecutionStepLogSync(
+                        executionId = newExecutionId,
+                        workflowId = workflow.id,
+                        workflowRepository = workflowRepository,
+                        scope = viewModelScope,
+                    )
 
                 val result =
                     engine.executeWorkflowWithProgress(
@@ -714,22 +807,7 @@ class MainViewModel(
                             viewModelScope.launch(Dispatchers.Main) {
                                 onProgressUpdate(steps)
                             }
-                            if (steps.any { it.nodeId.startsWith("queue") }) {
-                                val waitingStep = steps.lastOrNull { it.nodeId.startsWith("queue") }
-                                val queuedLog =
-                                    WorkflowExecutionLogEntity(
-                                        id = newExecutionId,
-                                        workflowId = workflow.id,
-                                        status = "QUEUED",
-                                        timestamp = System.currentTimeMillis(),
-                                        messageId = null,
-                                        logs = steps.toJsonString(),
-                                        errorReason = waitingStep?.logMessage ?: "Waiting for preconditions in queue",
-                                    )
-                                viewModelScope.launch(Dispatchers.IO) {
-                                    workflowRepository.saveExecutionLog(queuedLog)
-                                }
-                            }
+                            stepLogSync.onStepUpdate(steps)
                         },
                     )
 
@@ -750,9 +828,11 @@ class MainViewModel(
                         status =
                             when (result) {
                                 is WorkflowExecutionResult.Success -> "SUCCESS"
-                                is WorkflowExecutionResult.PreconditionFailed -> if (result.shouldQueue) "QUEUED" else "PRECONDITION_FAILED"
+                                is WorkflowExecutionResult.PreconditionFailed ->
+                                    if (result.shouldQueue && !result.isQueueTimeout) "QUEUED" else "PRECONDITION_FAILED"
                                 is WorkflowExecutionResult.Failed -> "FAILED"
                                 is WorkflowExecutionResult.Cancelled -> "CANCELLED"
+                                is WorkflowExecutionResult.Ignored -> "IGNORED"
                             },
                         timestamp = System.currentTimeMillis(),
                         messageId = null,
@@ -763,9 +843,15 @@ class MainViewModel(
                                 is WorkflowExecutionResult.PreconditionFailed -> result.reason
                                 is WorkflowExecutionResult.Failed -> result.reason
                                 is WorkflowExecutionResult.Cancelled -> "Manually cancelled by user"
+                                is WorkflowExecutionResult.Ignored -> result.reason
                             },
                     )
-                workflowRepository.saveExecutionLog(logEntity)
+                // Trigger filtered out the event — discard the RUNNING log, no history needed.
+                if (result is WorkflowExecutionResult.Ignored) {
+                    stepLogSync.finalize(finalLog = null, deleteOnIgnored = true)
+                } else {
+                    stepLogSync.finalize(finalLog = logEntity)
+                }
 
                 withContext(Dispatchers.Main) {
                     onResult(result)
@@ -913,6 +999,8 @@ class MainViewModel(
                         is WorkflowExecutionResult.Cancelled ->
                             "🛑 Cancelled: Workflow manually cancelled by user\n" +
                                 result.logs.joinToString("\n")
+                        is WorkflowExecutionResult.Ignored ->
+                            "⏭️ Skipped: Trigger filter did not match — ${result.reason}"
                     }
                 onResult(logMsg)
             },
@@ -1053,6 +1141,8 @@ class MainViewModel(
                 lockCredentialsWithBiometric = current.lockCredentialsWithBiometric,
                 globalWorkflowsEnabled = current.globalWorkflowsEnabled,
                 dismissedBiometricBanner = current.dismissedBiometricBanner,
+                themeMode = current.themeMode,
+                themePalette = current.themePalette,
             )
         settingsRepo.saveSettings(settings)
     }

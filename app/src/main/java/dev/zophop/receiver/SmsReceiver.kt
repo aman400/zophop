@@ -17,11 +17,17 @@ import dev.zophop.domain.engine.PreconditionEvaluator
 import dev.zophop.domain.engine.WorkflowEngine
 import dev.zophop.domain.engine.WorkflowExecutionResult
 import dev.zophop.domain.engine.toJsonString
+import dev.zophop.domain.model.generateShortWorkflowId
 import dev.zophop.plugin.api.ExecutionContext
+import dev.zophop.worker.ExecutionStepLogSync
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
-import java.util.UUID
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.time.Duration.Companion.milliseconds
 
 class SmsReceiver : BroadcastReceiver() {
     @Suppress("TooGenericExceptionCaught")
@@ -37,7 +43,7 @@ class SmsReceiver : BroadcastReceiver() {
         }
         Log.i("SmsReceiver", "Processing incoming SMS from '$sender', body length: ${fullBody.length}")
         val pendingResult = goAsync()
-        CoroutineScope(Dispatchers.IO).launch {
+        CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
             try {
                 processSmsWorkflows(context, sender, fullBody)
             } catch (e: Exception) {
@@ -89,6 +95,7 @@ class SmsReceiver : BroadcastReceiver() {
 
         val evaluator = PreconditionEvaluator(context)
         val engine = WorkflowEngine(evaluator, credentialRepository)
+        val executionScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
         val showWorkflowNotifications = EncryptedSettingsRepository(context).getSettings().showWorkflowNotifications
         val baseContextMap = mapOf(
@@ -104,11 +111,21 @@ class SmsReceiver : BroadcastReceiver() {
             "show_workflow_notifications" to showWorkflowNotifications,
         )
 
+        val jobs = mutableListOf<Job>()
         for (workflow in smsWorkflows) {
             val workflowContext = ExecutionContext(baseContextMap)
-            val executionId = UUID.randomUUID().toString()
-            val job = CoroutineScope(Dispatchers.IO).launch {
+            val executionId = generateShortWorkflowId()
+            val stepLogSync =
+                ExecutionStepLogSync(
+                    executionId = executionId,
+                    workflowId = workflow.id,
+                    workflowRepository = workflowRepository,
+                    scope = executionScope,
+                )
+            val job = executionScope.launch {
                 Log.i("SmsReceiver", "Executing workflow '${workflow.name}' (${workflow.id})")
+                // Save a RUNNING log only after we know the trigger passed the filter.
+                // We'll delete it if the result turns out to be Ignored.
                 val initialLog = WorkflowExecutionLogEntity(
                     id = executionId,
                     workflowId = workflow.id,
@@ -126,35 +143,33 @@ class SmsReceiver : BroadcastReceiver() {
                     appContext = context,
                     startNodeId = null,
                     onStepUpdate = { steps ->
-                        if (steps.any { it.nodeId.startsWith("queue") }) {
-                            val waitingStep = steps.lastOrNull { it.nodeId.startsWith("queue") }
-                            val queuedLog = WorkflowExecutionLogEntity(
-                                id = executionId,
-                                workflowId = workflow.id,
-                                status = "QUEUED",
-                                timestamp = System.currentTimeMillis(),
-                                messageId = null,
-                                logs = steps.toJsonString(),
-                                errorReason = waitingStep?.logMessage ?: "Waiting for preconditions in queue",
-                            )
-                            CoroutineScope(Dispatchers.IO).launch {
-                                workflowRepository.saveExecutionLog(queuedLog)
-                            }
-                        }
+                        stepLogSync.onStepUpdate(steps)
                     },
                 )
+
+                if (result is WorkflowExecutionResult.Ignored) {
+                    // Trigger filtered out the event — discard the RUNNING log, no history needed.
+                    Log.i("SmsReceiver", "Workflow '${workflow.name}' ignored (trigger filter): ${result.reason}")
+                    stepLogSync.finalize(finalLog = null, deleteOnIgnored = true)
+                    return@launch
+                }
+
                 val resultDetails = when (result) {
                     is WorkflowExecutionResult.Success -> "SUCCESS"
+                    is WorkflowExecutionResult.PreconditionFailed -> "FAILED (Node: ${result.nodeId}, Reason: ${result.reason})"
                     is WorkflowExecutionResult.Failed -> "FAILED (Node: ${result.nodeId}, Reason: ${result.reason})"
-                    is WorkflowExecutionResult.PreconditionFailed -> "PRECONDITION_FAILED (Reason: ${result.reason})"
                     is WorkflowExecutionResult.Cancelled -> "CANCELLED"
                 }
                 Log.i("SmsReceiver", "Workflow '${workflow.name}' completed with result: $resultDetails")
                 val logEntity = createLogEntity(executionId, workflow.id, result)
-                workflowRepository.saveExecutionLog(logEntity)
+                stepLogSync.finalize(finalLog = logEntity)
             }
             ExecutionJobRegistry.registerJob(workflow.id, job)
-            job.join()
+            jobs.add(job)
+        }
+        // Release goAsync() well before Android's ~10s BroadcastReceiver ANR window while long QUEUE/RETRY jobs continue running.
+        withTimeoutOrNull(8_000.milliseconds) {
+            jobs.joinAll()
         }
     }
 
@@ -164,9 +179,11 @@ class SmsReceiver : BroadcastReceiver() {
             workflowId = workflowId,
             status = when (result) {
                 is WorkflowExecutionResult.Success -> "SUCCESS"
-                is WorkflowExecutionResult.PreconditionFailed -> if (result.shouldQueue) "QUEUED" else "PRECONDITION_FAILED"
+                is WorkflowExecutionResult.PreconditionFailed ->
+                    if (result.shouldQueue && !result.isQueueTimeout) "QUEUED" else "PRECONDITION_FAILED"
                 is WorkflowExecutionResult.Failed -> "FAILED"
                 is WorkflowExecutionResult.Cancelled -> "CANCELLED"
+                is WorkflowExecutionResult.Ignored -> "IGNORED" // should never reach here
             },
             timestamp = System.currentTimeMillis(),
             messageId = null,
@@ -176,6 +193,7 @@ class SmsReceiver : BroadcastReceiver() {
                 is WorkflowExecutionResult.PreconditionFailed -> result.reason
                 is WorkflowExecutionResult.Failed -> result.reason
                 is WorkflowExecutionResult.Cancelled -> "Execution cancelled by user"
+                is WorkflowExecutionResult.Ignored -> result.reason
             },
         )
 }

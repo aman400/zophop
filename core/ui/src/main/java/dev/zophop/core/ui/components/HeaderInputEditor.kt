@@ -12,6 +12,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.input.OutputTransformation
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
@@ -31,17 +35,18 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.zophop.domain.engine.plugin.BuiltInPluginRegistry
@@ -399,6 +404,28 @@ private fun KeyValueRow(
     val effectiveIsSecret = item.isSecret || isCredHeader
     val isUsingCredentialDefault = isCredHeader && item.value.isBlank() && attachedCredential != null
 
+    val valueState = rememberTextFieldState(item.value)
+    val currentItemValue by rememberUpdatedState(item.value)
+    val currentOnValueChange by rememberUpdatedState(onValueChange)
+    var lastEmittedValue by remember { mutableStateOf(item.value) }
+
+    LaunchedEffect(item.value) {
+        if (item.value != lastEmittedValue && valueState.text.toString() != item.value) {
+            lastEmittedValue = item.value
+            valueState.setTextAndPlaceCursorAtEnd(item.value)
+        }
+    }
+
+    LaunchedEffect(valueState) {
+        snapshotFlow { valueState.text.toString() }
+            .collect { updated ->
+                lastEmittedValue = updated
+                if (updated != currentItemValue) {
+                    currentOnValueChange(updated)
+                }
+            }
+    }
+
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -413,8 +440,7 @@ private fun KeyValueRow(
                 singleLine = true,
             )
             OutlinedTextField(
-                value = item.value,
-                onValueChange = onValueChange,
+                state = valueState,
                 label = { Text(valueLabel) },
                 placeholder =
                     if (isUsingCredentialDefault) {
@@ -423,24 +449,30 @@ private fun KeyValueRow(
                         null
                     },
                 modifier = Modifier.weight(1.1f),
-                singleLine = true,
-                visualTransformation =
+                lineLimits = TextFieldLineLimits.SingleLine,
+                outputTransformation =
                     if (effectiveIsSecret && !isRevealed && !isUsingCredentialDefault) {
-                        PasswordVisualTransformation()
+                        OutputTransformation {
+                            for (i in 0 until length) {
+                                replace(i, i + 1, "\u2022")
+                            }
+                        }
                     } else {
-                        VisualTransformation.None
+                        null
                     },
                 trailingIcon = {
                     KeyValueTrailingIcons(
                         isSecret = effectiveIsSecret,
                         isRevealed = isRevealed,
-                        hasValue = item.value.isNotBlank(),
+                        hasValue = valueState.text.isNotBlank(),
                         availableVariables = availableVariables,
                         onToggleReveal = onToggleReveal,
                         onInsertVariable = { variable ->
                             val token = "\${$variable}"
-                            val updatedVal = if (item.value.isEmpty()) token else "${item.value}$token"
-                            onValueChange(updatedVal)
+                            val currentText = valueState.text.toString()
+                            val updatedVal = if (currentText.isEmpty()) token else "$currentText$token"
+                            valueState.setTextAndPlaceCursorAtEnd(updatedVal)
+                            currentOnValueChange(updatedVal)
                         },
                     )
                 },

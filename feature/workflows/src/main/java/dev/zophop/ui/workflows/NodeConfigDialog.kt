@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Info
@@ -60,6 +61,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -246,7 +248,9 @@ fun NodeConfigBottomSheet(
     }
 
     var showCreateCredSheet by remember { mutableStateOf(false) }
+    var showCurlImportDialog by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    val isHttpActionNode = remember(node.type) { node.type.contains("HTTP_ACTION", ignoreCase = true) }
 
     BackHandler(enabled = true) {
         onDismiss()
@@ -254,13 +258,10 @@ fun NodeConfigBottomSheet(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Configure Node") },
-                navigationIcon = {
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Close")
-                    }
-                },
+            NodeConfigTopBar(
+                isHttpActionNode = isHttpActionNode,
+                onDismiss = onDismiss,
+                onOpenCurlImport = { showCurlImportDialog = true },
             )
         },
         bottomBar = {
@@ -340,6 +341,12 @@ fun NodeConfigBottomSheet(
                 )
             }
 
+            if (isHttpActionNode) {
+                HttpCurlImportBanner(
+                    onOpenImportDialog = { showCurlImportDialog = true },
+                )
+            }
+
             // Credential attachment selector for Actions
             if (isCredentialSupported(node.type, pluginManifest)) {
                 SubtleSectionDivider()
@@ -411,7 +418,83 @@ fun NodeConfigBottomSheet(
             onDismiss = { permissionInstructionData = null },
         )
     }
+
+    if (showCurlImportDialog) {
+        ImportCurlDialog(
+            onImport = { parsed ->
+                configStateMap = applyParsedCurlToConfig(configStateMap, parsed)
+                errorMessage = null
+                showCurlImportDialog = false
+                android.widget.Toast
+                    .makeText(
+                        context,
+                        "Imported ${parsed.method} request from cURL",
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
+            },
+            onDismiss = { showCurlImportDialog = false },
+        )
+    }
 }
+
+@Composable
+private fun NodeConfigTopBar(
+    isHttpActionNode: Boolean,
+    onDismiss: () -> Unit,
+    onOpenCurlImport: () -> Unit,
+) {
+    TopAppBar(
+        title = {
+            Text(
+                text = "Configure Node",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
+        navigationIcon = {
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Default.Close, contentDescription = "Close")
+            }
+        },
+        actions = {
+            if (isHttpActionNode) {
+                TextButton(
+                    onClick = onOpenCurlImport,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Code,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Import cURL",
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                }
+            }
+        },
+    )
+}
+
+private fun applyParsedCurlToConfig(
+    current: Map<String, String>,
+    parsed: dev.zophop.domain.engine.ParsedCurlCommand,
+): Map<String, String> =
+    current +
+        mapOf(
+            "url" to parsed.url,
+            "method" to parsed.method,
+            "queryParams" to parsed.queryParams,
+            "headers" to parsed.headers,
+            "bodyType" to parsed.bodyType,
+            "bodyTemplate" to parsed.bodyTemplate,
+        )
 
 @Composable
 private fun RenderDynamicConfigField(

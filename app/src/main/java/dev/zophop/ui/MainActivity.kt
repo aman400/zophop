@@ -11,12 +11,19 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalView
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.core.view.WindowCompat
 import androidx.fragment.app.FragmentActivity
+import dev.zophop.core.ui.AppThemeMode
+import dev.zophop.core.ui.AppThemePalette
+import dev.zophop.core.ui.resolveDarkTheme
 
 class MainActivity : FragmentActivity() {
     private val viewModel: MainViewModel by viewModels()
@@ -55,7 +62,24 @@ class MainActivity : FragmentActivity() {
         handleIntent(intent)
 
         setContent {
-            ZopHopTheme {
+            val uiState by viewModel.uiState.collectAsState()
+            val themeMode = AppThemeMode.fromId(uiState.themeMode)
+            val themePalette = AppThemePalette.fromId(uiState.themePalette)
+            val isDark = resolveDarkTheme(themeMode)
+            val view = LocalView.current
+            if (!view.isInEditMode) {
+                SideEffect {
+                    WindowCompat.getInsetsController(window, view).apply {
+                        isAppearanceLightStatusBars = !isDark
+                        isAppearanceLightNavigationBars = !isDark
+                    }
+                }
+            }
+
+            ZopHopTheme(
+                themeMode = themeMode,
+                themePalette = themePalette,
+            ) {
                 Surface {
                     MainAppScreen(
                         viewModel = viewModel,

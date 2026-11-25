@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -26,7 +28,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -35,23 +36,29 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,6 +75,7 @@ import dev.zophop.domain.engine.WorkflowExecutionResult
 import dev.zophop.domain.model.NodeType
 import dev.zophop.domain.model.Workflow
 import dev.zophop.domain.model.WorkflowNode
+import dev.zophop.domain.model.generateShortWorkflowId
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 
@@ -84,10 +92,14 @@ fun WorkflowsListScreen(
     onDeleteWorkflow: ((String) -> Unit)? = null,
     onEditWorkflow: (Workflow) -> Unit,
     onViewLogs: ((Workflow) -> Unit)? = null,
+    onViewQueue: ((Workflow) -> Unit)? = null,
     onGetLogsForWorkflowFlow: ((String) -> Flow<List<WorkflowExecutionLogEntity>>)? = null,
     onClearLogsForWorkflow: ((String) -> Unit)? = null,
-    onViewPendingQueue: (() -> Unit)? = null,
+    onDeleteExecutionLog: ((String) -> Unit)? = null,
     onProcessQueueNow: (() -> Unit)? = null,
+    onRetryQueuedWorkflow: ((WorkflowExecutionLogEntity) -> Unit)? = null,
+    onCancelQueuedWorkflowLog: ((String) -> Unit)? = null,
+    onCancelQueuedMessage: ((String) -> Unit)? = null,
     onRetryWorkflowFromFailedNode: (
         (
             Workflow,
@@ -99,9 +111,9 @@ fun WorkflowsListScreen(
     )? = null,
 ) {
     var selectedWorkflowForLogs by remember { mutableStateOf<Workflow?>(null) }
+    var selectedWorkflowLogsInitialTab by remember { mutableIntStateOf(0) }
     var showCreateTriggerSheet by remember { mutableStateOf(false) }
     var pendingDeleteWorkflow by remember { mutableStateOf<Workflow?>(null) }
-    val totalQueued = queuedMessages.size + queuedWorkflowIds.size
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -112,16 +124,6 @@ fun WorkflowsListScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             item { Spacer(modifier = Modifier.height(12.dp)) }
-
-            if (totalQueued > 0) {
-                item {
-                    PendingQueueCard(
-                        queuedCount = totalQueued,
-                        onViewQueue = onViewPendingQueue,
-                        onProcessNow = onProcessQueueNow,
-                    )
-                }
-            }
 
             if (workflows.isEmpty()) {
                 item {
@@ -164,6 +166,17 @@ fun WorkflowsListScreen(
                             if (onViewLogs != null) {
                                 onViewLogs(workflow)
                             } else {
+                                selectedWorkflowLogsInitialTab = 0
+                                selectedWorkflowForLogs = workflow
+                            }
+                        },
+                        onViewQueue = {
+                            if (onViewQueue != null) {
+                                onViewQueue(workflow)
+                            } else if (onViewLogs != null) {
+                                onViewLogs(workflow)
+                            } else {
+                                selectedWorkflowLogsInitialTab = 1
                                 selectedWorkflowForLogs = workflow
                             }
                         },
@@ -204,7 +217,7 @@ fun WorkflowsListScreen(
 
                 val newWf =
                     Workflow(
-                        id = UUID.randomUUID().toString(),
+                        id = generateShortWorkflowId(),
                         name = "${triggerManifest.displayName} Automation",
                         description = "Automated pipeline for ${triggerManifest.displayName}",
                         isEnabled = true,
@@ -221,7 +234,14 @@ fun WorkflowsListScreen(
             workflow = wf,
             logsFlow = onGetLogsForWorkflowFlow?.invoke(wf.id),
             onClearLogs = { onClearLogsForWorkflow?.invoke(wf.id) },
+            onDeleteExecutionLog = onDeleteExecutionLog,
             onRetryWorkflowFromFailedNode = onRetryWorkflowFromFailedNode,
+            queuedMessages = queuedMessages,
+            onRetryQueuedWorkflow = onRetryQueuedWorkflow,
+            onCancelQueuedWorkflowLog = onCancelQueuedWorkflowLog,
+            onCancelQueuedMessage = onCancelQueuedMessage,
+            onProcessQueueNow = onProcessQueueNow,
+            initialTab = selectedWorkflowLogsInitialTab,
             onDismiss = { selectedWorkflowForLogs = null },
         )
     }
@@ -262,6 +282,7 @@ fun WorkflowCardItem(
     onRunManual: () -> Unit,
     onEdit: () -> Unit,
     onViewLogs: () -> Unit,
+    onViewQueue: (() -> Unit)? = null,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -270,20 +291,23 @@ fun WorkflowCardItem(
     val triggerTitle = triggerNode?.let { WorkflowUiHelper.getNodeTitle(it.type) } ?: "Trigger"
     val triggerIcon = triggerNode?.let { WorkflowUiHelper.getNodeIcon(it.type) } ?: Icons.Default.PlayArrow
 
-    val dismissState =
-        rememberSwipeToDismissBoxState(
-            confirmValueChange = { dismissValue ->
-                if (dismissValue == SwipeToDismissBoxValue.EndToStart) {
-                    onDelete()
-                    false
-                } else if (dismissValue == SwipeToDismissBoxValue.StartToEnd) {
-                    onEdit()
-                    false
-                } else {
-                    false
-                }
-            },
-        )
+    val dismissState = rememberSwipeToDismissBoxState()
+    val currentOnEdit by rememberUpdatedState(onEdit)
+    val currentOnDelete by rememberUpdatedState(onDelete)
+
+    LaunchedEffect(dismissState.settledValue) {
+        when (dismissState.settledValue) {
+            SwipeToDismissBoxValue.EndToStart -> {
+                currentOnDelete()
+                dismissState.reset()
+            }
+            SwipeToDismissBoxValue.StartToEnd -> {
+                currentOnEdit()
+                dismissState.reset()
+            }
+            SwipeToDismissBoxValue.Settled -> Unit
+        }
+    }
 
     SwipeToDismissBox(
         state = dismissState,
@@ -344,7 +368,7 @@ fun WorkflowCardItem(
                 // Header Row: Trigger Icon, Name, Switch
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Row(
@@ -410,6 +434,7 @@ fun WorkflowCardItem(
                         Surface(
                             color = MaterialTheme.colorScheme.secondaryContainer,
                             shape = RoundedCornerShape(4.dp),
+                            modifier = Modifier.clickable { onViewQueue?.invoke() ?: onViewLogs() },
                         ) {
                             Text(
                                 text = "⏳ Queued",
@@ -614,64 +639,22 @@ fun TriggerSelectionCard(
     }
 }
 
-@Composable
-fun PendingQueueCard(
-    queuedCount: Int,
-    onViewQueue: (() -> Unit)?,
-    onProcessNow: (() -> Unit)?,
-    modifier: Modifier = Modifier,
-) {
-    OutlinedCard(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        colors =
-            CardDefaults.outlinedCardColors(
-                containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f),
-            ),
-    ) {
-        Row(
-            modifier = Modifier.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.weight(1f),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.HourglassTop,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.secondary,
-                    modifier = Modifier.size(22.dp),
-                )
-                Column {
-                    Text(
-                        text = "Pending Queue: $queuedCount waiting",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        text = "Executions waiting for preconditions to be satisfied",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            Row {
-                if (onProcessNow != null) {
-                    TextButton(onClick = onProcessNow) {
-                        Text("Retry", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                    }
-                }
-                if (onViewQueue != null) {
-                    TextButton(onClick = onViewQueue) {
-                        Text("View", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                    }
-                }
-            }
-        }
-    }
+private sealed interface LogsSheetConfirmation {
+    data object ClearAllHistory : LogsSheetConfirmation
+
+    data class DeleteSingleHistoryLog(
+        val logId: String,
+    ) : LogsSheetConfirmation
+
+    data class CancelQueuedWorkflow(
+        val logId: String,
+        val isRunning: Boolean = false,
+    ) : LogsSheetConfirmation
+
+    data class CancelQueuedMessage(
+        val messageId: String,
+        val sender: String,
+    ) : LogsSheetConfirmation
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -680,6 +663,7 @@ fun WorkflowLogsBottomSheet(
     workflow: Workflow,
     logsFlow: Flow<List<WorkflowExecutionLogEntity>>?,
     onClearLogs: () -> Unit,
+    onDeleteExecutionLog: ((String) -> Unit)? = null,
     onRetryWorkflowFromFailedNode: (
         (
             Workflow,
@@ -689,13 +673,25 @@ fun WorkflowLogsBottomSheet(
             (WorkflowExecutionResult) -> Unit,
         ) -> Unit
     )? = null,
+    queuedMessages: List<MessageEntity> = emptyList(),
+    onRetryQueuedWorkflow: ((WorkflowExecutionLogEntity) -> Unit)? = null,
+    onCancelQueuedWorkflowLog: ((String) -> Unit)? = null,
+    onCancelQueuedMessage: ((String) -> Unit)? = null,
+    onProcessQueueNow: (() -> Unit)? = null,
+    initialTab: Int = 0,
     onDismiss: () -> Unit,
 ) {
     val logs by (logsFlow ?: kotlinx.coroutines.flow.flowOf(emptyList())).collectAsState(initial = emptyList())
+    val historyLogs = remember(logs) { logs.filter { it.status != "QUEUED" } }
+    val queuedWorkflowLogs = remember(logs) { logs.filter { it.status == "QUEUED" } }
+    val queueCount = queuedWorkflowLogs.size + queuedMessages.size
+    var selectedTab by remember(workflow.id, initialTab) { mutableIntStateOf(initialTab.coerceIn(0, 1)) }
+    var historyFilter by remember(workflow.id) { mutableStateOf("ALL") }
     var retryingNodeId by remember { mutableStateOf<String?>(null) }
     var retrySteps by remember { mutableStateOf<List<NodeExecutionStep>>(emptyList()) }
     var retryResult by remember { mutableStateOf<WorkflowExecutionResult?>(null) }
     var showRetryStepperSheet by remember { mutableStateOf(false) }
+    var pendingConfirmation by remember { mutableStateOf<LogsSheetConfirmation?>(null) }
 
     NoSwipeBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -711,25 +707,29 @@ fun WorkflowLogsBottomSheet(
                     Modifier
                         .fillMaxWidth()
                         .padding(top = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Execution History",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         text = workflow.name,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (logs.isNotEmpty()) {
-                        TextButton(onClick = onClearLogs) {
+                    if (selectedTab == 0 && historyLogs.isNotEmpty()) {
+                        TextButton(onClick = { pendingConfirmation = LogsSheetConfirmation.ClearAllHistory }) {
                             Text("Clear", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
                         }
                     }
@@ -739,51 +739,87 @@ fun WorkflowLogsBottomSheet(
                 }
             }
 
-            if (logs.isEmpty()) {
-                Box(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(32.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text("No execution logs recorded yet for this workflow.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+            PrimaryTabRow(selectedTabIndex = selectedTab) {
+                Tab(
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                    text = { Text("History (${logs.size})") },
+                )
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                    text = { Text("Queue ($queueCount)") },
+                )
+            }
+
+            if (selectedTab == 0) {
+                WorkflowHistoryTabContent(
+                    workflow = workflow,
+                    logs = logs,
+                    historyFilter = historyFilter,
+                    onFilterChange = { historyFilter = it },
+                    onRetryWorkflowFromFailedNode = onRetryWorkflowFromFailedNode,
+                    onRetryStarted = { failedNodeId ->
+                        retryingNodeId = failedNodeId
+                        showRetryStepperSheet = true
+                        retrySteps = emptyList()
+                        retryResult = null
+                    },
+                    onRetryStepsUpdate = { steps -> retrySteps = steps },
+                    onRetryResultUpdate = { res -> retryResult = res },
+                    onCancelExecutionRequest =
+                        onCancelQueuedWorkflowLog?.let {
+                            { log ->
+                                pendingConfirmation =
+                                    LogsSheetConfirmation.CancelQueuedWorkflow(
+                                        logId = log.id,
+                                        isRunning = log.status == "RUNNING",
+                                    )
+                            }
+                        },
+                    onDeleteExecutionRequest =
+                        onDeleteExecutionLog?.let {
+                            { logId -> pendingConfirmation = LogsSheetConfirmation.DeleteSingleHistoryLog(logId) }
+                        },
+                )
             } else {
-                Column(
-                    modifier =
-                        Modifier
-                            .weight(1f, fill = false)
-                            .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    logs.forEachIndexed { index, log ->
-                        WorkflowExecutionCard(
-                            log = log,
-                            isInitiallyExpanded = index == 0,
-                            onRetryWorkflowFromFailedNode =
-                                if (onRetryWorkflowFromFailedNode != null) {
-                                    { failedNodeId ->
-                                        retryingNodeId = failedNodeId
-                                        showRetryStepperSheet = true
-                                        retrySteps = emptyList()
-                                        retryResult = null
-                                        onRetryWorkflowFromFailedNode(
-                                            workflow,
-                                            failedNodeId,
-                                            log.id,
-                                            { steps -> retrySteps = steps },
-                                            { res -> retryResult = res },
-                                        )
-                                    }
-                                } else {
-                                    null
-                                },
-                        )
-                    }
-                }
+                WorkflowQueueTabContent(
+                    workflowName = workflow.name,
+                    queueCount = queueCount,
+                    queuedWorkflowLogs = queuedWorkflowLogs,
+                    queuedMessages = queuedMessages,
+                    onRetryQueuedWorkflow = onRetryQueuedWorkflow,
+                    onCancelQueuedWorkflowRequest =
+                        onCancelQueuedWorkflowLog?.let {
+                            { logId -> pendingConfirmation = LogsSheetConfirmation.CancelQueuedWorkflow(logId) }
+                        },
+                    onCancelQueuedMessageRequest =
+                        onCancelQueuedMessage?.let {
+                            { msg ->
+                                pendingConfirmation =
+                                    LogsSheetConfirmation.CancelQueuedMessage(
+                                        messageId = msg.id,
+                                        sender = msg.sender,
+                                    )
+                            }
+                        },
+                    onProcessQueueNow = onProcessQueueNow,
+                )
             }
         }
+    }
+
+    pendingConfirmation?.let { confirmation ->
+        WorkflowLogsConfirmationDialog(
+            confirmation = confirmation,
+            workflowName = workflow.name,
+            historyLogCount = historyLogs.size,
+            onClearLogs = onClearLogs,
+            onDeleteExecutionLog = onDeleteExecutionLog,
+            onCancelQueuedWorkflowLog = onCancelQueuedWorkflowLog,
+            onCancelQueuedMessage = onCancelQueuedMessage,
+            onDismiss = { pendingConfirmation = null },
+        )
     }
 
     if (showRetryStepperSheet) {
@@ -793,5 +829,453 @@ fun WorkflowLogsBottomSheet(
             isTesting = retryResult == null,
             onDismiss = { showRetryStepperSheet = false },
         )
+    }
+}
+
+@Composable
+private fun ColumnScope.WorkflowHistoryTabContent(
+    workflow: Workflow,
+    logs: List<WorkflowExecutionLogEntity>,
+    historyFilter: String,
+    onFilterChange: (String) -> Unit,
+    onRetryWorkflowFromFailedNode: (
+        (
+            Workflow,
+            String?,
+            String?,
+            (List<NodeExecutionStep>) -> Unit,
+            (WorkflowExecutionResult) -> Unit,
+        ) -> Unit
+    )?,
+    onRetryStarted: (String?) -> Unit,
+    onRetryStepsUpdate: (List<NodeExecutionStep>) -> Unit,
+    onRetryResultUpdate: (WorkflowExecutionResult) -> Unit,
+    onCancelExecutionRequest: ((WorkflowExecutionLogEntity) -> Unit)?,
+    onDeleteExecutionRequest: ((String) -> Unit)?,
+) {
+    if (logs.isEmpty()) {
+        Box(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(32.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                "No execution logs recorded yet for this workflow.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        return
+    }
+
+    val passedCount = remember(logs) { logs.count { it.status == "SUCCESS" } }
+    val issueCount =
+        remember(logs) {
+            logs.count { it.status != "SUCCESS" && it.status != "QUEUED" && it.status != "RUNNING" }
+        }
+    val displayedLogs =
+        remember(logs, historyFilter) {
+            when (historyFilter) {
+                "PASSED" -> logs.filter { it.status == "SUCCESS" }
+                "ISSUES" -> logs.filter { it.status != "SUCCESS" && it.status != "QUEUED" && it.status != "RUNNING" }
+                else -> logs
+            }
+        }
+
+    if (logs.size > 1 && (passedCount > 0 || issueCount > 0)) {
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            FilterChip(
+                selected = historyFilter == "ALL",
+                onClick = { onFilterChange("ALL") },
+                label = { Text("All (${logs.size})", fontSize = 11.sp) },
+            )
+            if (passedCount > 0) {
+                FilterChip(
+                    selected = historyFilter == "PASSED",
+                    onClick = { onFilterChange("PASSED") },
+                    label = { Text("Passed ($passedCount)", fontSize = 11.sp) },
+                )
+            }
+            if (issueCount > 0) {
+                FilterChip(
+                    selected = historyFilter == "ISSUES",
+                    onClick = { onFilterChange("ISSUES") },
+                    label = { Text("Issues ($issueCount)", fontSize = 11.sp) },
+                )
+            }
+        }
+    }
+
+    Column(
+        modifier =
+            Modifier
+                .weight(1f, fill = false)
+                .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        displayedLogs.forEachIndexed { index, log ->
+            WorkflowExecutionCard(
+                log = log,
+                isInitiallyExpanded = index == 0,
+                workflowName = workflow.name,
+                onRetryWorkflowFromFailedNode =
+                    onRetryWorkflowFromFailedNode?.let { retryFn ->
+                        { failedNodeId ->
+                            onRetryStarted(failedNodeId)
+                            retryFn(
+                                workflow,
+                                failedNodeId,
+                                log.id,
+                                onRetryStepsUpdate,
+                                onRetryResultUpdate,
+                            )
+                        }
+                    },
+                onCancelQueuedExecution =
+                    if ((log.status == "QUEUED" || log.status == "RUNNING") && onCancelExecutionRequest != null) {
+                        { onCancelExecutionRequest(log) }
+                    } else {
+                        null
+                    },
+                onDeleteExecution =
+                    if (log.status != "QUEUED" && onDeleteExecutionRequest != null) {
+                        { onDeleteExecutionRequest(log.id) }
+                    } else {
+                        null
+                    },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ColumnScope.WorkflowQueueTabContent(
+    workflowName: String,
+    queueCount: Int,
+    queuedWorkflowLogs: List<WorkflowExecutionLogEntity>,
+    queuedMessages: List<MessageEntity>,
+    onRetryQueuedWorkflow: ((WorkflowExecutionLogEntity) -> Unit)?,
+    onCancelQueuedWorkflowRequest: ((String) -> Unit)?,
+    onCancelQueuedMessageRequest: ((MessageEntity) -> Unit)?,
+    onProcessQueueNow: (() -> Unit)?,
+) {
+    if (queueCount == 0) {
+        Box(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(32.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                "No queued executions waiting.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        return
+    }
+
+    Column(
+        modifier =
+            Modifier
+                .weight(1f, fill = false)
+                .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        queuedWorkflowLogs.forEach { log ->
+            QueuedWorkflowLogCard(
+                workflowName = workflowName,
+                log = log,
+                onRetry = onRetryQueuedWorkflow?.let { fn -> { fn(log) } },
+                onCancel = onCancelQueuedWorkflowRequest?.let { fn -> { fn(log.id) } },
+            )
+        }
+        queuedMessages.forEach { msg ->
+            QueuedMessageCard(
+                message = msg,
+                onCancel = onCancelQueuedMessageRequest?.let { fn -> { fn(msg) } },
+            )
+        }
+    }
+
+    if (onProcessQueueNow != null) {
+        Button(
+            onClick = onProcessQueueNow,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(
+                imageVector = Icons.Default.PlayArrow,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Process Queue Now")
+        }
+    }
+}
+
+@Composable
+private fun WorkflowLogsConfirmationDialog(
+    confirmation: LogsSheetConfirmation,
+    workflowName: String,
+    historyLogCount: Int,
+    onClearLogs: () -> Unit,
+    onDeleteExecutionLog: ((String) -> Unit)?,
+    onCancelQueuedWorkflowLog: ((String) -> Unit)?,
+    onCancelQueuedMessage: ((String) -> Unit)?,
+    onDismiss: () -> Unit,
+) {
+    val dialogSpec =
+        when (confirmation) {
+            is LogsSheetConfirmation.ClearAllHistory ->
+                ConfirmationDialogSpec(
+                    title = "Clear Execution History?",
+                    message =
+                        "Remove $historyLogCount execution log(s) for '$workflowName'? " +
+                            "Pending queued executions will remain in the queue.",
+                    confirmLabel = "Clear History",
+                    dismissLabel = "Cancel",
+                    onConfirm = onClearLogs,
+                )
+            is LogsSheetConfirmation.DeleteSingleHistoryLog ->
+                ConfirmationDialogSpec(
+                    title = "Delete Execution Log?",
+                    message = "Are you sure you want to remove this execution log from history?",
+                    confirmLabel = "Delete",
+                    dismissLabel = "Cancel",
+                    onConfirm = { onDeleteExecutionLog?.invoke(confirmation.logId) },
+                )
+            is LogsSheetConfirmation.CancelQueuedWorkflow ->
+                ConfirmationDialogSpec(
+                    title = if (confirmation.isRunning) "Cancel Running Execution?" else "Cancel Queued Execution?",
+                    message =
+                        if (confirmation.isRunning) {
+                            "Are you sure you want to stop this running execution of '$workflowName'?"
+                        } else {
+                            "Are you sure you want to cancel this pending execution of '$workflowName' " +
+                                "and remove it from the queue?"
+                        },
+                    confirmLabel = "Cancel Execution",
+                    dismissLabel = "Keep",
+                    onConfirm = { onCancelQueuedWorkflowLog?.invoke(confirmation.logId) },
+                )
+            is LogsSheetConfirmation.CancelQueuedMessage ->
+                ConfirmationDialogSpec(
+                    title = "Remove Queued Message?",
+                    message = "Are you sure you want to cancel and remove the queued message from '${confirmation.sender}'?",
+                    confirmLabel = "Remove",
+                    dismissLabel = "Keep",
+                    onConfirm = { onCancelQueuedMessage?.invoke(confirmation.messageId) },
+                )
+        }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(dialogSpec.title) },
+        text = { Text(dialogSpec.message) },
+        confirmButton = {
+            Button(
+                onClick = {
+                    dialogSpec.onConfirm()
+                    onDismiss()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+            ) {
+                Text(dialogSpec.confirmLabel)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(dialogSpec.dismissLabel)
+            }
+        },
+    )
+}
+
+private data class ConfirmationDialogSpec(
+    val title: String,
+    val message: String,
+    val confirmLabel: String,
+    val dismissLabel: String,
+    val onConfirm: () -> Unit,
+)
+
+@Composable
+private fun QueuedWorkflowLogCard(
+    workflowName: String,
+    log: WorkflowExecutionLogEntity,
+    onRetry: (() -> Unit)?,
+    onCancel: (() -> Unit)?,
+) {
+    OutlinedCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = RoundedCornerShape(4.dp),
+                ) {
+                    Text(
+                        text = "QUEUED",
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
+                }
+                Text(
+                    text = workflowName,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+
+            val reasonText =
+                log.errorReason?.takeIf { it.isNotBlank() }
+                    ?: "Waiting for preconditions to resolve..."
+            Text(
+                text = reasonText,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            val elapsedMinutes = ((System.currentTimeMillis() - log.timestamp) / 60000L).coerceAtLeast(0)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Queued ${elapsedMinutes}m ago",
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.weight(1f),
+                )
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (onRetry != null) {
+                        TextButton(onClick = onRetry) {
+                            Text("Retry", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                        }
+                    }
+                    if (onCancel != null) {
+                        TextButton(onClick = onCancel) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Cancel",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun QueuedMessageCard(
+    message: MessageEntity,
+    onCancel: (() -> Unit)?,
+) {
+    OutlinedCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        shape = RoundedCornerShape(4.dp),
+                    ) {
+                        Text(
+                            text = "QUEUED",
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                    }
+                    Text(
+                        text = message.sender,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+
+                if (onCancel != null) {
+                    IconButton(
+                        onClick = onCancel,
+                        modifier = Modifier.size(24.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Cancel",
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+            }
+
+            val reasonText =
+                message.errorMessage?.takeIf { it.isNotBlank() }
+                    ?: "Waiting for preconditions to resolve..."
+            Text(
+                text = reasonText,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            val elapsedMinutes = ((System.currentTimeMillis() - message.receivedAt) / 60000L).coerceAtLeast(0)
+            Text(
+                text = "Queued ${elapsedMinutes}m ago • Attempt ${message.retryCount}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
+        }
     }
 }

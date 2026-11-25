@@ -9,7 +9,9 @@ import dev.zophop.domain.model.Precondition
 import dev.zophop.domain.model.PreconditionType
 import dev.zophop.domain.model.Workflow
 import dev.zophop.domain.model.WorkflowConnection
+import dev.zophop.domain.model.WorkflowGraph
 import dev.zophop.domain.model.WorkflowNode
+import dev.zophop.domain.model.generateShortWorkflowId
 import dev.zophop.domain.model.optBoolean
 import dev.zophop.domain.model.optInt
 import dev.zophop.domain.model.optJsonArray
@@ -19,6 +21,7 @@ import dev.zophop.domain.model.optString
 import dev.zophop.domain.model.parseJsonArraySafe
 import dev.zophop.domain.model.parseJsonObjectSafe
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.security.GeneralSecurityException
@@ -53,12 +56,7 @@ object BackupSerializer {
                 wf.copy(
                     nodes =
                         wf.nodes.map { node ->
-                            val rawConfig =
-                                if (DatabaseEncryption.isEncrypted(node.configJson)) {
-                                    DatabaseEncryption.decryptNodeConfig(node.configJson)
-                                } else {
-                                    node.configJson
-                                }
+                            val rawConfig = DatabaseEncryption.decryptNodeConfig(node.configJson)
                             val config =
                                 if (!password.isNullOrBlank()) {
                                     encryptSensitiveJsonKeys(rawConfig, password)
@@ -231,7 +229,11 @@ object BackupSerializer {
         val hasEncryptedItems = isEncryptedFlag ||
             verificationToken != null ||
             credentials.any { it.dataMap.values.any { v -> PasswordBasedEncryption.isEncryptedWithPassword(v) } } ||
-            workflows.any { it.nodes.any { n -> n.configJson.contains(PasswordBasedEncryption.PREFIX) } }
+            workflows.any { it.nodes.any { n -> n.configJson.contains(PasswordBasedEncryption.PREFIX) } } ||
+            preconditions.any {
+                it.headers.contains(PasswordBasedEncryption.PREFIX) ||
+                    it.pipelineJson.contains(PasswordBasedEncryption.PREFIX)
+            }
 
         return ParsedBackupData(
             workflows = workflows,
@@ -261,7 +263,11 @@ object BackupSerializer {
         }
 
         val hasEncrypted = credentials.any { it.dataMap.values.any { v -> PasswordBasedEncryption.isEncryptedWithPassword(v) } } ||
-            workflows.any { it.nodes.any { n -> n.configJson.contains(PasswordBasedEncryption.PREFIX) } }
+            workflows.any { it.nodes.any { n -> n.configJson.contains(PasswordBasedEncryption.PREFIX) } } ||
+            preconditions.any {
+                it.headers.contains(PasswordBasedEncryption.PREFIX) ||
+                    it.pipelineJson.contains(PasswordBasedEncryption.PREFIX)
+            }
 
         return ParsedBackupData(
             workflows = workflows,
@@ -384,7 +390,7 @@ object BackupSerializer {
         }
 
         val remappedWorkflows = parsed.workflows.map { wf ->
-            val newWfId = UUID.randomUUID().toString()
+            val newWfId = generateShortWorkflowId()
             val newWfName = if (wf.name in existingWfNames) "${wf.name} (Imported)" else wf.name
 
             val nodeIdMap = mutableMapOf<String, String>()
@@ -392,12 +398,7 @@ object BackupSerializer {
                 val newNodeId = UUID.randomUUID().toString()
                 nodeIdMap[node.id] = newNodeId
 
-                var updatedConfig = node.configJson
-                for ((oldCId, newCId) in credIdMap) {
-                    if (updatedConfig.contains(oldCId)) {
-                        updatedConfig = updatedConfig.replace(oldCId, newCId)
-                    }
-                }
+                val updatedConfig = remapCredentialIdsInConfigJson(node.configJson, credIdMap)
 
                 val remappedNodePrecs = node.preconditions.map { p ->
                     val newPId = precIdMap[p.id] ?: p.id
@@ -444,7 +445,7 @@ object BackupSerializer {
     // --- Deserialization Helpers ---
 
     private fun parseWorkflow(obj: JsonObject): Workflow {
-        val id = obj.optString("id", UUID.randomUUID().toString())
+        val id = obj.optString("id").ifBlank { generateShortWorkflowId() }
         val name = obj.optString("name", "Imported Workflow")
         val description = obj.optString("description", "")
         val isEnabled = obj.optBoolean("isEnabled", true)
@@ -524,11 +525,7 @@ object BackupSerializer {
         val typeStr = nodeObj.optString("type", "")
         val isEnabled = nodeObj.optBoolean("isEnabled", true)
         val rawConfig = nodeObj.optString("configJson", "{}")
-        val configJson = if (DatabaseEncryption.isEncrypted(rawConfig)) {
-            DatabaseEncryption.decryptNodeConfig(rawConfig)
-        } else {
-            rawConfig
-        }
+        val configJson = DatabaseEncryption.decryptNodeConfig(rawConfig)
 
         val preconditions = mutableListOf<Precondition>()
         val preArr = nodeObj.optJsonArray("preconditions") ?: JsonArray(emptyList())
@@ -599,12 +596,85 @@ object BackupSerializer {
                 maxRetries = pMaxRetries, retryIntervalSeconds = pRetryInterval, retryStrategy = pRetryStrategy,
                 queueTimeoutMinutes = pQueueTimeout,
             )
-            PreconditionType.CHAINED_CHECK -> Precondition.ChainCheck(
-                id = pId, name = pObj.optString("name", "Chain"), icon = pIcon, isEnabled = isPEnabled,
-                nodes = emptyList(), connections = emptyList(), onFailureAction = pFailureAction,
-                maxRetries = pMaxRetries, retryIntervalSeconds = pRetryInterval, retryStrategy = pRetryStrategy,
-                queueTimeoutMinutes = pQueueTimeout,
-            )
+            PreconditionType.CHAINED_CHECK -> {
+                val (chainNodes, chainConnections) = parseChainedCheckGraph(pObj)
+                Precondition.ChainCheck(
+                    id = pId, name = pObj.optString("name", "Chain"), icon = pIcon, isEnabled = isPEnabled,
+                    nodes = chainNodes, connections = chainConnections, onFailureAction = pFailureAction,
+                    maxRetries = pMaxRetries, retryIntervalSeconds = pRetryInterval, retryStrategy = pRetryStrategy,
+                    queueTimeoutMinutes = pQueueTimeout,
+                )
+            }
+        }
+    }
+
+    private fun parseChainedCheckGraph(pObj: JsonObject): Pair<List<WorkflowNode>, List<WorkflowConnection>> {
+        val directNodesArr = pObj.optJsonArray("nodes")
+        val directConnArr = pObj.optJsonArray("connections")
+        val pJsonStr = pObj.optString("pipelineJson", "")
+
+        return when {
+            directNodesArr != null || directConnArr != null -> {
+                val nodes =
+                    directNodesArr
+                        ?.mapNotNull { elem -> (elem as? JsonObject)?.let(::parseWorkflowNode) }
+                        ?: emptyList()
+                val connections =
+                    directConnArr
+                        ?.mapNotNull { elem ->
+                            val cObj = elem as? JsonObject ?: return@mapNotNull null
+                            WorkflowConnection(
+                                fromNodeId = cObj.optString("fromNodeId"),
+                                toNodeId = cObj.optString("toNodeId"),
+                                outputPort = cObj.optString("outputPort", "main"),
+                                inputPort = cObj.optString("inputPort", "main"),
+                            )
+                        }
+                        ?: emptyList()
+                nodes to connections
+            }
+            pJsonStr.isNotBlank() -> {
+                try {
+                    val graph = AppJson.decodeFromString<WorkflowGraph>(pJsonStr)
+                    graph.nodes.map { n ->
+                        n.copy(configJson = DatabaseEncryption.decryptNodeConfig(n.configJson))
+                    } to graph.connections
+                } catch (_: Exception) {
+                    parseChainedCheckGraph(parseJsonObjectSafe(pJsonStr))
+                }
+            }
+            else -> emptyList<WorkflowNode>() to emptyList()
+        }
+    }
+
+    private fun remapCredentialIdsInConfigJson(
+        configJson: String,
+        credIdMap: Map<String, String>,
+    ): String {
+        if (configJson.isBlank() || credIdMap.isEmpty()) return configJson
+        return try {
+            val json = parseJsonObjectSafe(configJson)
+            if (json.isEmpty()) return configJson
+            var modified = false
+
+            fun remapElement(element: JsonElement): JsonElement =
+                when (element) {
+                    is JsonPrimitive -> {
+                        val replacement = if (element.isString) credIdMap[element.content] else null
+                        if (replacement != null) {
+                            modified = true
+                            JsonPrimitive(replacement)
+                        } else {
+                            element
+                        }
+                    }
+                    is JsonObject -> JsonObject(element.mapValues { (_, v) -> remapElement(v) })
+                    is JsonArray -> JsonArray(element.map { remapElement(it) })
+                }
+            val remapped = remapElement(json) as JsonObject
+            if (modified) AppJson.encodeToString(remapped) else configJson
+        } catch (_: Exception) {
+            configJson
         }
     }
 

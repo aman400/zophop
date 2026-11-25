@@ -163,6 +163,9 @@ class CallNodePluginService : Service() {
                     put("isSuccess", endSuccess)
                     put("outputPort", "main")
                     put("logMessage", if (endSuccess) "Disconnected incoming call from '$callerNumber'" else "Failed to end call")
+                    if (!endSuccess) {
+                        put("errorReason", if (telecomManager == null) "TelecomManager unavailable" else "Failed to end call")
+                    }
                     put("outputDataMap", buildJsonObject { put("call_status", if (endSuccess) "DISCONNECTED" else "FAILED") })
                 }.toString()
             }
@@ -184,12 +187,16 @@ class CallNodePluginService : Service() {
                 }
 
             private fun performAnswer(callerNumber: String): String {
-                val telecomManager = getSystemService(TELECOM_SERVICE) as TelecomManager
+                val telecomManager = getSystemService(TELECOM_SERVICE) as? TelecomManager
                 val acceptSuccess =
-                    try {
-                        telecomManager.acceptRingingCall()
-                        true
-                    } catch (_: SecurityException) {
+                    if (telecomManager != null) {
+                        try {
+                            telecomManager.acceptRingingCall()
+                            true
+                        } catch (_: SecurityException) {
+                            false
+                        }
+                    } else {
                         false
                     }
 
@@ -197,6 +204,9 @@ class CallNodePluginService : Service() {
                     put("isSuccess", acceptSuccess)
                     put("outputPort", "main")
                     put("logMessage", if (acceptSuccess) "Answered incoming call from '$callerNumber'" else "Failed to answer call")
+                    if (!acceptSuccess) {
+                        put("errorReason", if (telecomManager == null) "TelecomManager unavailable" else "Failed to answer call")
+                    }
                     put("outputDataMap", buildJsonObject { put("call_status", if (acceptSuccess) "ANSWERED" else "FAILED") })
                 }.toString()
             }

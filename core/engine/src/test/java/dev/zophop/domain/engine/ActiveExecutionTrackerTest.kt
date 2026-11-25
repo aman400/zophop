@@ -1,5 +1,9 @@
 package dev.zophop.domain.engine
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -83,4 +87,28 @@ class ActiveExecutionTrackerTest {
         assertFalse(execution!!.isExecuting)
         assertEquals(result, execution.result)
     }
+
+    @Test
+    fun testConcurrentUpdates_preserveAllWorkflowsAtomically() =
+        runTest {
+            val count = 25
+            coroutineScope {
+                repeat(count) { idx ->
+                    launch(Dispatchers.Default) {
+                        ActiveExecutionTracker.updateExecution(
+                            workflowId = "wf_concurrent_$idx",
+                            workflowName = "Workflow $idx",
+                            steps = emptyList(),
+                            isExecuting = true,
+                        )
+                    }
+                }
+            }
+
+            val executions = ActiveExecutionTracker.executions.value
+            assertEquals(count, executions.size)
+            repeat(count) { idx ->
+                assertNotNull(executions["wf_concurrent_$idx"])
+            }
+        }
 }

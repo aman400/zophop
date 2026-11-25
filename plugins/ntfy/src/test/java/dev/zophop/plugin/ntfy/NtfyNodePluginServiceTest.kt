@@ -68,4 +68,29 @@ class NtfyNodePluginServiceTest {
             reason.contains("Unexpected char", ignoreCase = true),
         )
     }
+
+    @Test
+    fun testNtfyActionWithCrlfInHeadersAndTokenDoesNotCrashWithUnexpectedChar() {
+        val serviceController = Robolectric.buildService(NtfyNodePluginService::class.java).create()
+        val service = serviceController.get()
+        val binder = service.onBind(null) as dev.zophop.plugin.api.INodePluginService
+
+        val configJson = """{
+            "typeId":"dev.zophop.plugin.ntfy.NTFY_ACTION",
+            "serverUrl":"http://127.0.0.1:1",
+            "topic":"test-topic",
+            "title":"Alert\r\nInjected: bad",
+            "priority":"3\r\n",
+            "tags":"tag1\n",
+            "token":"tok_abc\r\n"
+        }"""
+        val resultJson = binder.executeNode("node_1", configJson, "{}")
+        val json = parseJsonObjectSafe(resultJson)
+
+        val reason = json.optString("errorReason", "")
+        org.junit.Assert.assertFalse(
+            "Must strip CR/LF before header construction: $reason",
+            reason.contains("Unexpected char", ignoreCase = true),
+        )
+    }
 }

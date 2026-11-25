@@ -52,11 +52,19 @@ class OkHttpNtfyClient(
 
                 val requestBuilder = Request.Builder()
 
+                val safeToken = token.replace("\r", "").replace("\n", "").replace("\u0000", "").trim()
+
                 when (serverType) {
                     ServerType.GOTIFY -> {
+                        val encodedToken =
+                            if (safeToken.isNotBlank()) {
+                                java.net.URLEncoder.encode(safeToken, Charsets.UTF_8.name())
+                            } else {
+                                ""
+                            }
                         val fullUrl =
-                            if (token.isNotBlank()) {
-                                "$baseUrl/message?token=${token.trim()}"
+                            if (encodedToken.isNotBlank()) {
+                                "$baseUrl/message?token=$encodedToken"
                             } else {
                                 "$baseUrl/message"
                             }
@@ -68,8 +76,8 @@ class OkHttpNtfyClient(
                         }
 
                         requestBuilder.url(fullUrl)
-                        if (token.isNotBlank()) {
-                            requestBuilder.header("X-Gotify-Key", token.trim())
+                        if (safeToken.isNotBlank()) {
+                            requestBuilder.header("X-Gotify-Key", safeToken)
                         }
 
                         val jsonPayload = """{"title":"${escapeJson(sender)}","message":"${escapeJson(body)}","priority":5}"""
@@ -93,16 +101,16 @@ class OkHttpNtfyClient(
 
                         requestBuilder.url(fullUrl)
 
-                        if (token.isNotBlank()) {
-                            requestBuilder.header("Authorization", "Bearer ${token.trim()}")
+                        if (safeToken.isNotBlank()) {
+                            requestBuilder.header("Authorization", "Bearer $safeToken")
                         }
 
                         requestBuilder.header("Priority", "high")
                         requestBuilder.header("Tags", "key")
 
-                        val isAsciiSender = sender.all { it.code in 0..127 }
+                        val isPrintableAsciiSender = sender.all { it.code in 32..126 }
                         val finalBodyText =
-                            if (isAsciiSender && sender.isNotBlank()) {
+                            if (isPrintableAsciiSender && sender.isNotBlank()) {
                                 requestBuilder.header("Title", sender)
                                 body
                             } else {

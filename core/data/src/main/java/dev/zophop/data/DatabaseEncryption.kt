@@ -3,8 +3,10 @@ package dev.zophop.data
 import dev.zophop.domain.model.AppJson
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import java.security.GeneralSecurityException
 import java.security.KeyStore
 import java.security.SecureRandom
+import java.security.Security
 import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -22,15 +24,18 @@ object DatabaseEncryption {
 
     private val secureRandom = SecureRandom()
 
-    private val secretKey: SecretKey by lazy {
-        initOrGetSecretKey()
-    }
+    @Volatile
+    private var cachedKeyStoreKey: SecretKey? = null
 
-    private fun initOrGetSecretKey(): SecretKey =
-        try {
-            getOrGenerateKeyStoreKey()
-        } catch (_: Throwable) {
-            generateFallbackKey()
+    @Volatile
+    private var cachedTestKey: SecretKey? = null
+
+    @Synchronized
+    private fun getOrInitSecretKey(): SecretKey =
+        if (Security.getProvider(ANDROID_KEYSTORE) != null) {
+            cachedKeyStoreKey ?: getOrGenerateKeyStoreKey().also { cachedKeyStoreKey = it }
+        } else {
+            cachedTestKey ?: generateJvmTestKey().also { cachedTestKey = it }
         }
 
     private fun getOrGenerateKeyStoreKey(): SecretKey {
@@ -68,7 +73,7 @@ object DatabaseEncryption {
         return keyGenerator.generateKey()
     }
 
-    private fun generateFallbackKey(): SecretKey {
+    private fun generateJvmTestKey(): SecretKey {
         val seed = "zophop_secure_app_database_encryption_master_seed_2026".toByteArray(Charsets.UTF_8)
         val sha256 = java.security.MessageDigest.getInstance("SHA-256")
         val keyBytes = sha256.digest(seed)
@@ -94,23 +99,20 @@ object DatabaseEncryption {
 
     fun encrypt(plainText: String): String {
         if (plainText.isBlank() || isEncrypted(plainText)) return plainText
-        return try {
-            val iv = ByteArray(GCM_IV_LENGTH)
-            secureRandom.nextBytes(iv)
+        val secretKey = getOrInitSecretKey()
+        val iv = ByteArray(GCM_IV_LENGTH)
+        secureRandom.nextBytes(iv)
 
-            val cipher = Cipher.getInstance(ALGORITHM)
-            val spec = GCMParameterSpec(GCM_TAG_LENGTH, iv)
-            cipher.init(Cipher.ENCRYPT_MODE, secretKey, spec)
+        val cipher = Cipher.getInstance(ALGORITHM)
+        val spec = GCMParameterSpec(GCM_TAG_LENGTH, iv)
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey, spec)
 
-            val cipherText = cipher.doFinal(plainText.toByteArray(Charsets.UTF_8))
-            val combined = ByteArray(iv.size + cipherText.size)
-            System.arraycopy(iv, 0, combined, 0, iv.size)
-            System.arraycopy(cipherText, 0, combined, iv.size, cipherText.size)
+        val cipherText = cipher.doFinal(plainText.toByteArray(Charsets.UTF_8))
+        val combined = ByteArray(iv.size + cipherText.size)
+        System.arraycopy(iv, 0, combined, 0, iv.size)
+        System.arraycopy(cipherText, 0, combined, iv.size, cipherText.size)
 
-            PREFIX + Base64.getEncoder().encodeToString(combined)
-        } catch (_: Exception) {
-            plainText
-        }
+        return PREFIX + Base64.getEncoder().encodeToString(combined)
     }
 
     fun decrypt(cipherText: String): String {
@@ -125,11 +127,13 @@ object DatabaseEncryption {
 
             val cipher = Cipher.getInstance(ALGORITHM)
             val spec = GCMParameterSpec(GCM_TAG_LENGTH, iv)
-            cipher.init(Cipher.DECRYPT_MODE, secretKey, spec)
+            cipher.init(Cipher.DECRYPT_MODE, getOrInitSecretKey(), spec)
 
             val decryptedBytes = cipher.doFinal(encryptedBytes)
             String(decryptedBytes, Charsets.UTF_8)
-        } catch (_: Exception) {
+        } catch (_: GeneralSecurityException) {
+            cipherText
+        } catch (_: IllegalArgumentException) {
             cipherText
         }
     }

@@ -6,6 +6,7 @@ import android.location.LocationManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.telephony.TelephonyManager
+import dev.zophop.data.CredentialRepository
 import dev.zophop.domain.engine.plugin.BuiltInPluginRegistry
 import dev.zophop.domain.engine.plugin.CoreEngineNodesModule
 import dev.zophop.domain.model.Precondition
@@ -38,6 +39,7 @@ sealed class PreconditionResult {
         val reason: String,
         val steps: List<NodeExecutionStep> = emptyList(),
         val shouldQueue: Boolean = false,
+        val isQueueTimeout: Boolean = false,
     ) : PreconditionResult()
 }
 
@@ -53,25 +55,34 @@ open class PreconditionEvaluator(
     private val randomGenerator: (min: Int, max: Int) -> Int = { min, max ->
         if (min >= max) min else kotlin.random.Random.nextInt(min, max + 1)
     },
+    private val credentialRepository: CredentialRepository? = null,
+    private val currentTimeMs: () -> Long = { System.currentTimeMillis() },
 ) {
     open suspend fun evaluateAll(
         preconditions: List<Precondition>,
         onStepUpdate: ((List<NodeExecutionStep>) -> Unit)? = null,
-    ): PreconditionResult = evaluateAllInternal(preconditions, emptySet(), onStepUpdate)
+    ): PreconditionResult = evaluateAllInternal(preconditions, emptySet(), onStepUpdate, queueDeadlineMs = null)
+
+    internal suspend fun evaluateAllWithDeadline(
+        preconditions: List<Precondition>,
+        queueDeadlineMs: Long?,
+        onStepUpdate: ((List<NodeExecutionStep>) -> Unit)? = null,
+    ): PreconditionResult = evaluateAllInternal(preconditions, emptySet(), onStepUpdate, queueDeadlineMs = queueDeadlineMs)
 
     internal suspend fun evaluateAllInternal(
         preconditions: List<Precondition>,
         callStack: Set<String>,
         onStepUpdate: ((List<NodeExecutionStep>) -> Unit)? = null,
+        queueDeadlineMs: Long? = null,
     ): PreconditionResult =
         withContext(Dispatchers.IO) {
             val accumulatedSteps = mutableListOf<NodeExecutionStep>()
             for (precondition in preconditions) {
                 val result =
-                    evaluateInternal(precondition, callStack) { precSteps ->
+                    evaluateInternal(precondition, callStack, onStepUpdate = { precSteps ->
                         val liveList = accumulatedSteps + precSteps
                         onStepUpdate?.invoke(liveList)
-                    }
+                    }, queueDeadlineMs = queueDeadlineMs)
                 when (result) {
                     is PreconditionResult.Passed -> {
                         accumulatedSteps.addAll(result.steps)
@@ -84,6 +95,7 @@ open class PreconditionEvaluator(
                             reason = result.reason,
                             steps = accumulatedSteps.toList(),
                             shouldQueue = result.shouldQueue,
+                            isQueueTimeout = result.isQueueTimeout,
                         )
                     }
                 }
@@ -94,12 +106,13 @@ open class PreconditionEvaluator(
     open suspend fun evaluate(
         precondition: Precondition,
         onStepUpdate: ((List<NodeExecutionStep>) -> Unit)? = null,
-    ): PreconditionResult = evaluateInternal(precondition, emptySet(), onStepUpdate)
+    ): PreconditionResult = evaluateInternal(precondition, emptySet(), onStepUpdate, queueDeadlineMs = null)
 
     internal suspend fun evaluateInternal(
         precondition: Precondition,
         callStack: Set<String>,
         onStepUpdate: ((List<NodeExecutionStep>) -> Unit)? = null,
+        queueDeadlineMs: Long? = null,
     ): PreconditionResult =
         withContext(Dispatchers.IO) {
             if (!precondition.isEnabled) {
@@ -136,9 +149,9 @@ open class PreconditionEvaluator(
             val isQueuePolicy = precondition.onFailureAction.trim().contains("QUEUE", ignoreCase = true)
             val isRetryPolicy = precondition.onFailureAction.trim().contains("RETRY", ignoreCase = true)
             if (result is PreconditionResult.Failed && isRetryPolicy && precondition.maxRetries > 0) {
-                result = evaluateRetryPolicy(precondition, callStack, result, onStepUpdate)
+                result = evaluateRetryPolicy(precondition, nextStack, result, onStepUpdate)
             } else if (result is PreconditionResult.Failed && isQueuePolicy) {
-                result = evaluateQueuePolicy(precondition, callStack, result, onStepUpdate)
+                result = evaluateQueuePolicy(precondition, nextStack, result, onStepUpdate, queueDeadlineMs)
             }
 
             result
@@ -215,8 +228,12 @@ open class PreconditionEvaluator(
         callStack: Set<String>,
         initialFailedResult: PreconditionResult.Failed,
         onStepUpdate: ((List<NodeExecutionStep>) -> Unit)?,
+        queueDeadlineMs: Long? = null,
     ): PreconditionResult {
         val timeoutSeconds = precondition.queueTimeoutMinutes.coerceAtLeast(1) * 60
+        val startWallMs = currentTimeMs()
+        val deadlineWallMs = queueDeadlineMs ?: (startWallMs + timeoutSeconds * 1000L)
+        val effectiveTimeoutSeconds = ((deadlineWallMs - startWallMs + 999L) / 1000L).toInt().coerceAtLeast(0)
         val baseIntervalSec = precondition.retryIntervalSeconds.coerceAtLeast(1)
         val historySteps = initialFailedResult.steps.toMutableList()
 
@@ -226,10 +243,11 @@ open class PreconditionEvaluator(
         var passedResult: PreconditionResult.Passed? = null
         var isQueueActive = true
 
-        while (elapsedSeconds < timeoutSeconds && isQueueActive) {
+        while (elapsedSeconds < effectiveTimeoutSeconds && currentTimeMs() < deadlineWallMs && isQueueActive) {
             currentCoroutineContext().ensureActive()
 
-            val remainingTimeoutSec = (timeoutSeconds - elapsedSeconds).coerceAtLeast(1)
+            val remainingWallSec = ((deadlineWallMs - currentTimeMs() + 999L) / 1000L).toInt().coerceAtLeast(1)
+            val remainingTimeoutSec = minOf(effectiveTimeoutSeconds - elapsedSeconds, remainingWallSec).coerceAtLeast(1)
             val nextDelaySec =
                 calculateRetryDelaySeconds(
                     strategy = precondition.retryStrategy,
@@ -246,7 +264,7 @@ open class PreconditionEvaluator(
                     historySteps = historySteps,
                     nextDelaySec = nextDelaySec,
                     elapsedSeconds = elapsedSeconds,
-                    timeoutSeconds = timeoutSeconds,
+                    deadlineWallMs = deadlineWallMs,
                     attempt = attempt,
                     lastFailReason = lastFailReason,
                     onStepUpdate = onStepUpdate,
@@ -254,36 +272,40 @@ open class PreconditionEvaluator(
             if (earlyPass != null) {
                 passedResult = earlyPass
                 isQueueActive = false
+            } else if (currentTimeMs() >= deadlineWallMs) {
+                elapsedSeconds += nextDelaySec
+                attempt++
+                isQueueActive = false
             } else {
                 elapsedSeconds += nextDelaySec
                 attempt++
-
                 currentCoroutineContext().ensureActive()
 
                 val retryResult = evaluateSingleAttempt(precondition, callStack) { attemptSteps ->
                     val currentList = historySteps + attemptSteps
                     onStepUpdate?.invoke(currentList)
                 }
-
-                if (retryResult is PreconditionResult.Passed) {
-                    historySteps.addAll(retryResult.steps)
-                    val resolvedStep =
-                        NodeExecutionStep(
-                            nodeId = "queue_resolved_${precondition.id.ifBlank { precondition.type.name }}",
-                            nodeName = "✅ Precondition Satisfied in Queue",
-                            nodeType = CoreEngineNodesModule.CONDITION,
-                            state = NodeStepState.SUCCESS,
-                            logMessage = "Precondition resolved in queue after ${elapsedSeconds}s (attempt #${attempt - 1}). Resuming workflow execution.",
+                when (retryResult) {
+                    is PreconditionResult.Passed -> {
+                        historySteps.addAll(retryResult.steps)
+                        historySteps.add(
+                            NodeExecutionStep(
+                                nodeId = "queue_resolved_${precondition.id.ifBlank { precondition.type.name }}",
+                                nodeName = "✅ Precondition Satisfied in Queue",
+                                nodeType = CoreEngineNodesModule.CONDITION,
+                                state = NodeStepState.SUCCESS,
+                                logMessage = "Precondition resolved in queue after ${elapsedSeconds}s (attempt #${attempt - 1}). Resuming workflow execution.",
+                            ),
                         )
-                    historySteps.add(resolvedStep)
-                    val passed = PreconditionResult.Passed(steps = historySteps.toList())
-                    onStepUpdate?.invoke(historySteps.toList())
-                    passedResult = passed
-                    isQueueActive = false
-                } else if (retryResult is PreconditionResult.Failed) {
-                    lastFailReason = retryResult.reason
-                    historySteps.addAll(retryResult.steps)
-                    onStepUpdate?.invoke(historySteps.toList())
+                        onStepUpdate?.invoke(historySteps.toList())
+                        passedResult = PreconditionResult.Passed(steps = historySteps.toList())
+                        isQueueActive = false
+                    }
+                    is PreconditionResult.Failed -> {
+                        lastFailReason = retryResult.reason
+                        historySteps.addAll(retryResult.steps)
+                        onStepUpdate?.invoke(historySteps.toList())
+                    }
                 }
             }
         }
@@ -308,6 +330,7 @@ open class PreconditionEvaluator(
                 reason = timeoutMsg,
                 steps = historySteps.toList(),
                 shouldQueue = true,
+                isQueueTimeout = true,
             )
         onStepUpdate?.invoke(historySteps.toList())
         return finalFailed
@@ -319,14 +342,23 @@ open class PreconditionEvaluator(
         historySteps: MutableList<NodeExecutionStep>,
         nextDelaySec: Int,
         elapsedSeconds: Int,
-        timeoutSeconds: Int,
+        deadlineWallMs: Long,
         attempt: Int,
         lastFailReason: String,
         onStepUpdate: ((List<NodeExecutionStep>) -> Unit)?,
     ): PreconditionResult.Passed? {
-        for (sec in nextDelaySec downTo 1) {
+        val totalTimeoutSec = ((deadlineWallMs - currentTimeMs() + 999L) / 1000L).toInt().coerceAtLeast(0) + elapsedSeconds
+        var passedEarly: PreconditionResult.Passed? = null
+        var sec = nextDelaySec
+        while (sec >= 1 && passedEarly == null) {
             currentCoroutineContext().ensureActive()
-            val currentQueueRemaining = (timeoutSeconds - elapsedSeconds - (nextDelaySec - sec)).coerceAtLeast(0)
+            val wallRemainingSec = ((deadlineWallMs - currentTimeMs()) / 1000L).toInt()
+            if (wallRemainingSec <= 0) break
+
+            val currentQueueRemaining = minOf(
+                (totalTimeoutSec - elapsedSeconds - (nextDelaySec - sec)).coerceAtLeast(0),
+                wallRemainingSec.coerceAtLeast(0),
+            )
             val remainingDesc = if (currentQueueRemaining >= 60) {
                 "${currentQueueRemaining / 60}m ${currentQueueRemaining % 60}s"
             } else {
@@ -341,18 +373,18 @@ open class PreconditionEvaluator(
                     state = NodeStepState.EXECUTING,
                     logMessage = "Waiting for $precLabel ($lastFailReason). Next check in ${sec}s ($remainingDesc timeout remaining)...",
                 )
-            val currentProgress = historySteps + queueNoticeStep
-            onStepUpdate?.invoke(currentProgress)
+            onStepUpdate?.invoke(historySteps + queueNoticeStep)
 
             val actualElapsed = elapsedSeconds + (nextDelaySec - sec) + 1
             val quickResult = checkLocalOsProbe(precondition, callStack, attempt, actualElapsed, historySteps, onStepUpdate)
             if (quickResult != null) {
-                return quickResult
+                passedEarly = quickResult
+            } else {
+                delayDuration(1000L.milliseconds)
+                sec--
             }
-
-            delayDuration(1000L.milliseconds)
         }
-        return null
+        return passedEarly
     }
 
     private suspend fun checkLocalOsProbe(
@@ -633,7 +665,13 @@ open class PreconditionEvaluator(
             nodes = sanitizedNodes,
             connections = check.connections,
         )
-        val scopedEvaluator = object : PreconditionEvaluator(context, okHttpClient) {
+        val scopedEvaluator = object : PreconditionEvaluator(
+            context = context,
+            okHttpClient = okHttpClient,
+            delayDuration = delayDuration,
+            randomGenerator = randomGenerator,
+            credentialRepository = credentialRepository,
+        ) {
             override suspend fun evaluateAll(
                 preconditions: List<Precondition>,
                 onStepUpdate: ((List<NodeExecutionStep>) -> Unit)?,
@@ -646,8 +684,8 @@ open class PreconditionEvaluator(
         }
         val engine = WorkflowEngine(
             preconditionEvaluator = scopedEvaluator,
-            credentialRepository = null,
-            executorFactory = NodeExecutorFactory(okHttpClient),
+            credentialRepository = credentialRepository,
+            executorFactory = NodeExecutorFactory(okHttpClient, credentialRepository),
         )
         var capturedSteps = emptyList<NodeExecutionStep>()
 
@@ -792,6 +830,7 @@ open class PreconditionEvaluator(
             reason = "Chained check failed at node '${result.nodeName}': ${result.reason}",
             steps = capturedSteps,
             shouldQueue = result.shouldQueue,
+            isQueueTimeout = result.isQueueTimeout,
         )
         is WorkflowExecutionResult.Failed -> PreconditionResult.Failed(
             reason = "Chained execution failed: ${result.reason}",
@@ -801,28 +840,20 @@ open class PreconditionEvaluator(
             reason = "Chained execution manually cancelled by user",
             steps = capturedSteps,
         )
+        is WorkflowExecutionResult.Ignored -> PreconditionResult.Failed(
+            reason = "Chained execution skipped: ${result.reason}",
+            steps = capturedSteps,
+        )
     }
 
-    @Suppress("DEPRECATION")
     @SuppressLint("MissingPermission")
     open fun isInternetAvailable(): Boolean {
         val ctx = context ?: return true
         val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
-        val activeNetwork = cm.activeNetwork
-        if (activeNetwork != null) {
-            val caps = cm.getNetworkCapabilities(activeNetwork)
-            if (caps != null && (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) || caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED))) {
-                return true
-            }
-        }
-        return try {
-            cm.allNetworks.any { network ->
-                val caps = cm.getNetworkCapabilities(network)
-                caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            }
-        } catch (_: Exception) {
-            false
-        }
+        val activeNetwork = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(activeNetwork) ?: return false
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) ||
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
     }
 
     private val vpnKeywords = listOf("tun", "ppp", "tailscale", "wireguard", "utun")
@@ -833,22 +864,11 @@ open class PreconditionEvaluator(
         return (ctx != null && checkNetworkCapabilitiesVpn(ctx)) || checkNetworkInterfacesVpn()
     }
 
-    @Suppress("DEPRECATION")
     @SuppressLint("MissingPermission")
     private fun checkNetworkCapabilitiesVpn(ctx: Context): Boolean {
         val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
-        val activeNetwork = cm.activeNetwork
-        if (activeNetwork != null && cm.getNetworkCapabilities(activeNetwork)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true) {
-            return true
-        }
-        return try {
-            cm.allNetworks.any { network ->
-                val caps = cm.getNetworkCapabilities(network)
-                caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
-            }
-        } catch (_: Exception) {
-            false
-        }
+        val activeNetwork = cm.activeNetwork ?: return false
+        return cm.getNetworkCapabilities(activeNetwork)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
     }
 
     private fun checkNetworkInterfacesVpn(): Boolean = try {
@@ -876,7 +896,10 @@ open class PreconditionEvaluator(
 
                 if (check.headers.isNotBlank()) {
                     HttpHeaderUtils.parseHeaders(check.headers).forEach { (k, v) ->
-                        requestBuilder.addHeader(k, v)
+                        val safeVal = HttpHeaderUtils.sanitizeHeaderValue(v)
+                        if (HttpHeaderUtils.isValidHeaderName(k)) {
+                            requestBuilder.addHeader(k, safeVal)
+                        }
                     }
                 }
 

@@ -2,8 +2,7 @@ package dev.zophop.data
 
 import android.content.Context
 import android.content.SharedPreferences
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
+import androidx.core.content.edit
 
 object ServerType {
     const val NTFY = "NTFY"
@@ -30,6 +29,8 @@ data class AppSettings(
     val lockCredentialsWithBiometric: Boolean = false,
     val globalWorkflowsEnabled: Boolean = true,
     val dismissedBiometricBanner: Boolean = false,
+    val themeMode: String = "SYSTEM",
+    val themePalette: String = "EMERALD_AMBER",
 ) {
     val allowlistItems: List<String>
         get() = allowlist.split(",", "\n").map { it.trim() }.filter { it.isNotEmpty() }
@@ -49,73 +50,13 @@ interface SettingsRepository {
 class EncryptedSettingsRepository(
     context: Context,
 ) : SettingsRepository {
-    private val prefs: SharedPreferences = createEncryptedSharedPreferences(context)
-
-    private fun createEncryptedSharedPreferences(context: Context): SharedPreferences =
-        try {
-            val masterKey =
-                MasterKey
-                    .Builder(context.applicationContext)
-                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                    .build()
-
-            EncryptedSharedPreferences.create(
-                context.applicationContext,
-                PREFS_FILE_NAME,
-                masterKey,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-            )
-        } catch (ignored: Exception) {
-            android.util.Log.w("SettingsRepository", "EncryptedSharedPreferences unavailable: ${ignored.message}")
-            context.getSharedPreferences(PREFS_FILE_NAME, Context.MODE_PRIVATE)
-        }
+    private val prefs: SharedPreferences =
+        context.applicationContext.getSharedPreferences(PREFS_FILE_NAME, Context.MODE_PRIVATE)
 
     override fun getSettings(): AppSettings {
-        val rawNodes = prefs.getString(KEY_DELIVERY_NODES, "") ?: ""
-        var nodes = deserializeNodes(rawNodes)
-
-        // Seamless legacy fallback migration if nodes list is empty
-        if (nodes.isEmpty()) {
-            val legacyType = prefs.getString(KEY_SERVER_TYPE, ServerType.NTFY) ?: ServerType.NTFY
-            val legacyUrl = prefs.getString(KEY_SERVER_URL, "") ?: ""
-            val legacyTopic = prefs.getString(KEY_TOPIC, "") ?: ""
-            val legacyToken = prefs.getString(KEY_TOKEN, "") ?: ""
-
-            val ntfyUrl = prefs.getString(KEY_NTFY_SERVER_URL, "") ?: if (legacyType == ServerType.NTFY) legacyUrl else ""
-            val gotifyUrl = prefs.getString(KEY_GOTIFY_SERVER_URL, "") ?: if (legacyType == ServerType.GOTIFY) legacyUrl else ""
-            val activeUrl = if (legacyType == ServerType.GOTIFY) gotifyUrl.ifBlank { legacyUrl } else ntfyUrl.ifBlank { legacyUrl }
-
-            if (activeUrl.isNotBlank()) {
-                nodes =
-                    listOf(
-                        DeliveryNode(
-                            id = "default-migrated-node",
-                            name = if (legacyType == ServerType.GOTIFY) "Gotify Target Node" else "ntfy Target Node",
-                            serverType = legacyType,
-                            serverUrl = activeUrl,
-                            topic =
-                                if (legacyType ==
-                                    ServerType.GOTIFY
-                                ) {
-                                    ""
-                                } else {
-                                    prefs.getString(KEY_NTFY_TOPIC, legacyTopic) ?: legacyTopic
-                                },
-                            token =
-                                if (legacyType ==
-                                    ServerType.GOTIFY
-                                ) {
-                                    prefs.getString(KEY_GOTIFY_TOKEN, legacyToken) ?: legacyToken
-                                } else {
-                                    prefs.getString(KEY_NTFY_TOKEN, legacyToken)
-                                        ?: legacyToken
-                                },
-                            isEnabled = true,
-                        ),
-                    )
-            }
-        }
+        val rawNodesStored = prefs.getString(KEY_DELIVERY_NODES, "") ?: ""
+        val rawNodes = DatabaseEncryption.decrypt(rawNodesStored)
+        val nodes = deserializeNodes(rawNodes).ifEmpty { resolveLegacyMigratedNodes() }
 
         return AppSettings(
             nodes = nodes,
@@ -137,36 +78,84 @@ class EncryptedSettingsRepository(
             lockCredentialsWithBiometric = prefs.getBoolean(KEY_LOCK_CREDENTIALS_WITH_BIOMETRIC, false),
             globalWorkflowsEnabled = prefs.getBoolean(KEY_GLOBAL_WORKFLOWS_ENABLED, true),
             dismissedBiometricBanner = prefs.getBoolean(KEY_DISMISSED_BIOMETRIC_BANNER, false),
+            themeMode = getNonBlankString(KEY_THEME_MODE, "SYSTEM"),
+            themePalette = getNonBlankString(KEY_THEME_PALETTE, "EMERALD_AMBER"),
+        )
+    }
+
+    private fun getNonBlankString(
+        key: String,
+        default: String,
+    ): String = prefs.getString(key, default)?.takeIf { it.isNotBlank() } ?: default
+
+    private fun resolveLegacyMigratedNodes(): List<DeliveryNode> {
+        val legacyType = prefs.getString(KEY_SERVER_TYPE, ServerType.NTFY) ?: ServerType.NTFY
+        val legacyUrl = prefs.getString(KEY_SERVER_URL, "") ?: ""
+        val legacyTopic = prefs.getString(KEY_TOPIC, "") ?: ""
+        val legacyToken = DatabaseEncryption.decrypt(prefs.getString(KEY_TOKEN, "") ?: "")
+
+        val ntfyUrl = prefs.getString(KEY_NTFY_SERVER_URL, "") ?: if (legacyType == ServerType.NTFY) legacyUrl else ""
+        val gotifyUrl = prefs.getString(KEY_GOTIFY_SERVER_URL, "") ?: if (legacyType == ServerType.GOTIFY) legacyUrl else ""
+        val activeUrl = if (legacyType == ServerType.GOTIFY) gotifyUrl.ifBlank { legacyUrl } else ntfyUrl.ifBlank { legacyUrl }
+
+        if (activeUrl.isBlank()) return emptyList()
+
+        return listOf(
+            DeliveryNode(
+                id = "default-migrated-node",
+                name = if (legacyType == ServerType.GOTIFY) "Gotify Target Node" else "ntfy Target Node",
+                serverType = legacyType,
+                serverUrl = activeUrl,
+                topic =
+                    if (legacyType == ServerType.GOTIFY) {
+                        ""
+                    } else {
+                        prefs.getString(KEY_NTFY_TOPIC, legacyTopic) ?: legacyTopic
+                    },
+                token =
+                    DatabaseEncryption.decrypt(
+                        if (legacyType == ServerType.GOTIFY) {
+                            prefs.getString(KEY_GOTIFY_TOKEN, legacyToken) ?: legacyToken
+                        } else {
+                            prefs.getString(KEY_NTFY_TOKEN, legacyToken) ?: legacyToken
+                        },
+                    ),
+                isEnabled = true,
+            ),
         )
     }
 
     override fun saveSettings(settings: AppSettings) {
-        prefs
-            .edit()
-            .putString(KEY_DELIVERY_NODES, serializeNodes(settings.nodes))
-            .putString(KEY_ALLOWLIST, settings.allowlist)
-            .putString(KEY_KEYWORD_REGEX, settings.keywordRegex)
-            .putString(KEY_SENDER_REGEX, settings.senderRegex)
-            .putString(KEY_BODY_PARSE_REGEX, settings.bodyParseRegex)
-            .putString(KEY_CUSTOM_MESSAGE_TEMPLATE, settings.customMessageTemplate)
-            .putInt(KEY_EXPIRY_MINUTES, settings.expiryMinutes)
-            .putInt(KEY_MAX_RETRIES, settings.maxRetries)
-            .putBoolean(KEY_IS_ENABLED, settings.isEnabled)
-            .putBoolean(KEY_ALLOW_INSECURE_HTTP, settings.allowInsecureHttp)
-            .putBoolean(KEY_FORWARD_NOTIFICATIONS, settings.forwardNotifications)
-            .putBoolean(KEY_SHOW_WORKFLOW_NOTIFICATIONS, settings.showWorkflowNotifications)
-            .putInt(KEY_MAX_PARALLEL_EXECUTIONS, settings.maxParallelExecutions)
-            .putInt(KEY_MAX_EXECUTION_QUEUE_SIZE, settings.maxExecutionQueueSize)
-            .putBoolean(KEY_AUTO_CLEAR_ENABLED, settings.autoClearEnabled)
-            .putInt(KEY_AUTO_CLEAR_MINUTES, settings.autoClearMinutes)
-            .putBoolean(KEY_LOCK_CREDENTIALS_WITH_BIOMETRIC, settings.lockCredentialsWithBiometric)
-            .putBoolean(KEY_GLOBAL_WORKFLOWS_ENABLED, settings.globalWorkflowsEnabled)
-            .putBoolean(KEY_DISMISSED_BIOMETRIC_BANNER, settings.dismissedBiometricBanner)
-            .apply()
+        val serializedNodes = serializeNodes(settings.nodes)
+        val encryptedNodes =
+            if (serializedNodes.isBlank()) "" else DatabaseEncryption.encrypt(serializedNodes)
+        prefs.edit {
+            putString(KEY_DELIVERY_NODES, encryptedNodes)
+            putString(KEY_ALLOWLIST, settings.allowlist)
+            putString(KEY_KEYWORD_REGEX, settings.keywordRegex)
+            putString(KEY_SENDER_REGEX, settings.senderRegex)
+            putString(KEY_BODY_PARSE_REGEX, settings.bodyParseRegex)
+            putString(KEY_CUSTOM_MESSAGE_TEMPLATE, settings.customMessageTemplate)
+            putInt(KEY_EXPIRY_MINUTES, settings.expiryMinutes)
+            putInt(KEY_MAX_RETRIES, settings.maxRetries)
+            putBoolean(KEY_IS_ENABLED, settings.isEnabled)
+            putBoolean(KEY_ALLOW_INSECURE_HTTP, settings.allowInsecureHttp)
+            putBoolean(KEY_FORWARD_NOTIFICATIONS, settings.forwardNotifications)
+            putBoolean(KEY_SHOW_WORKFLOW_NOTIFICATIONS, settings.showWorkflowNotifications)
+            putInt(KEY_MAX_PARALLEL_EXECUTIONS, settings.maxParallelExecutions)
+            putInt(KEY_MAX_EXECUTION_QUEUE_SIZE, settings.maxExecutionQueueSize)
+            putBoolean(KEY_AUTO_CLEAR_ENABLED, settings.autoClearEnabled)
+            putInt(KEY_AUTO_CLEAR_MINUTES, settings.autoClearMinutes)
+            putBoolean(KEY_LOCK_CREDENTIALS_WITH_BIOMETRIC, settings.lockCredentialsWithBiometric)
+            putBoolean(KEY_GLOBAL_WORKFLOWS_ENABLED, settings.globalWorkflowsEnabled)
+            putBoolean(KEY_DISMISSED_BIOMETRIC_BANNER, settings.dismissedBiometricBanner)
+            putString(KEY_THEME_MODE, settings.themeMode)
+            putString(KEY_THEME_PALETTE, settings.themePalette)
+        }
     }
 
     override fun setEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean(KEY_IS_ENABLED, enabled).apply()
+        prefs.edit { putBoolean(KEY_IS_ENABLED, enabled) }
     }
 
     companion object {
@@ -199,6 +188,8 @@ class EncryptedSettingsRepository(
         private const val KEY_LOCK_CREDENTIALS_WITH_BIOMETRIC = "lock_credentials_with_biometric"
         private const val KEY_GLOBAL_WORKFLOWS_ENABLED = "global_workflows_enabled"
         private const val KEY_DISMISSED_BIOMETRIC_BANNER = "dismissed_biometric_banner"
+        private const val KEY_THEME_MODE = "theme_mode"
+        private const val KEY_THEME_PALETTE = "theme_palette"
 
         fun serializeNodes(nodes: List<DeliveryNode>): String =
             nodes.joinToString("|||") { node ->

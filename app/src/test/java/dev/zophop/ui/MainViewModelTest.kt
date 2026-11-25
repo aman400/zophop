@@ -18,6 +18,7 @@ import dev.zophop.domain.model.Workflow
 import dev.zophop.domain.model.WorkflowNode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -144,6 +145,29 @@ class MainViewModelTest {
 
             viewModel.updateAutoClearMinutes("720")
             assertEquals("720", viewModel.uiState.value.autoClearMinutes)
+        }
+
+    @Test
+    fun testThemeModeAndPaletteUpdatesAndPersistence() =
+        runTest {
+            assertEquals("SYSTEM", viewModel.uiState.value.themeMode)
+            assertEquals("EMERALD_AMBER", viewModel.uiState.value.themePalette)
+
+            viewModel.updateThemeMode("DARK")
+            viewModel.updateThemePalette("OCEAN_CYAN")
+            assertEquals("DARK", viewModel.uiState.value.themeMode)
+            assertEquals("OCEAN_CYAN", viewModel.uiState.value.themePalette)
+
+            // Verify persisted values reload cleanly across ViewModel instances
+            val reloadedViewModel = MainViewModel(application)
+            assertEquals("DARK", reloadedViewModel.uiState.value.themeMode)
+            assertEquals("OCEAN_CYAN", reloadedViewModel.uiState.value.themePalette)
+
+            // Unknown values safely normalize to defaults
+            viewModel.updateThemeMode("INVALID_MODE")
+            viewModel.updateThemePalette("INVALID_PALETTE")
+            assertEquals("SYSTEM", viewModel.uiState.value.themeMode)
+            assertEquals("EMERALD_AMBER", viewModel.uiState.value.themePalette)
         }
 
     @Test
@@ -429,5 +453,255 @@ class MainViewModelTest {
             viewModel.clearActiveExecutionState()
             assertNull(viewModel.activeExecutionState.value)
             assertNull(dev.zophop.domain.engine.ActiveExecutionTracker.getExecution("wf_bg_exec"))
+        }
+
+    @Test
+    fun testCancelQueuedWorkflowExecution_cancelsJobDismissesNotificationAndMarksCancelled() =
+        runTest {
+            val wfId = "wf_queued_cancel"
+            val logId = "log_queued_cancel"
+            val queuedLog =
+                WorkflowExecutionLogEntity(
+                    id = logId,
+                    workflowId = wfId,
+                    status = "QUEUED",
+                    timestamp = System.currentTimeMillis(),
+                    logs = "[]",
+                    errorReason = "Waiting for Wi-Fi",
+                )
+            viewModel.workflowRepository.saveExecutionLog(queuedLog)
+
+            val job = kotlinx.coroutines.Job()
+            dev.zophop.domain.engine.ExecutionJobRegistry.registerJob(wfId, job)
+
+            val nm =
+                application.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            val notif =
+                android.app.Notification.Builder(application, "test")
+                    .setContentTitle("Queued")
+                    .setSmallIcon(android.R.drawable.ic_dialog_info)
+                    .build()
+            nm.notify(wfId.hashCode(), notif)
+
+            viewModel.cancelQueuedWorkflowExecution(logId)
+
+            var updatedLog: WorkflowExecutionLogEntity? = null
+            var attempts = 0
+            while (attempts < 40) {
+                updatedLog = viewModel.workflowRepository.getExecutionLogById(logId)
+                if (updatedLog?.status == "CANCELLED") break
+                Thread.sleep(50)
+                testDispatcher.scheduler.advanceUntilIdle()
+                attempts++
+            }
+
+            assertTrue(job.isCancelled)
+            assertFalse(dev.zophop.domain.engine.ExecutionJobRegistry.isJobRunning(wfId))
+            assertEquals("CANCELLED", updatedLog?.status)
+            assertEquals("Execution cancelled from queue by user", updatedLog?.errorReason)
+            assertNull(org.robolectric.Shadows.shadowOf(nm).getNotification(wfId.hashCode()))
+        }
+
+    @Test
+    fun testClearLogsForWorkflow_preservesQueuedLogsAndDeleteExecutionLogRemovesSingle() =
+        runTest {
+            val wfId = "wf_clear_history_only"
+            val completedLog =
+                WorkflowExecutionLogEntity(
+                    id = "log_completed",
+                    workflowId = wfId,
+                    status = "SUCCESS",
+                    timestamp = System.currentTimeMillis() - 10_000L,
+                    logs = "[]",
+                )
+            val failedLog =
+                WorkflowExecutionLogEntity(
+                    id = "log_failed",
+                    workflowId = wfId,
+                    status = "FAILED",
+                    timestamp = System.currentTimeMillis() - 5_000L,
+                    logs = "[]",
+                    errorReason = "Error",
+                )
+            val queuedLog =
+                WorkflowExecutionLogEntity(
+                    id = "log_queued_keep",
+                    workflowId = wfId,
+                    status = "QUEUED",
+                    timestamp = System.currentTimeMillis(),
+                    logs = "[]",
+                    errorReason = "Waiting",
+                )
+            viewModel.workflowRepository.saveExecutionLog(completedLog)
+            viewModel.workflowRepository.saveExecutionLog(failedLog)
+            viewModel.workflowRepository.saveExecutionLog(queuedLog)
+
+            // Delete a single log first
+            viewModel.deleteExecutionLog("log_completed")
+            var attempts = 0
+            while (attempts < 40 && viewModel.workflowRepository.getExecutionLogById("log_completed") != null) {
+                Thread.sleep(50)
+                testDispatcher.scheduler.advanceUntilIdle()
+                attempts++
+            }
+            assertNull(viewModel.workflowRepository.getExecutionLogById("log_completed"))
+            assertNotNull(viewModel.workflowRepository.getExecutionLogById("log_failed"))
+            assertNotNull(viewModel.workflowRepository.getExecutionLogById("log_queued_keep"))
+
+            // Clear all history for workflow -> removes failedLog, preserves queuedLog
+            viewModel.clearLogsForWorkflow(wfId)
+            attempts = 0
+            while (attempts < 40 && viewModel.workflowRepository.getExecutionLogById("log_failed") != null) {
+                Thread.sleep(50)
+                testDispatcher.scheduler.advanceUntilIdle()
+                attempts++
+            }
+            assertNull(viewModel.workflowRepository.getExecutionLogById("log_failed"))
+            assertNotNull(viewModel.workflowRepository.getExecutionLogById("log_queued_keep"))
+        }
+
+    @Test
+    fun testCancelQueuedWorkflowExecution_alsoCancelsStuckRunningLog() =
+        runTest {
+            val wfId = "wf_stuck_running"
+            val logId = "log_stuck_running"
+            val runningLog =
+                WorkflowExecutionLogEntity(
+                    id = logId,
+                    workflowId = wfId,
+                    status = "RUNNING",
+                    timestamp = System.currentTimeMillis(),
+                    logs = "[]",
+                )
+            viewModel.workflowRepository.saveExecutionLog(runningLog)
+
+            val job = kotlinx.coroutines.Job()
+            dev.zophop.domain.engine.ExecutionJobRegistry.registerJob(wfId, job)
+
+            viewModel.cancelQueuedWorkflowExecution(logId)
+
+            var updatedLog: WorkflowExecutionLogEntity? = null
+            var attempts = 0
+            while (attempts < 40) {
+                updatedLog = viewModel.workflowRepository.getExecutionLogById(logId)
+                if (updatedLog?.status == "CANCELLED") break
+                Thread.sleep(50)
+                testDispatcher.scheduler.advanceUntilIdle()
+                attempts++
+            }
+
+            assertTrue(job.isCancelled)
+            assertEquals("CANCELLED", updatedLog?.status)
+            assertEquals("Execution cancelled by user", updatedLog?.errorReason)
+        }
+
+    @Test
+    fun testCancelQueuedWorkflowExecution_clearsExecutingAndPendingStepsInSavedLog() =
+        runTest {
+            val wfId = "wf_queued_steps_cancel"
+            val logId = "log_queued_steps_cancel"
+            val initialSteps =
+                listOf(
+                    NodeExecutionStep(
+                        nodeId = "n1",
+                        nodeName = "SMS Trigger",
+                        nodeType = NodeType.SMS_TRIGGER,
+                        state = NodeStepState.SUCCESS,
+                    ),
+                    NodeExecutionStep(
+                        nodeId = "n2",
+                        nodeName = "HTTP Request",
+                        nodeType = NodeType.HTTP_ACTION,
+                        state = NodeStepState.EXECUTING,
+                        logMessage = "Evaluating preconditions [⏳ Queued]",
+                        executedAt = System.currentTimeMillis() - 3_000L,
+                        isQueueWaiting = true,
+                    ),
+                    NodeExecutionStep(
+                        nodeId = "n3",
+                        nodeName = "ntfy Notification",
+                        nodeType = NodeType.NTFY_ACTION,
+                        state = NodeStepState.PENDING,
+                    ),
+                )
+            viewModel.workflowRepository.saveExecutionLog(
+                WorkflowExecutionLogEntity(
+                    id = logId,
+                    workflowId = wfId,
+                    status = "QUEUED",
+                    timestamp = System.currentTimeMillis(),
+                    logs = initialSteps.toJsonString(),
+                    errorReason = "Waiting for Wi-Fi",
+                ),
+            )
+
+            viewModel.cancelQueuedWorkflowExecution(logId)
+
+            var updatedLog: WorkflowExecutionLogEntity? = null
+            var attempts = 0
+            while (attempts < 40) {
+                updatedLog = viewModel.workflowRepository.getExecutionLogById(logId)
+                if (updatedLog?.status == "CANCELLED") break
+                Thread.sleep(50)
+                testDispatcher.scheduler.advanceUntilIdle()
+                attempts++
+            }
+
+            assertEquals("CANCELLED", updatedLog?.status)
+            val savedSteps = updatedLog?.logs?.toNodeExecutionSteps().orEmpty()
+            assertEquals(3, savedSteps.size)
+            assertEquals(NodeStepState.SUCCESS, savedSteps[0].state)
+            assertEquals(NodeStepState.FAILED, savedSteps[1].state)
+            assertEquals("Cancelled", savedSteps[1].errorReason)
+            assertFalse(savedSteps[1].isQueueWaiting)
+            assertEquals(NodeStepState.SKIPPED, savedSteps[2].state)
+            assertTrue(savedSteps.none { it.state == NodeStepState.EXECUTING || it.state == NodeStepState.PENDING })
+        }
+
+    @Test
+    fun testRunWorkflowWithProgress_assignsEightCharUppercaseAlphanumericExecutionId() =
+        runTest {
+            val workflow =
+                Workflow(
+                    id = "WFSHORT1",
+                    name = "Short Exec Id Flow",
+                    isEnabled = true,
+                    nodes =
+                        listOf(
+                            WorkflowNode(
+                                id = "trigger_1",
+                                name = "Manual Trigger",
+                                type = NodeType.MANUAL_TRIGGER,
+                            ),
+                        ),
+                )
+            viewModel.saveWorkflow(workflow)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            val job =
+                viewModel.testRunWorkflowWithProgress(
+                    workflow = workflow,
+                    onProgressUpdate = {},
+                    onResult = {},
+                )
+            job.join()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            var attempts = 0
+            var logs = emptyList<WorkflowExecutionLogEntity>()
+            while (attempts < 40) {
+                logs = viewModel.getLogsForWorkflow("WFSHORT1").first()
+                if (logs.isNotEmpty() && logs.first().status != "RUNNING") break
+                Thread.sleep(50)
+                testDispatcher.scheduler.advanceUntilIdle()
+                attempts++
+            }
+
+            assertTrue(logs.isNotEmpty())
+            val execId = logs.first().id
+            assertTrue(
+                "Expected 8-char uppercase alphanumeric execution ID, got '$execId'",
+                Regex("^[A-Z0-9]{8}$").matches(execId),
+            )
         }
 }

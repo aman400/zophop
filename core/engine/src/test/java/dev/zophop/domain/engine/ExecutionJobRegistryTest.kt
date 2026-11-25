@@ -6,6 +6,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.time.Duration.Companion.milliseconds
 
 class ExecutionJobRegistryTest {
     @Test
@@ -44,5 +45,26 @@ class ExecutionJobRegistryTest {
             assertFalse(ExecutionJobRegistry.isJobRunning("wf-2"))
             assertTrue(job1.isCancelled)
             assertTrue(job2.isCancelled)
+        }
+
+    @Test
+    fun testMultipleJobsForSameWorkflow_completingFirstDoesNotEvictActiveSecond() =
+        runTest {
+            val workflowId = "wf-concurrent"
+            val job1 = launch { delay(50L.milliseconds) }
+            val job2 = launch { delay(10000L.milliseconds) }
+
+            ExecutionJobRegistry.registerJob(workflowId, job1)
+            ExecutionJobRegistry.registerJob(workflowId, job2)
+            assertTrue(ExecutionJobRegistry.isJobRunning(workflowId))
+
+            job1.join()
+            // job2 is still active so workflow must still be tracked as running
+            assertTrue(ExecutionJobRegistry.isJobRunning(workflowId))
+
+            val cancelled = ExecutionJobRegistry.cancelJob(workflowId)
+            assertTrue(cancelled)
+            assertTrue(job2.isCancelled)
+            assertFalse(ExecutionJobRegistry.isJobRunning(workflowId))
         }
 }
