@@ -9,11 +9,13 @@ import dev.zophop.data.PreconditionEntity
 import dev.zophop.data.WorkflowExecutionLogEntity
 import dev.zophop.domain.engine.NodeExecutionStep
 import dev.zophop.domain.engine.NodeStepState
+import dev.zophop.domain.engine.PreconditionResult
 import dev.zophop.domain.engine.toJsonString
 import dev.zophop.domain.engine.toNodeExecutionSteps
 import dev.zophop.domain.model.Credential
 import dev.zophop.domain.model.CredentialType
 import dev.zophop.domain.model.NodeType
+import dev.zophop.domain.model.PreconditionType
 import dev.zophop.domain.model.Workflow
 import dev.zophop.domain.model.WorkflowNode
 import kotlinx.coroutines.Dispatchers
@@ -703,5 +705,56 @@ class MainViewModelTest {
                 "Expected 8-char uppercase alphanumeric execution ID, got '$execId'",
                 Regex("^[A-Z0-9]{8}$").matches(execId),
             )
+        }
+
+    @Test
+    fun testCancelPreconditionTest_cancelsOngoingEvaluationAndMarksStepsCancelled() =
+        runTest {
+            val entity =
+                PreconditionEntity(
+                    id = "prec_cancel_test_1",
+                    name = "Unreachable Retrying Precondition",
+                    type = PreconditionType.INTERNET_CHECK.name,
+                    isEnabled = true,
+                    onFailureAction = "RETRY",
+                    maxRetries = 3,
+                    retryIntervalSeconds = 30,
+                    retryStrategy = "FIXED",
+                )
+            var latestSteps: List<NodeExecutionStep> = emptyList()
+            var capturedResult: PreconditionResult? = null
+
+            viewModel.testPreconditionWithProgress(
+                entity = entity,
+                onStepUpdate = { steps -> latestSteps = steps },
+                onResult = { result -> capturedResult = result },
+            )
+
+            var attempts = 0
+            while (latestSteps.none { it.state == NodeStepState.EXECUTING } && attempts < 40) {
+                Thread.sleep(50)
+                testDispatcher.scheduler.advanceUntilIdle()
+                attempts++
+            }
+            assertTrue(
+                "Expected retry countdown step to reach EXECUTING state before cancellation",
+                latestSteps.any { it.state == NodeStepState.EXECUTING },
+            )
+
+            val cancelled = viewModel.cancelPreconditionTest(entity.id)
+            assertTrue(cancelled)
+
+            attempts = 0
+            while (capturedResult == null && attempts < 40) {
+                Thread.sleep(50)
+                testDispatcher.scheduler.advanceUntilIdle()
+                attempts++
+            }
+
+            val failed = capturedResult as? PreconditionResult.Failed
+            assertNotNull(failed)
+            assertEquals("Precondition test cancelled by user", failed?.reason)
+            assertTrue(latestSteps.none { it.state == NodeStepState.EXECUTING || it.state == NodeStepState.PENDING })
+            assertTrue(latestSteps.any { it.state == NodeStepState.FAILED && it.errorReason == "Cancelled" })
         }
 }

@@ -3,6 +3,7 @@ package dev.zophop.ui.preconditions
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -15,12 +16,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -36,13 +36,12 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
-import androidx.compose.material3.SuggestionChip
-import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxState
@@ -59,16 +58,21 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.zophop.core.ui.components.CancelExecutionConfirmDialog
 import dev.zophop.core.ui.components.NoSwipeBottomSheet
 import dev.zophop.data.PreconditionEntity
 import dev.zophop.domain.engine.NodeExecutionStep
+import dev.zophop.domain.engine.NodeStepState
 import dev.zophop.domain.engine.PreconditionResult
+import dev.zophop.domain.engine.markStepsAsCancelled
 import dev.zophop.domain.model.PreconditionType
 import dev.zophop.ui.workflows.NodeExecutionStepper
 import dev.zophop.ui.workflows.WorkflowUiHelper
@@ -76,12 +80,13 @@ import dev.zophop.ui.workflows.WorkflowUiHelper
 /**
  * Compact Modernized Card Item for a Precondition Rule in the Vault list.
  */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PreconditionCardItem(
     precondition: PreconditionEntity,
     linkedWorkflowCount: Int = 0,
     onTestPreconditionWithProgress: ((PreconditionEntity, (List<NodeExecutionStep>) -> Unit, (PreconditionResult) -> Unit) -> Unit)? = null,
+    onCancelTestPrecondition: ((String) -> Unit)? = null,
     onToggle: (Boolean) -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -91,6 +96,27 @@ fun PreconditionCardItem(
     var testResult by remember { mutableStateOf<PreconditionResult?>(null) }
     var testSteps by remember { mutableStateOf<List<NodeExecutionStep>>(emptyList()) }
     var showTestStepperSheet by remember { mutableStateOf(false) }
+    var showCancelConfirmDialog by remember { mutableStateOf(false) }
+    var activeTestToken by remember { mutableStateOf(0L) }
+
+    LaunchedEffect(isTesting) {
+        if (!isTesting) {
+            showCancelConfirmDialog = false
+        }
+    }
+
+    val cancelOngoingTest: () -> Unit = {
+        activeTestToken += 1L
+        isTesting = false
+        val cancelledSteps = buildCancelledTestSteps(precondition, testSteps)
+        testSteps = cancelledSteps
+        testResult =
+            PreconditionResult.Failed(
+                reason = PRECONDITION_TEST_CANCELLED_REASON,
+                steps = cancelledSteps,
+            )
+        onCancelTestPrecondition?.invoke(precondition.id)
+    }
 
     val dismissState = rememberSwipeToDismissBoxState()
     val currentOnEdit by rememberUpdatedState(onEdit)
@@ -121,6 +147,13 @@ fun PreconditionCardItem(
         label = "PreconditionCardColor",
     )
 
+    val borderColor =
+        if (precondition.isEnabled) {
+            MaterialTheme.colorScheme.outlineVariant
+        } else {
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+        }
+
     SwipeToDismissBox(
         state = dismissState,
         modifier = modifier,
@@ -133,7 +166,8 @@ fun PreconditionCardItem(
                 Modifier
                     .fillMaxWidth()
                     .clickable(onClick = onEdit),
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, borderColor),
             colors =
                 CardDefaults.outlinedCardColors(
                     containerColor = containerColor,
@@ -142,296 +176,96 @@ fun PreconditionCardItem(
             Column(
                 modifier =
                     Modifier
-                        .padding(12.dp)
+                        .padding(14.dp)
                         .animateContentSize(animationSpec = tween(220)),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                // Header Row: Icon, Title, Status, Switch
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
-                            modifier = Modifier.size(32.dp),
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                if (precondition.icon.isNotBlank()) {
-                                    Text(
-                                        text = precondition.icon,
-                                        fontSize = 16.sp,
-                                    )
-                                } else {
-                                    Icon(
-                                        imageVector = iconVector,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(16.dp),
-                                    )
-                                }
-                            }
-                        }
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                Text(
-                                    text = precondition.name,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f, fill = false),
-                                )
-
-                                testResult?.let { res ->
-                                    val isPassed = res is PreconditionResult.Passed
-                                    val badgeText = if (isPassed) "Verified" else "Failed"
-                                    val badgeIcon = if (isPassed) Icons.Default.CheckCircle else Icons.Default.Error
-                                    val bg = if (isPassed) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer
-                                    val fg = if (isPassed) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer
-                                    SuggestionChip(
-                                        onClick = { showTestStepperSheet = true },
-                                        label = {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                            ) {
-                                                Icon(imageVector = badgeIcon, contentDescription = null, modifier = Modifier.size(10.dp))
-                                                Text(
-                                                    text = badgeText,
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    fontSize = 9.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                )
-                                            }
-                                        },
-                                        colors =
-                                            SuggestionChipDefaults.suggestionChipColors(
-                                                containerColor = bg,
-                                                labelColor = fg,
-                                            ),
-                                        modifier = Modifier.height(20.dp),
-                                    )
-                                }
-                            }
-
-                            Text(
-                                text = typeTitle,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 11.sp,
-                            )
-                        }
-                    }
-
-                    Switch(
-                        checked = precondition.isEnabled,
-                        onCheckedChange = { targetEnabled ->
-                            onToggle(targetEnabled)
-                        },
-                        modifier = Modifier.height(28.dp),
-                    )
-                }
+                PreconditionCardHeader(
+                    precondition = precondition,
+                    iconVector = iconVector,
+                    typeTitle = typeTitle,
+                    testResult = testResult,
+                    onStatusChipClick = { showTestStepperSheet = true },
+                    onToggle = onToggle,
+                )
 
                 if (precondition.type == PreconditionType.HEALTH_CHECK.name && precondition.targetUrl.isNotBlank()) {
                     Surface(
-                        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f),
-                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.65f),
+                        shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text(
                             text = "${precondition.method} → ${precondition.targetUrl}",
                             fontFamily = FontFamily.Monospace,
                             style = MaterialTheme.typography.bodySmall,
-                            fontSize = 10.sp,
+                            fontSize = 11.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
 
-                // Compact Metadata Badges
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    val isRetry = precondition.onFailureAction.equals("RETRY", ignoreCase = true)
-                    val isQueue = precondition.onFailureAction.equals("QUEUE", ignoreCase = true)
-                    if (isQueue) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f),
-                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            shape = RoundedCornerShape(4.dp),
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(3.dp),
-                            ) {
-                                Icon(Icons.Default.HourglassTop, contentDescription = null, modifier = Modifier.size(11.dp))
-                                Text(
-                                    text = "Queue Mode (${precondition.queueTimeoutMinutes}m)",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
-                            }
-                        }
-                    } else if (isRetry) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.8f),
-                            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                            shape = RoundedCornerShape(4.dp),
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(3.dp),
-                            ) {
-                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(11.dp))
-                                val strategySuffix =
-                                    when (precondition.retryStrategy.uppercase()) {
-                                        "EXPONENTIAL" -> ", Exp"
-                                        "RANDOMIZED" -> ", Rand"
-                                        else -> ""
+                PreconditionMetadataBadges(
+                    precondition = precondition,
+                    linkedWorkflowCount = linkedWorkflowCount,
+                )
+
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                )
+
+                PreconditionCardBottomActions(
+                    isTesting = isTesting,
+                    onTestOrOpenSheet = {
+                        if (isTesting) {
+                            showTestStepperSheet = true
+                        } else {
+                            val runToken = activeTestToken + 1L
+                            activeTestToken = runToken
+                            isTesting = true
+                            showTestStepperSheet = true
+                            testResult = null
+                            testSteps = emptyList()
+                            onTestPreconditionWithProgress?.invoke(
+                                precondition,
+                                { steps ->
+                                    if (activeTestToken == runToken && isTesting) {
+                                        testSteps = steps
                                     }
-                                Text(
-                                    text = "Retry ${precondition.maxRetries}x (${precondition.retryIntervalSeconds}s$strategySuffix)",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
-                            }
-                        }
-                    }
-
-                    Surface(
-                        color =
-                            if (linkedWorkflowCount >
-                                0
-                            ) {
-                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f)
-                            } else {
-                                MaterialTheme.colorScheme.surfaceContainerLow
-                            },
-                        contentColor =
-                            if (linkedWorkflowCount >
-                                0
-                            ) {
-                                MaterialTheme.colorScheme.onPrimaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                        shape = RoundedCornerShape(4.dp),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(3.dp),
-                        ) {
-                            Icon(Icons.Default.AccountTree, contentDescription = null, modifier = Modifier.size(11.dp))
-                            Text(
-                                text =
-                                    if (linkedWorkflowCount >
-                                        0
-                                    ) {
-                                        "$linkedWorkflowCount Workflow${if (linkedWorkflowCount > 1) "s" else ""}"
-                                    } else {
-                                        "No Workflows"
-                                    },
-                                style = MaterialTheme.typography.labelSmall,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                        }
-                    }
-                }
-
-                // Bottom Action Bar: Test / Viewing Button & Edit / Delete Icons
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    OutlinedButton(
-                        onClick = {
-                            if (isTesting) {
-                                showTestStepperSheet = true
-                            } else {
-                                isTesting = true
-                                showTestStepperSheet = true
-                                testResult = null
-                                testSteps = emptyList()
-                                onTestPreconditionWithProgress?.invoke(
-                                    precondition,
-                                    { steps -> testSteps = steps },
-                                    { res ->
+                                },
+                                { res ->
+                                    if (activeTestToken == runToken) {
                                         isTesting = false
                                         testResult = res
-                                    },
-                                )
-                            }
-                        },
-                        modifier = Modifier.height(26.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                    ) {
-                        if (isTesting) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(12.dp),
-                                strokeWidth = 2.dp,
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Verifying...", fontSize = 11.sp)
-                        } else {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(13.dp))
-                            Spacer(modifier = Modifier.width(2.dp))
-                            Text("Test", fontSize = 11.sp)
-                        }
-                    }
-
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(0.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        IconButton(
-                            onClick = onEdit,
-                            modifier = Modifier.size(28.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Edit,
-                                contentDescription = "Edit",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp),
+                                        val resSteps =
+                                            when (res) {
+                                                is PreconditionResult.Passed -> res.steps
+                                                is PreconditionResult.Failed -> res.steps
+                                            }
+                                        if (resSteps.isNotEmpty()) {
+                                            testSteps = resSteps
+                                        }
+                                    }
+                                },
                             )
                         }
-
-                        IconButton(
-                            onClick = onDelete,
-                            modifier = Modifier.size(28.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = "Delete",
-                                tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        }
-                    }
-                }
+                    },
+                    onCancelTest = { showCancelConfirmDialog = true },
+                    onEdit = onEdit,
+                    onDelete = onDelete,
+                )
             }
+        }
+
+        if (showCancelConfirmDialog && isTesting) {
+            CancelExecutionConfirmDialog(
+                targetName = precondition.name,
+                onConfirm = cancelOngoingTest,
+                onDismiss = { showCancelConfirmDialog = false },
+            )
         }
 
         if (showTestStepperSheet) {
@@ -439,8 +273,423 @@ fun PreconditionCardItem(
                 preconditionName = precondition.name,
                 steps = testSteps,
                 isTesting = isTesting,
+                onCancelExecution = cancelOngoingTest,
                 onDismiss = { showTestStepperSheet = false },
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PreconditionCardHeader(
+    precondition: PreconditionEntity,
+    iconVector: ImageVector,
+    typeTitle: String,
+    testResult: PreconditionResult?,
+    onStatusChipClick: () -> Unit,
+    onToggle: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Row(
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.weight(1f),
+        ) {
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color =
+                    if (precondition.isEnabled) {
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.75f)
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerHighest
+                    },
+                modifier = Modifier.size(38.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    if (precondition.icon.isNotBlank()) {
+                        Text(
+                            text = precondition.icon,
+                            fontSize = 18.sp,
+                        )
+                    } else {
+                        Icon(
+                            imageVector = iconVector,
+                            contentDescription = null,
+                            tint =
+                                if (precondition.isEnabled) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+            }
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    itemVerticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = precondition.name,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color =
+                            if (precondition.isEnabled) {
+                                MaterialTheme.colorScheme.onSurface
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+
+                    testResult?.let { res ->
+                        PreconditionTestStatusChip(
+                            testResult = res,
+                            onClick = onStatusChipClick,
+                        )
+                    }
+                }
+
+                Text(
+                    text = typeTitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+
+        Switch(
+            checked = precondition.isEnabled,
+            onCheckedChange = onToggle,
+        )
+    }
+}
+
+private const val PRECONDITION_TEST_CANCELLED_REASON = "Precondition test cancelled by user"
+
+private fun buildCancelledTestSteps(
+    precondition: PreconditionEntity,
+    currentSteps: List<NodeExecutionStep>,
+): List<NodeExecutionStep> {
+    if (currentSteps.isNotEmpty()) {
+        return currentSteps.markStepsAsCancelled(PRECONDITION_TEST_CANCELLED_REASON)
+    }
+    return listOf(
+        NodeExecutionStep(
+            nodeId = precondition.id.ifBlank { "precondition_cancelled" },
+            nodeName = precondition.name.ifBlank { "Precondition Check" },
+            nodeType = precondition.type,
+            state = NodeStepState.FAILED,
+            logMessage = PRECONDITION_TEST_CANCELLED_REASON,
+            errorReason = "Cancelled",
+            executedAt = System.currentTimeMillis(),
+            durationMs = 0L,
+        ),
+    )
+}
+
+@Composable
+private fun PreconditionTestStatusChip(
+    testResult: PreconditionResult,
+    onClick: () -> Unit,
+) {
+    val isPassed = testResult is PreconditionResult.Passed
+    val isCancelled =
+        testResult is PreconditionResult.Failed &&
+            testResult.reason.contains("cancelled", ignoreCase = true)
+    val badgeText =
+        when {
+            isPassed -> "Verified"
+            isCancelled -> "Cancelled"
+            else -> "Failed"
+        }
+    val badgeIcon =
+        when {
+            isPassed -> Icons.Default.CheckCircle
+            isCancelled -> Icons.Default.Close
+            else -> Icons.Default.Error
+        }
+    val bg =
+        when {
+            isPassed -> MaterialTheme.colorScheme.primaryContainer
+            isCancelled -> MaterialTheme.colorScheme.surfaceContainerHighest
+            else -> MaterialTheme.colorScheme.errorContainer
+        }
+    val fg =
+        when {
+            isPassed -> MaterialTheme.colorScheme.onPrimaryContainer
+            isCancelled -> MaterialTheme.colorScheme.onSurfaceVariant
+            else -> MaterialTheme.colorScheme.onErrorContainer
+        }
+
+    Surface(
+        color = bg,
+        contentColor = fg,
+        shape = RoundedCornerShape(6.dp),
+        border = BorderStroke(0.5.dp, fg.copy(alpha = 0.25f)),
+        modifier =
+            Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .clickable(onClick = onClick),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            Icon(
+                imageVector = badgeIcon,
+                contentDescription = null,
+                modifier = Modifier.size(11.dp),
+            )
+            Text(
+                text = badgeText,
+                style = MaterialTheme.typography.labelSmall,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                softWrap = false,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PreconditionMetadataBadges(
+    precondition: PreconditionEntity,
+    linkedWorkflowCount: Int,
+) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        val isRetry = precondition.onFailureAction.equals("RETRY", ignoreCase = true)
+        val isQueue = precondition.onFailureAction.equals("QUEUE", ignoreCase = true)
+        if (isQueue) {
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f),
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                shape = RoundedCornerShape(6.dp),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Icon(Icons.Default.HourglassTop, contentDescription = null, modifier = Modifier.size(12.dp))
+                    Text(
+                        text = "Queue Mode (${precondition.queueTimeoutMinutes}m)",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            }
+        } else if (isRetry) {
+            Surface(
+                color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.8f),
+                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                shape = RoundedCornerShape(6.dp),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(12.dp))
+                    val strategySuffix =
+                        when (precondition.retryStrategy.uppercase()) {
+                            "EXPONENTIAL" -> ", Exp"
+                            "RANDOMIZED" -> ", Rand"
+                            else -> ""
+                        }
+                    Text(
+                        text = "Retry ${precondition.maxRetries}x (${precondition.retryIntervalSeconds}s$strategySuffix)",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            }
+        }
+
+        Surface(
+            color =
+                if (linkedWorkflowCount > 0) {
+                    MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.85f)
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainerHigh
+                },
+            contentColor =
+                if (linkedWorkflowCount > 0) {
+                    MaterialTheme.colorScheme.onSecondaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            shape = RoundedCornerShape(6.dp),
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Icon(Icons.Default.AccountTree, contentDescription = null, modifier = Modifier.size(12.dp))
+                Text(
+                    text =
+                        if (linkedWorkflowCount > 0) {
+                            "$linkedWorkflowCount Workflow${if (linkedWorkflowCount > 1) "s" else ""}"
+                        } else {
+                            "No Workflows"
+                        },
+                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+
+        if (!precondition.isEnabled) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                shape = RoundedCornerShape(6.dp),
+            ) {
+                Text(
+                    text = "Disabled",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PreconditionCardBottomActions(
+    isTesting: Boolean,
+    onTestOrOpenSheet: () -> Unit,
+    onCancelTest: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        FlowRow(
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            itemVerticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedButton(
+                onClick = onTestOrOpenSheet,
+                modifier = Modifier.heightIn(min = 34.dp),
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+            ) {
+                if (isTesting) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(13.dp),
+                        strokeWidth = 2.dp,
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Verifying...",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                } else {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(15.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Test",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                }
+            }
+
+            if (isTesting) {
+                OutlinedButton(
+                    onClick = onCancelTest,
+                    modifier = Modifier.heightIn(min = 34.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Cancel",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        softWrap = false,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        }
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(
+                onClick = onEdit,
+                modifier = Modifier.size(40.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Edit,
+                    contentDescription = "Edit",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+
+            IconButton(
+                onClick = onDelete,
+                modifier = Modifier.size(40.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = "Delete",
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
         }
     }
 }
@@ -455,6 +704,13 @@ fun PreconditionExecutionStepperBottomSheet(
     onDismiss: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
+    var showCancelConfirmDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isTesting) {
+        if (!isTesting) {
+            showCancelConfirmDialog = false
+        }
+    }
 
     androidx.compose.runtime.LaunchedEffect(steps.size, steps.map { "${it.nodeId}_${it.state}" }) {
         if (steps.isNotEmpty()) {
@@ -485,7 +741,7 @@ fun PreconditionExecutionStepperBottomSheet(
                         text = "Precondition Execution Stepper",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
@@ -508,7 +764,8 @@ fun PreconditionExecutionStepperBottomSheet(
                         )
                         if (onCancelExecution != null) {
                             OutlinedButton(
-                                onClick = onCancelExecution,
+                                onClick = { showCancelConfirmDialog = true },
+                                modifier = Modifier.heightIn(min = 32.dp),
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                             ) {
                                 Text(
@@ -547,13 +804,24 @@ fun PreconditionExecutionStepperBottomSheet(
                                 .padding(24.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text("Verifying precondition rule...", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            text = if (isTesting) "Verifying precondition rule..." else "Precondition verification stopped.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 } else {
                     NodeExecutionStepper(steps = steps)
                 }
             }
         }
+    }
+
+    if (showCancelConfirmDialog && isTesting && onCancelExecution != null) {
+        CancelExecutionConfirmDialog(
+            targetName = preconditionName,
+            onConfirm = onCancelExecution,
+            onDismiss = { showCancelConfirmDialog = false },
+        )
     }
 }
 
@@ -581,16 +849,18 @@ private fun PreconditionDismissBackground(dismissState: SwipeToDismissBoxState) 
         modifier =
             Modifier
                 .fillMaxSize()
-                .background(color, shape = RoundedCornerShape(14.dp))
+                .background(color, shape = RoundedCornerShape(16.dp))
                 .padding(horizontal = 20.dp),
         contentAlignment = alignment,
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Icon(imageVector = icon, contentDescription = text, tint = tint, modifier = Modifier.size(16.dp))
-            Text(text = text, color = tint, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+        if (direction != SwipeToDismissBoxValue.Settled) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Icon(imageVector = icon, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
+                Text(text = text, color = tint, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+            }
         }
     }
 }

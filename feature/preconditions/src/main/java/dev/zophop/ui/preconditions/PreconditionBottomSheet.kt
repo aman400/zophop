@@ -15,6 +15,7 @@ fun PreconditionBottomSheet(
     precondition: PreconditionEntity?,
     credentials: List<Credential> = emptyList(),
     onTestPreconditionWithProgress: ((PreconditionEntity, (List<NodeExecutionStep>) -> Unit, (PreconditionResult) -> Unit) -> Unit)? = null,
+    onCancelTestPrecondition: ((String) -> Unit)? = null,
     onDismiss: () -> Unit,
     onSave: (PreconditionEntity) -> Unit,
 ) {
@@ -25,6 +26,7 @@ fun PreconditionBottomSheet(
             precondition = precondition,
             credentials = credentials,
             onTestPreconditionWithProgress = onTestPreconditionWithProgress,
+            onCancelTestPrecondition = onCancelTestPrecondition,
             onDismiss = onDismiss,
             onSave = onSave,
         )

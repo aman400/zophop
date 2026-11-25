@@ -51,13 +51,17 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import dev.zophop.core.ui.components.CancelExecutionConfirmDialog
 import dev.zophop.core.ui.components.IconPickerModalBottomSheet
 import dev.zophop.core.ui.components.IconSelectorBadge
 import dev.zophop.core.ui.components.InfoTooltipField
 import dev.zophop.data.PreconditionEntity
 import dev.zophop.data.toDomain
 import dev.zophop.domain.engine.NodeExecutionStep
+import dev.zophop.domain.engine.NodeStepState
 import dev.zophop.domain.engine.PreconditionResult
+import dev.zophop.domain.engine.markStepsAsCancelled
 import dev.zophop.domain.model.AppJson
 import dev.zophop.domain.model.Credential
 import dev.zophop.domain.model.NodeType
@@ -84,6 +88,7 @@ fun PreconditionEditorScreen(
     credentials: List<Credential> = emptyList(),
     workflows: List<Workflow> = emptyList(),
     onTestPreconditionWithProgress: ((PreconditionEntity, (List<NodeExecutionStep>) -> Unit, (PreconditionResult) -> Unit) -> Unit)? = null,
+    onCancelTestPrecondition: ((String) -> Unit)? = null,
     onDismiss: () -> Unit,
     onSave: (PreconditionEntity) -> Unit,
 ) {
@@ -142,10 +147,48 @@ fun PreconditionEditorScreen(
     }
 
     // Testing state & bottom sheet
+    val testingPreconditionId = remember(precondition?.id) { precondition?.id ?: UUID.randomUUID().toString() }
     var isTestingSheet by remember { mutableStateOf(false) }
     var sheetTestResult by remember { mutableStateOf<PreconditionResult?>(null) }
     var sheetTestSteps by remember { mutableStateOf<List<NodeExecutionStep>>(emptyList()) }
     var showTestStepperSheet by remember { mutableStateOf(false) }
+    var showCancelConfirmDialog by remember { mutableStateOf(false) }
+    var activeTestToken by remember { mutableStateOf(0L) }
+
+    LaunchedEffect(isTestingSheet) {
+        if (!isTestingSheet) {
+            showCancelConfirmDialog = false
+        }
+    }
+
+    val onCancelOngoingTest: () -> Unit = {
+        activeTestToken += 1L
+        isTestingSheet = false
+        val cancelledSteps =
+            if (sheetTestSteps.isNotEmpty()) {
+                sheetTestSteps.markStepsAsCancelled("Precondition test cancelled by user")
+            } else {
+                listOf(
+                    NodeExecutionStep(
+                        nodeId = testingPreconditionId,
+                        nodeName = name.ifBlank { "Precondition Check" },
+                        nodeType = PreconditionType.CHAINED_CHECK.name,
+                        state = NodeStepState.FAILED,
+                        logMessage = "Precondition test cancelled by user",
+                        errorReason = "Cancelled",
+                        executedAt = System.currentTimeMillis(),
+                        durationMs = 0L,
+                    ),
+                )
+            }
+        sheetTestSteps = cancelledSteps
+        sheetTestResult =
+            PreconditionResult.Failed(
+                reason = "Precondition test cancelled by user",
+                steps = cancelledSteps,
+            )
+        onCancelTestPrecondition?.invoke(testingPreconditionId)
+    }
 
     val pipelineJson =
         remember(chainNodes, chainConnections) {
@@ -233,12 +276,14 @@ fun PreconditionEditorScreen(
                         onShowSheet = { showTestStepperSheet = true },
                         onError = { errorMessage = it },
                         onStartTest = {
+                            val runToken = activeTestToken + 1L
+                            activeTestToken = runToken
                             isTestingSheet = true
                             showTestStepperSheet = true
                             sheetTestResult = null
                             sheetTestSteps = emptyList()
                             startPreconditionTest(
-                                preconditionId = precondition?.id,
+                                preconditionId = testingPreconditionId,
                                 name = name,
                                 isEnabled = isEnabled,
                                 pipelineJson = pipelineJson,
@@ -248,10 +293,24 @@ fun PreconditionEditorScreen(
                                 retryStrategy = retryStrategy,
                                 queueTimeoutMinutes = queueTimeoutMinutes,
                                 onTestPreconditionWithProgress = onTestPreconditionWithProgress,
-                                onStepsUpdate = { sheetTestSteps = it },
+                                onStepsUpdate = { steps ->
+                                    if (activeTestToken == runToken && isTestingSheet) {
+                                        sheetTestSteps = steps
+                                    }
+                                },
                                 onResult = { res ->
-                                    isTestingSheet = false
-                                    sheetTestResult = res
+                                    if (activeTestToken == runToken) {
+                                        isTestingSheet = false
+                                        sheetTestResult = res
+                                        val resSteps =
+                                            when (res) {
+                                                is PreconditionResult.Passed -> res.steps
+                                                is PreconditionResult.Failed -> res.steps
+                                            }
+                                        if (resSteps.isNotEmpty()) {
+                                            sheetTestSteps = resSteps
+                                        }
+                                    }
                                 },
                             )
                         },
@@ -265,6 +324,7 @@ fun PreconditionEditorScreen(
         PreconditionEditorBody(
             innerPadding = innerPadding,
             isTesting = isTestingSheet,
+            onCancelTest = { showCancelConfirmDialog = true },
             errorMessage = errorMessage,
             onDismissError = { errorMessage = null },
             name = name,
@@ -297,7 +357,11 @@ fun PreconditionEditorScreen(
         isTestingSheet = isTestingSheet,
         sheetTestSteps = sheetTestSteps,
         name = name,
+        onCancelTestStepper = onCancelOngoingTest,
         onDismissTestStepper = { showTestStepperSheet = false },
+        showCancelConfirmDialog = showCancelConfirmDialog,
+        onConfirmCancelTest = onCancelOngoingTest,
+        onDismissCancelTest = { showCancelConfirmDialog = false },
         showSaveConfirmDialog = showSaveConfirmDialog,
         precondition = precondition,
         icon = icon,
@@ -473,7 +537,11 @@ private fun PreconditionEditorDialogHost(
     isTestingSheet: Boolean,
     sheetTestSteps: List<NodeExecutionStep>,
     name: String,
+    onCancelTestStepper: (() -> Unit)? = null,
     onDismissTestStepper: () -> Unit,
+    showCancelConfirmDialog: Boolean,
+    onConfirmCancelTest: () -> Unit,
+    onDismissCancelTest: () -> Unit,
     showSaveConfirmDialog: Boolean,
     precondition: PreconditionEntity?,
     icon: String,
@@ -502,11 +570,20 @@ private fun PreconditionEditorDialogHost(
     onDismissDeleteStep: () -> Unit,
     onConfirmDeleteStep: (WorkflowNode) -> Unit,
 ) {
+    if (showCancelConfirmDialog && isTestingSheet) {
+        CancelExecutionConfirmDialog(
+            targetName = name.ifBlank { "Precondition Test" },
+            onConfirm = onConfirmCancelTest,
+            onDismiss = onDismissCancelTest,
+        )
+    }
+
     if (showTestStepperSheet) {
         PreconditionExecutionStepperBottomSheet(
             preconditionName = name.ifBlank { "Precondition Test" },
             steps = sheetTestSteps,
             isTesting = isTestingSheet,
+            onCancelExecution = onCancelTestStepper,
             onDismiss = onDismissTestStepper,
         )
     }
@@ -1029,6 +1106,7 @@ private fun hasPreconditionChanges(
 private fun PreconditionEditorBody(
     innerPadding: PaddingValues,
     isTesting: Boolean,
+    onCancelTest: (() -> Unit)? = null,
     errorMessage: String?,
     onDismissError: () -> Unit,
     name: String,
@@ -1072,7 +1150,7 @@ private fun PreconditionEditorBody(
                 shape = RoundedCornerShape(10.dp),
             ) {
                 Row(
-                    modifier = Modifier.padding(12.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
@@ -1082,7 +1160,23 @@ private fun PreconditionEditorBody(
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.weight(1f),
                     )
+                    if (onCancelTest != null) {
+                        TextButton(
+                            onClick = onCancelTest,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        ) {
+                            Text(
+                                text = "Cancel",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
                 }
             }
         }

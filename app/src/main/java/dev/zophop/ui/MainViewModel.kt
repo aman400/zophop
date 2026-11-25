@@ -30,6 +30,7 @@ import dev.zophop.domain.engine.ActiveExecutionTracker
 import dev.zophop.domain.engine.ActiveWorkflowExecution
 import dev.zophop.domain.engine.ExecutionJobRegistry
 import dev.zophop.domain.engine.NodeExecutionStep
+import dev.zophop.domain.engine.NodeStepState
 import dev.zophop.domain.engine.PreconditionEvaluator
 import dev.zophop.domain.engine.PreconditionResult
 import dev.zophop.domain.engine.WorkflowEngine
@@ -48,17 +49,22 @@ import dev.zophop.filter.SmsFilter
 import dev.zophop.plugin.api.ExecutionContext
 import dev.zophop.service.SmsForwarderService
 import dev.zophop.worker.ForwardingManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlin.time.Duration.Companion.milliseconds
+
+private const val PRECONDITION_TEST_CANCELLED_REASON = "Precondition test cancelled by user"
 
 typealias ActiveExecutionState = ActiveWorkflowExecution
 
@@ -670,25 +676,77 @@ class MainViewModel(
         }
     }
 
+    private fun preconditionTestJobKey(preconditionId: String): String = "precondition_test:$preconditionId"
+
+    fun cancelPreconditionTest(preconditionId: String): Boolean =
+        ExecutionJobRegistry.cancelJob(preconditionTestJobKey(preconditionId))
+
     fun testPreconditionWithProgress(
         entity: PreconditionEntity,
         onStepUpdate: (List<NodeExecutionStep>) -> Unit,
         onResult: (PreconditionResult) -> Unit,
     ) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val context = getApplication<Application>()
-            val evaluator = PreconditionEvaluator(context)
-            val domainPrecondition = entity.toDomain()
-            val result =
-                evaluator.evaluate(domainPrecondition) { steps ->
-                    viewModelScope.launch(Dispatchers.Main) {
-                        onStepUpdate(steps)
+        val jobKey = preconditionTestJobKey(entity.id)
+        ExecutionJobRegistry.cancelJob(jobKey)
+        lateinit var job: kotlinx.coroutines.Job
+        job =
+            viewModelScope.launch(Dispatchers.IO) {
+                var latestSteps: List<NodeExecutionStep> = emptyList()
+                try {
+                    val context = getApplication<Application>()
+                    val evaluator = PreconditionEvaluator(context, credentialRepository = credentialRepository)
+                    val domainPrecondition = entity.toDomain()
+                    val result =
+                        evaluator.evaluate(domainPrecondition) { steps ->
+                            if (!isActive) return@evaluate
+                            latestSteps = steps
+                            viewModelScope.launch(Dispatchers.Main) {
+                                if (job.isActive) {
+                                    onStepUpdate(steps)
+                                }
+                            }
+                        }
+                    withContext(Dispatchers.Main) {
+                        onResult(result)
                     }
+                } catch (e: CancellationException) {
+                    val cancelledSteps =
+                        buildCancelledPreconditionSteps(
+                            steps = latestSteps,
+                            precondition = entity,
+                        )
+                    withContext(NonCancellable + Dispatchers.Main) {
+                        onStepUpdate(cancelledSteps)
+                        onResult(
+                            PreconditionResult.Failed(
+                                reason = PRECONDITION_TEST_CANCELLED_REASON,
+                                steps = cancelledSteps,
+                            ),
+                        )
+                    }
+                    throw e
                 }
-            withContext(Dispatchers.Main) {
-                onResult(result)
             }
-        }
+        ExecutionJobRegistry.registerJob(jobKey, job)
+    }
+
+    private fun buildCancelledPreconditionSteps(
+        steps: List<NodeExecutionStep>,
+        precondition: PreconditionEntity,
+    ): List<NodeExecutionStep> {
+        if (steps.isNotEmpty()) return steps.markStepsAsCancelled(PRECONDITION_TEST_CANCELLED_REASON)
+        return listOf(
+            NodeExecutionStep(
+                nodeId = precondition.id.ifBlank { "precondition_cancelled" },
+                nodeName = precondition.name.ifBlank { "Precondition Check" },
+                nodeType = precondition.type,
+                state = NodeStepState.FAILED,
+                logMessage = PRECONDITION_TEST_CANCELLED_REASON,
+                errorReason = "Cancelled",
+                executedAt = System.currentTimeMillis(),
+                durationMs = 0L,
+            ),
+        )
     }
 
     fun testPrecondition(

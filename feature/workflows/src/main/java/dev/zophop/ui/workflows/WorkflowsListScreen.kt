@@ -1,18 +1,22 @@
 package dev.zophop.ui.workflows
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -23,12 +27,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -37,6 +43,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -45,6 +52,7 @@ import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxState
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
@@ -62,8 +70,11 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -117,14 +128,10 @@ fun WorkflowsListScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item { Spacer(modifier = Modifier.height(12.dp)) }
-
             if (workflows.isEmpty()) {
                 item {
                     OutlinedCard(
@@ -135,17 +142,32 @@ fun WorkflowsListScreen(
                                 containerColor = MaterialTheme.colorScheme.surface,
                             ),
                     ) {
-                        Box(
+                        Column(
                             modifier =
                                 Modifier
                                     .fillMaxWidth()
                                     .padding(32.dp),
-                            contentAlignment = Alignment.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
+                            Icon(
+                                imageVector = Icons.Default.AccountTree,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.size(40.dp),
+                            )
                             Text(
-                                text = "No workflows created yet. Tap '+ Add Workflow' below to choose a trigger.",
-                                style = MaterialTheme.typography.bodyMedium,
+                                text = "No workflows created yet",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                            )
+                            Text(
+                                text = "Tap '+ Add Workflow' below to choose a trigger and build an automation.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
                             )
                         }
                     }
@@ -184,8 +206,6 @@ fun WorkflowsListScreen(
                     )
                 }
             }
-
-            item { Spacer(modifier = Modifier.height(80.dp)) }
         }
 
         ExtendedFloatingActionButton(
@@ -274,6 +294,7 @@ fun WorkflowsListScreen(
 /**
  * Compact Modernized Card Item for a Workflow rule in the list.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorkflowCardItem(
     workflow: Workflow,
@@ -290,6 +311,10 @@ fun WorkflowCardItem(
     val isManual = triggerNode?.type == NodeType.MANUAL_TRIGGER
     val triggerTitle = triggerNode?.let { WorkflowUiHelper.getNodeTitle(it.type) } ?: "Trigger"
     val triggerIcon = triggerNode?.let { WorkflowUiHelper.getNodeIcon(it.type) } ?: Icons.Default.PlayArrow
+    val preconditionCount =
+        remember(workflow.nodes) {
+            workflow.nodes.sumOf { it.preconditions.size }
+        }
 
     val dismissState = rememberSwipeToDismissBoxState()
     val currentOnEdit by rememberUpdatedState(onEdit)
@@ -309,45 +334,24 @@ fun WorkflowCardItem(
         }
     }
 
+    val containerColor by animateColorAsState(
+        targetValue = if (workflow.isEnabled) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceContainerLow,
+        animationSpec = tween(durationMillis = 220),
+        label = "WorkflowCardColor",
+    )
+
+    val borderColor =
+        if (workflow.isEnabled) {
+            MaterialTheme.colorScheme.outlineVariant
+        } else {
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+        }
+
     SwipeToDismissBox(
         state = dismissState,
         modifier = modifier,
         backgroundContent = {
-            val direction = dismissState.dismissDirection
-            val color =
-                when (direction) {
-                    SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.secondaryContainer
-                    SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
-                    else -> Color.Transparent
-                }
-            val alignment = if (direction == SwipeToDismissBoxValue.StartToEnd) Alignment.CenterStart else Alignment.CenterEnd
-            val icon = if (direction == SwipeToDismissBoxValue.StartToEnd) Icons.Default.Edit else Icons.Default.Delete
-            val text = if (direction == SwipeToDismissBoxValue.StartToEnd) "Edit" else "Delete"
-            val tint =
-                if (direction ==
-                    SwipeToDismissBoxValue.StartToEnd
-                ) {
-                    MaterialTheme.colorScheme.onSecondaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onErrorContainer
-                }
-
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .background(color, shape = RoundedCornerShape(14.dp))
-                        .padding(horizontal = 20.dp),
-                contentAlignment = alignment,
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Icon(imageVector = icon, contentDescription = text, tint = tint, modifier = Modifier.size(16.dp))
-                    Text(text = text, color = tint, fontWeight = FontWeight.Bold, fontSize = 11.sp)
-                }
-            }
+            WorkflowDismissBackground(dismissState)
         },
     ) {
         OutlinedCard(
@@ -355,173 +359,345 @@ fun WorkflowCardItem(
                 Modifier
                     .fillMaxWidth()
                     .clickable(onClick = onEdit),
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, borderColor),
             colors =
                 CardDefaults.outlinedCardColors(
-                    containerColor = if (workflow.isEnabled) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceContainerLow,
+                    containerColor = containerColor,
                 ),
         ) {
             Column(
-                modifier = Modifier.padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                // Header Row: Trigger Icon, Name, Switch
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
-                            modifier = Modifier.size(32.dp),
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                if (workflow.icon.isNotBlank()) {
-                                    Text(
-                                        text = workflow.icon,
-                                        fontSize = 16.sp,
-                                    )
+                WorkflowCardHeader(
+                    workflow = workflow,
+                    triggerIcon = triggerIcon,
+                    triggerTitle = triggerTitle,
+                    onToggle = onToggle,
+                )
+
+                WorkflowMetadataBadges(
+                    workflow = workflow,
+                    preconditionCount = preconditionCount,
+                    isQueued = isQueued,
+                    onQueueClick = { onViewQueue?.invoke() ?: onViewLogs() },
+                )
+
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                )
+
+                WorkflowCardBottomActions(
+                    isManual = isManual,
+                    onRunManual = onRunManual,
+                    onViewLogs = onViewLogs,
+                    onEdit = onEdit,
+                    onDelete = onDelete,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkflowCardHeader(
+    workflow: Workflow,
+    triggerIcon: ImageVector,
+    triggerTitle: String,
+    onToggle: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Row(
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.weight(1f),
+        ) {
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color =
+                    if (workflow.isEnabled) {
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.75f)
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerHighest
+                    },
+                modifier = Modifier.size(38.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    if (workflow.icon.isNotBlank()) {
+                        Text(
+                            text = workflow.icon,
+                            fontSize = 18.sp,
+                        )
+                    } else {
+                        Icon(
+                            imageVector = triggerIcon,
+                            contentDescription = null,
+                            tint =
+                                if (workflow.isEnabled) {
+                                    MaterialTheme.colorScheme.primary
                                 } else {
-                                    Icon(
-                                        imageVector = triggerIcon,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(16.dp),
-                                    )
-                                }
-                            }
-                        }
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = workflow.name,
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                text = triggerTitle,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 11.sp,
-                            )
-                        }
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            modifier = Modifier.size(18.dp),
+                        )
                     }
+                }
+            }
 
-                    Switch(
-                        checked = workflow.isEnabled,
-                        onCheckedChange = { targetEnabled ->
-                            onToggle(targetEnabled)
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                Text(
+                    text = workflow.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color =
+                        if (workflow.isEnabled) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
                         },
-                        modifier = Modifier.height(28.dp),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = triggerTitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+
+        Switch(
+            checked = workflow.isEnabled,
+            onCheckedChange = onToggle,
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun WorkflowMetadataBadges(
+    workflow: Workflow,
+    preconditionCount: Int,
+    isQueued: Boolean,
+    onQueueClick: () -> Unit,
+) {
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        if (isQueued) {
+            Surface(
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                shape = RoundedCornerShape(6.dp),
+                modifier =
+                    Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable(onClick = onQueueClick),
+            ) {
+                Text(
+                    text = "⏳ Queued",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+        }
+
+        val nodeCount = workflow.nodes.size
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            shape = RoundedCornerShape(6.dp),
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Icon(Icons.Default.AccountTree, contentDescription = null, modifier = Modifier.size(12.dp))
+                Text(
+                    text = "$nodeCount ${if (nodeCount == 1) "Node" else "Nodes"}",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+
+        val linkCount = workflow.connections.size
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            shape = RoundedCornerShape(6.dp),
+        ) {
+            Text(
+                text = "$linkCount ${if (linkCount == 1) "Link" else "Links"}",
+                style = MaterialTheme.typography.labelSmall,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            )
+        }
+
+        if (preconditionCount > 0) {
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.75f),
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                shape = RoundedCornerShape(6.dp),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Icon(Icons.Default.Shield, contentDescription = null, modifier = Modifier.size(12.dp))
+                    Text(
+                        text = "$preconditionCount ${if (preconditionCount == 1) "Precondition" else "Preconditions"}",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
                     )
                 }
+            }
+        }
 
-                // Pipeline Step Summary Chips
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+        if (!workflow.isEnabled) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                shape = RoundedCornerShape(6.dp),
+            ) {
+                Text(
+                    text = "Disabled",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun WorkflowCardBottomActions(
+    isManual: Boolean,
+    onRunManual: () -> Unit,
+    onViewLogs: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        FlowRow(
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            itemVerticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (isManual) {
+                OutlinedButton(
+                    onClick = onRunManual,
+                    modifier = Modifier.heightIn(min = 34.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                 ) {
-                    if (isQueued) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.secondaryContainer,
-                            shape = RoundedCornerShape(4.dp),
-                            modifier = Modifier.clickable { onViewQueue?.invoke() ?: onViewLogs() },
-                        ) {
-                            Text(
-                                text = "⏳ Queued",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                fontSize = 10.sp,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                            )
-                        }
-                    }
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                        shape = RoundedCornerShape(4.dp),
-                    ) {
-                        Text(
-                            text = "${workflow.nodes.size} Nodes",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontSize = 10.sp,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                        )
-                    }
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                        shape = RoundedCornerShape(4.dp),
-                    ) {
-                        Text(
-                            text = "${workflow.connections.size} Links",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontSize = 10.sp,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                        )
-                    }
+                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(15.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Run", fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
                 }
+            }
 
-                // Bottom Action Bar: Run / Logs / Edit
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        if (isManual) {
-                            OutlinedButton(
-                                onClick = onRunManual,
-                                modifier = Modifier.height(26.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                            ) {
-                                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(13.dp))
-                                Spacer(modifier = Modifier.width(2.dp))
-                                Text("Run", fontSize = 11.sp)
-                            }
-                        }
+            OutlinedButton(
+                onClick = onViewLogs,
+                modifier = Modifier.heightIn(min = 34.dp),
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+            ) {
+                Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(15.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Logs", fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
+            }
+        }
 
-                        OutlinedButton(
-                            onClick = onViewLogs,
-                            modifier = Modifier.height(26.dp),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                        ) {
-                            Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(13.dp))
-                            Spacer(modifier = Modifier.width(2.dp))
-                            Text("Logs", fontSize = 11.sp)
-                        }
-                    }
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onEdit, modifier = Modifier.size(40.dp)) {
+                Icon(
+                    imageVector = Icons.Default.Edit,
+                    contentDescription = "Edit",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            IconButton(onClick = onDelete, modifier = Modifier.size(40.dp)) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = "Delete",
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
+    }
+}
 
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(0.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        IconButton(onClick = onEdit, modifier = Modifier.size(28.dp)) {
-                            Icon(
-                                imageVector = Icons.Default.Edit,
-                                contentDescription = "Edit",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        }
-                        IconButton(onClick = onDelete, modifier = Modifier.size(28.dp)) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = "Delete",
-                                tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        }
-                    }
-                }
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun WorkflowDismissBackground(dismissState: SwipeToDismissBoxState) {
+    val direction = dismissState.dismissDirection
+    val color =
+        when (direction) {
+            SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.secondaryContainer
+            SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
+            else -> Color.Transparent
+        }
+    val alignment = if (direction == SwipeToDismissBoxValue.StartToEnd) Alignment.CenterStart else Alignment.CenterEnd
+    val icon = if (direction == SwipeToDismissBoxValue.StartToEnd) Icons.Default.Edit else Icons.Default.Delete
+    val text = if (direction == SwipeToDismissBoxValue.StartToEnd) "Edit" else "Delete"
+    val tint =
+        if (direction == SwipeToDismissBoxValue.StartToEnd) {
+            MaterialTheme.colorScheme.onSecondaryContainer
+        } else {
+            MaterialTheme.colorScheme.onErrorContainer
+        }
+
+    Box(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(color, shape = RoundedCornerShape(16.dp))
+                .padding(horizontal = 20.dp),
+        contentAlignment = alignment,
+    ) {
+        if (direction != SwipeToDismissBoxValue.Settled) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Icon(imageVector = icon, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
+                Text(text = text, color = tint, fontWeight = FontWeight.Bold, fontSize = 11.sp)
             }
         }
     }
@@ -601,7 +777,7 @@ fun CreateTriggerSelectionBottomSheet(
 fun TriggerSelectionCard(
     title: String,
     description: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     onClick: () -> Unit,
 ) {
     OutlinedCard(

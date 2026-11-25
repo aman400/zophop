@@ -45,6 +45,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -57,6 +58,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.zophop.core.ui.components.CancelExecutionConfirmDialog
 import dev.zophop.data.MessageEntity
 import dev.zophop.data.PreconditionEntity
 import dev.zophop.domain.engine.NodeStepState
@@ -242,6 +244,9 @@ fun MainAppScreen(
                     onTestPreconditionWithProgress = { entity, onProgress, onResult ->
                         viewModel.testPreconditionWithProgress(entity, onProgress, onResult)
                     },
+                    onCancelTestPrecondition = { id ->
+                        viewModel.cancelPreconditionTest(id)
+                    },
                     onDismiss = {
                         showAddPreconditionScreen = false
                         activeEditingPrecondition = null
@@ -343,6 +348,9 @@ fun MainAppScreen(
             credentials = credentials,
             onTestPreconditionWithProgress = { entity, onProgress, onResult ->
                 viewModel.testPreconditionWithProgress(entity, onProgress, onResult)
+            },
+            onCancelTestPrecondition = { id ->
+                viewModel.cancelPreconditionTest(id)
             },
             onDismiss = { activeCreatePreconditionCallback = null },
             onSave = { newPrec ->
@@ -598,6 +606,12 @@ internal fun ActiveExecutionBanner(
     onCancelExecution: (() -> Unit)? = null,
 ) {
     if (!activeState.isExecuting) return
+    var showCancelConfirmDialog by remember { mutableStateOf(false) }
+    LaunchedEffect(activeState.workflowId, activeState.isExecuting) {
+        if (!activeState.isExecuting) {
+            showCancelConfirmDialog = false
+        }
+    }
     val activeStep =
         activeState.steps.lastOrNull { it.state == NodeStepState.EXECUTING }
             ?: activeState.steps.lastOrNull()
@@ -660,7 +674,7 @@ internal fun ActiveExecutionBanner(
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (onCancelExecution != null) {
-                    TextButton(onClick = onCancelExecution) {
+                    TextButton(onClick = { showCancelConfirmDialog = true }) {
                         Text(
                             text = "Cancel",
                             fontWeight = FontWeight.Bold,
@@ -683,6 +697,21 @@ internal fun ActiveExecutionBanner(
                 }
             }
         }
+    }
+
+    if (showCancelConfirmDialog && onCancelExecution != null) {
+        CancelExecutionConfirmDialog(
+            targetName = activeState.workflowName,
+            title = if (isQueuedState) "Cancel Queued Execution?" else "Cancel Running Execution?",
+            message =
+                if (isQueuedState) {
+                    "Are you sure you want to stop this queued execution of '${activeState.workflowName}'?"
+                } else {
+                    "Are you sure you want to stop this running execution of '${activeState.workflowName}'?"
+                },
+            onConfirm = onCancelExecution,
+            onDismiss = { showCancelConfirmDialog = false },
+        )
     }
 }
 
@@ -741,6 +770,9 @@ private fun MainTabContent(
                 onDeletePrecondition = { id -> viewModel.deletePrecondition(id) },
                 onTestPreconditionWithProgress = { entity, onProgress, onResult ->
                     viewModel.testPreconditionWithProgress(entity, onProgress, onResult)
+                },
+                onCancelTestPrecondition = { id ->
+                    viewModel.cancelPreconditionTest(id)
                 },
                 onEditPrecondition = onEditPrecondition,
             )

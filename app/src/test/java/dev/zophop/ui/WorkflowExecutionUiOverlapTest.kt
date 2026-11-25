@@ -15,29 +15,44 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.getBoundsInRoot
+import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.DpRect
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import dev.zophop.data.PreconditionEntity
 import dev.zophop.data.WorkflowExecutionLogEntity
 import dev.zophop.domain.engine.NodeExecutionStep
 import dev.zophop.domain.engine.NodeStepState
+import dev.zophop.domain.engine.PreconditionResult
 import dev.zophop.domain.engine.toJsonString
 import dev.zophop.domain.model.NodeType
+import dev.zophop.domain.model.Precondition
+import dev.zophop.domain.model.PreconditionType
 import dev.zophop.domain.model.Workflow
+import dev.zophop.domain.model.WorkflowConnection
 import dev.zophop.domain.model.WorkflowNode
+import dev.zophop.ui.preconditions.PreconditionCardItem
+import dev.zophop.ui.preconditions.PreconditionExecutionStepperBottomSheet
+import dev.zophop.ui.preconditions.PreconditionsScreen
 import dev.zophop.ui.workflows.NodeExecutionStepper
 import dev.zophop.ui.workflows.TestRunLogBottomSheet
+import dev.zophop.ui.workflows.WorkflowCardItem
 import dev.zophop.ui.workflows.WorkflowExecutionCard
 import dev.zophop.ui.workflows.WorkflowLogsBottomSheet
+import dev.zophop.ui.workflows.WorkflowUiHelper
 import dev.zophop.ui.workflows.WorkflowsListScreen
 import kotlinx.coroutines.flow.flowOf
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -434,5 +449,448 @@ class WorkflowExecutionUiOverlapTest {
         assertStrictlyLeftOf("bannerLog", bannerLog, "cancelBtn", cancelBtn)
         assertStrictlyLeftOf("cancelBtn", cancelBtn, "viewBtn", viewBtn)
         assertStrictlyAbove("bannerLog", bannerLog, "firstWorkflowCard", firstWorkflowCard)
+    }
+
+    @Test
+    fun preconditionExecutionStepperBottomSheet_headerAndCancelButton_doNotOverlap() {
+        var cancelClicked = false
+        val steps =
+            listOf(
+                NodeExecutionStep(
+                    nodeId = "prec_step_1",
+                    nodeName = "HTTP Health Probe Check Step",
+                    nodeType = NodeType.HTTP_ACTION,
+                    state = NodeStepState.EXECUTING,
+                    logMessage = "Waiting 28s before next retry attempt...",
+                ),
+            )
+
+        composeTestRule.setContent {
+            PreconditionExecutionStepperBottomSheet(
+                preconditionName = "Very Long Precondition Rule Name That Must Not Overlap Cancel",
+                steps = steps,
+                isTesting = true,
+                onCancelExecution = { cancelClicked = true },
+                onDismiss = {},
+            )
+        }
+
+        val headerTitle =
+            composeTestRule.onNodeWithText("Precondition Execution Stepper", useUnmergedTree = true).bounds()
+        val precTitle =
+            composeTestRule
+                .onNodeWithText("Very Long Precondition Rule Name That Must Not Overlap Cancel", useUnmergedTree = true)
+                .bounds()
+        val cancelBtn = composeTestRule.onNodeWithText("Cancel", useUnmergedTree = true).bounds()
+        val closeBtn = composeTestRule.onNodeWithContentDescription("Close", useUnmergedTree = true).bounds()
+        val stepTitle = composeTestRule.onNodeWithText("HTTP Health Probe Check Step", useUnmergedTree = true).bounds()
+
+        assertStrictlyLeftOf("headerTitle", headerTitle, "cancelBtn", cancelBtn)
+        assertStrictlyLeftOf("precTitle", precTitle, "cancelBtn", cancelBtn)
+        assertStrictlyLeftOf("cancelBtn", cancelBtn, "closeBtn", closeBtn)
+        assertStrictlyAbove("precTitle", precTitle, "stepTitle", stepTitle)
+
+        composeTestRule.onNodeWithText("Cancel").performClick()
+        composeTestRule.onNodeWithText("Cancel Running Execution?").assertExists()
+        composeTestRule.onNodeWithText("Keep").performClick()
+        assertFalse(cancelClicked)
+
+        composeTestRule.onNodeWithText("Cancel").performClick()
+        composeTestRule.onNodeWithText("Cancel Execution").performClick()
+        assertTrue(cancelClicked)
+    }
+
+    @Test
+    fun preconditionCardItem_ongoingTestShowsCancelButton_andCancelsExecution() {
+        val precondition =
+            PreconditionEntity(
+                id = "prec_ui_cancel_1",
+                name = "VPN & Health Guard",
+                type = PreconditionType.CHAINED_CHECK.name,
+                isEnabled = true,
+                onFailureAction = "RETRY",
+                maxRetries = 3,
+                retryIntervalSeconds = 30,
+            )
+        var cancelledId: String? = null
+
+        composeTestRule.setContent {
+            PreconditionCardItem(
+                precondition = precondition,
+                linkedWorkflowCount = 1,
+                onTestPreconditionWithProgress = { _, onProgress, _ ->
+                    onProgress(
+                        listOf(
+                            NodeExecutionStep(
+                                nodeId = "prec_step_exec",
+                                nodeName = "VPN Check",
+                                nodeType = NodeType.VPN_CHECK,
+                                state = NodeStepState.EXECUTING,
+                                logMessage = "Waiting 29s before retry...",
+                            ),
+                        ),
+                    )
+                },
+                onCancelTestPrecondition = { id -> cancelledId = id },
+                onToggle = {},
+                onEdit = {},
+                onDelete = {},
+            )
+        }
+
+        composeTestRule.onNodeWithText("Test").performClick()
+        composeTestRule.waitForIdle()
+
+        // Stepper sheet opens with an active Cancel button; dismissing Keep does not cancel
+        composeTestRule.onNodeWithText("Precondition Execution Stepper").assertExists()
+        composeTestRule.onAllNodesWithText("Cancel")[0].performClick()
+        composeTestRule.onNodeWithText("Cancel Running Execution?").assertExists()
+        composeTestRule.onNodeWithText("Keep").performClick()
+        composeTestRule.waitForIdle()
+        assertNull(cancelledId)
+
+        // Confirming Cancel Execution cancels the test
+        composeTestRule.onAllNodesWithText("Cancel")[0].performClick()
+        composeTestRule.onNodeWithText("Cancel Execution").performClick()
+        composeTestRule.waitForIdle()
+
+        assertEquals(precondition.id, cancelledId)
+        composeTestRule.onNodeWithText("Cancelled").assertExists()
+        composeTestRule.onNodeWithText("Precondition test cancelled by user").assertExists()
+    }
+
+    @Test
+    fun testRunLogBottomSheet_cancelRequiresConfirmation() {
+        var cancelled = false
+        val steps =
+            listOf(
+                NodeExecutionStep(
+                    nodeId = "n1",
+                    nodeName = "HTTP Request",
+                    nodeType = NodeType.HTTP_ACTION,
+                    state = NodeStepState.EXECUTING,
+                    logMessage = "Sending request...",
+                ),
+            )
+
+        composeTestRule.setContent {
+            TestRunLogBottomSheet(
+                workflowName = "Webhook Flow",
+                steps = steps,
+                isTesting = true,
+                onCancelExecution = { cancelled = true },
+                onDismiss = {},
+            )
+        }
+
+        composeTestRule.onNodeWithText("Cancel").performClick()
+        composeTestRule.onNodeWithText("Cancel Running Execution?").assertExists()
+        composeTestRule.onNodeWithText("Keep").performClick()
+        assertFalse(cancelled)
+
+        composeTestRule.onNodeWithText("Cancel").performClick()
+        composeTestRule.onNodeWithText("Cancel Execution").performClick()
+        assertTrue(cancelled)
+    }
+
+    @Test
+    fun activeExecutionBanner_cancelRequiresConfirmation() {
+        var cancelled = false
+        val activeState =
+            ActiveExecutionState(
+                workflowId = "WF-BANNER-CONFIRM",
+                workflowName = "OTP Forwarder",
+                isExecuting = true,
+                steps =
+                    listOf(
+                        NodeExecutionStep(
+                            nodeId = "n1",
+                            nodeName = "HTTP Request",
+                            nodeType = NodeType.HTTP_ACTION,
+                            state = NodeStepState.EXECUTING,
+                            logMessage = "Running...",
+                        ),
+                    ),
+            )
+
+        composeTestRule.setContent {
+            ActiveExecutionBanner(
+                activeState = activeState,
+                onViewSheet = {},
+                onCancelExecution = { cancelled = true },
+            )
+        }
+
+        composeTestRule.onNodeWithText("Cancel").performClick()
+        composeTestRule.onNodeWithText("Cancel Running Execution?").assertExists()
+        composeTestRule.onNodeWithText("Keep").performClick()
+        assertFalse(cancelled)
+
+        composeTestRule.onNodeWithText("Cancel").performClick()
+        composeTestRule.onNodeWithText("Cancel Execution").performClick()
+        assertTrue(cancelled)
+    }
+
+    @Test
+    fun preconditionCardItem_longNameStatusChipAndActions_doNotOverlapOnNarrowScreen() {
+        val chainedPipelineJson =
+            """
+            {
+              "nodes": [
+                {"id": "1", "name": "VPN Connected", "type": "VPN_CHECK", "isEnabled": true, "configJson": "{}"},
+                {"id": "2", "name": "HTTP Webhook Action", "type": "HTTP_ACTION", "isEnabled": true, "configJson": "{}"},
+                {"id": "3", "name": "JSON Parser", "type": "JSON_PARSER", "isEnabled": true, "configJson": "{}"}
+              ],
+              "connections": []
+            }
+            """.trimIndent()
+        val precondition =
+            PreconditionEntity(
+                id = "prec_overlap_1",
+                name = "Production API VPN & Healthcheck Verification Guard",
+                type = PreconditionType.CHAINED_CHECK.name,
+                isEnabled = true,
+                onFailureAction = "QUEUE",
+                queueTimeoutMinutes = 10,
+                pipelineJson = chainedPipelineJson,
+            )
+
+        composeTestRule.setContent {
+            Box(modifier = Modifier.width(300.dp)) {
+                PreconditionCardItem(
+                    precondition = precondition,
+                    linkedWorkflowCount = 2,
+                    onTestPreconditionWithProgress = { _, onProgress, _ ->
+                        onProgress(
+                            listOf(
+                                NodeExecutionStep(
+                                    nodeId = "s1",
+                                    nodeName = "VPN Connected",
+                                    nodeType = NodeType.VPN_CHECK,
+                                    state = NodeStepState.EXECUTING,
+                                    logMessage = "Checking tunnel...",
+                                ),
+                            ),
+                        )
+                    },
+                    onCancelTestPrecondition = {},
+                    onToggle = {},
+                    onEdit = {},
+                    onDelete = {},
+                )
+            }
+        }
+
+        // Trigger ongoing test and close sheet so card shows Verifying... + Cancel
+        composeTestRule.onNodeWithText("Test").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithContentDescription("Close").performClick()
+        composeTestRule.waitForIdle()
+
+        val nameBounds =
+            composeTestRule
+                .onNodeWithText("Production API VPN & Healthcheck Verification Guard", useUnmergedTree = true)
+                .bounds()
+        val typeBounds =
+            composeTestRule
+                .onNodeWithText(
+                    "Chained Pipeline (3 Steps: VPN Connected → HTTP Webhook Action → JSON Parser)",
+                    useUnmergedTree = true,
+                ).bounds()
+        val switchBounds = composeTestRule.onNode(isToggleable(), useUnmergedTree = true).bounds()
+        val queueBadgeBounds = composeTestRule.onNodeWithText("Queue Mode (10m)", useUnmergedTree = true).bounds()
+        val workflowsBadgeBounds = composeTestRule.onNodeWithText("2 Workflows", useUnmergedTree = true).bounds()
+        val verifyingBounds = composeTestRule.onNodeWithText("Verifying...", useUnmergedTree = true).bounds()
+        val cancelBounds = composeTestRule.onNodeWithText("Cancel", useUnmergedTree = true).bounds()
+        val editBounds = composeTestRule.onNodeWithContentDescription("Edit", useUnmergedTree = true).bounds()
+        val deleteBounds = composeTestRule.onNodeWithContentDescription("Delete", useUnmergedTree = true).bounds()
+
+        assertStrictlyLeftOf("nameBounds", nameBounds, "switchBounds", switchBounds)
+        assertStrictlyLeftOf("typeBounds", typeBounds, "switchBounds", switchBounds)
+        assertStrictlyAbove("nameBounds", nameBounds, "typeBounds", typeBounds)
+        assertStrictlyAbove("typeBounds", typeBounds, "queueBadgeBounds", queueBadgeBounds)
+        assertNoOverlap("queueBadgeBounds", queueBadgeBounds, "workflowsBadgeBounds", workflowsBadgeBounds)
+        assertStrictlyAbove("queueBadgeBounds", queueBadgeBounds, "verifyingBounds", verifyingBounds)
+        assertNoOverlap("verifyingBounds", verifyingBounds, "cancelBounds", cancelBounds)
+        assertStrictlyLeftOf("verifyingBounds", verifyingBounds, "editBounds", editBounds)
+        assertStrictlyLeftOf("cancelBounds", cancelBounds, "editBounds", editBounds)
+        assertStrictlyLeftOf("editBounds", editBounds, "deleteBounds", deleteBounds)
+    }
+
+    @Test
+    fun preconditionCardItem_shortNameWithVerifiedChip_sitsSideBySideWithoutOverlap() {
+        val precondition =
+            PreconditionEntity(
+                id = "prec_verified_1",
+                name = "VPN",
+                type = PreconditionType.VPN_CHECK.name,
+                isEnabled = true,
+                onFailureAction = "FAIL",
+            )
+
+        composeTestRule.setContent {
+            Box(modifier = Modifier.width(300.dp)) {
+                PreconditionCardItem(
+                    precondition = precondition,
+                    linkedWorkflowCount = 1,
+                    onTestPreconditionWithProgress = { _, _, onComplete ->
+                        onComplete(PreconditionResult.Passed(steps = emptyList()))
+                    },
+                    onCancelTestPrecondition = {},
+                    onToggle = {},
+                    onEdit = {},
+                    onDelete = {},
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithText("Test").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithContentDescription("Close").performClick()
+        composeTestRule.waitForIdle()
+
+        val nameBounds = composeTestRule.onNodeWithText("VPN", useUnmergedTree = true).bounds()
+        val chipBounds = composeTestRule.onNodeWithText("Verified", useUnmergedTree = true).bounds()
+        val switchBounds = composeTestRule.onNode(isToggleable(), useUnmergedTree = true).bounds()
+        val editBounds = composeTestRule.onNodeWithContentDescription("Edit", useUnmergedTree = true).bounds()
+        val deleteBounds = composeTestRule.onNodeWithContentDescription("Delete", useUnmergedTree = true).bounds()
+
+        assertStrictlyLeftOf("nameBounds", nameBounds, "chipBounds", chipBounds)
+        assertStrictlyLeftOf("chipBounds", chipBounds, "switchBounds", switchBounds)
+        assertTrue("Expected Edit icon not to be clipped", (editBounds.right - editBounds.left).value >= 16f)
+        assertTrue("Expected Delete icon not to be clipped", (deleteBounds.right - deleteBounds.left).value >= 16f)
+        assertStrictlyLeftOf("editBounds", editBounds, "deleteBounds", deleteBounds)
+    }
+
+    @Test
+    fun preconditionCardItem_healthCheckDisabledWithUrl_displaysCleanlyWithoutOverlap() {
+        val precondition =
+            PreconditionEntity(
+                id = "prec_health_disabled",
+                name = "Core Health Probe",
+                type = PreconditionType.HEALTH_CHECK.name,
+                targetUrl = "https://api.internal.example.com/v1/healthcheck/status/very/long/endpoint",
+                method = "GET",
+                isEnabled = false,
+                onFailureAction = "RETRY",
+                maxRetries = 3,
+                retryIntervalSeconds = 15,
+                retryStrategy = "EXPONENTIAL",
+            )
+
+        composeTestRule.setContent {
+            Box(modifier = Modifier.width(300.dp)) {
+                PreconditionsScreen(
+                    preconditions = listOf(precondition),
+                )
+            }
+        }
+
+        val nameBounds = composeTestRule.onNodeWithText("Core Health Probe", useUnmergedTree = true).bounds()
+        val urlBounds =
+            composeTestRule
+                .onNodeWithText(
+                    "GET → https://api.internal.example.com/v1/healthcheck/status/very/long/endpoint",
+                    useUnmergedTree = true,
+                ).bounds()
+        val retryBounds = composeTestRule.onNodeWithText("Retry 3x (15s, Exp)", useUnmergedTree = true).bounds()
+        val noWfBounds = composeTestRule.onNodeWithText("No Workflows", useUnmergedTree = true).bounds()
+        val disabledBounds = composeTestRule.onNodeWithText("Disabled", useUnmergedTree = true).bounds()
+        val testBounds = composeTestRule.onNodeWithText("Test", useUnmergedTree = true).bounds()
+        val editBounds = composeTestRule.onNodeWithContentDescription("Edit", useUnmergedTree = true).bounds()
+        val deleteBounds = composeTestRule.onNodeWithContentDescription("Delete", useUnmergedTree = true).bounds()
+
+        assertStrictlyAbove("nameBounds", nameBounds, "urlBounds", urlBounds)
+        assertStrictlyAbove("urlBounds", urlBounds, "retryBounds", retryBounds)
+        assertNoOverlap("retryBounds", retryBounds, "noWfBounds", noWfBounds)
+        assertNoOverlap("noWfBounds", noWfBounds, "disabledBounds", disabledBounds)
+        assertNoOverlap("retryBounds", retryBounds, "disabledBounds", disabledBounds)
+        assertStrictlyAbove("noWfBounds", noWfBounds, "testBounds", testBounds)
+        assertStrictlyLeftOf("testBounds", testBounds, "editBounds", editBounds)
+        assertStrictlyLeftOf("editBounds", editBounds, "deleteBounds", deleteBounds)
+    }
+
+    @Test
+    fun workflowCardItem_longNameQueuedDisabledAndManualActions_doNotOverlapOnNarrowScreen() {
+        val workflow =
+            Workflow(
+                id = "WF_CARD_1",
+                name = "Extremely Long Automated OTP & Webhook Dispatch Pipeline",
+                description = "Sample",
+                isEnabled = false,
+                nodes =
+                    listOf(
+                        WorkflowNode(
+                            id = "n1",
+                            name = "Manual Trigger",
+                            type = NodeType.MANUAL_TRIGGER,
+                            isEnabled = true,
+                            configJson = "{}",
+                        ),
+                        WorkflowNode(
+                            id = "n2",
+                            name = "HTTP Request",
+                            type = NodeType.HTTP_ACTION,
+                            isEnabled = true,
+                            configJson = "{}",
+                            preconditions =
+                                listOf(
+                                    Precondition.InternetCheck(
+                                        id = "p1",
+                                    ),
+                                ),
+                        ),
+                    ),
+                connections = listOf(WorkflowConnection(fromNodeId = "n1", toNodeId = "n2")),
+            )
+
+        composeTestRule.setContent {
+            Box(modifier = Modifier.width(300.dp)) {
+                WorkflowCardItem(
+                    workflow = workflow,
+                    isQueued = true,
+                    onToggle = {},
+                    onRunManual = {},
+                    onEdit = {},
+                    onViewLogs = {},
+                    onDelete = {},
+                )
+            }
+        }
+
+        val nameBounds =
+            composeTestRule
+                .onNodeWithText("Extremely Long Automated OTP & Webhook Dispatch Pipeline", useUnmergedTree = true)
+                .bounds()
+        val triggerBounds =
+            composeTestRule
+                .onNodeWithText(WorkflowUiHelper.getNodeTitle(NodeType.MANUAL_TRIGGER), useUnmergedTree = true)
+                .bounds()
+        val switchBounds = composeTestRule.onNode(isToggleable(), useUnmergedTree = true).bounds()
+        val queuedBounds = composeTestRule.onNodeWithText("⏳ Queued", useUnmergedTree = true).bounds()
+        val nodesBounds = composeTestRule.onNodeWithText("2 Nodes", useUnmergedTree = true).bounds()
+        val linksBounds = composeTestRule.onNodeWithText("1 Link", useUnmergedTree = true).bounds()
+        val precBounds = composeTestRule.onNodeWithText("1 Precondition", useUnmergedTree = true).bounds()
+        val disabledBounds = composeTestRule.onNodeWithText("Disabled", useUnmergedTree = true).bounds()
+        val runBounds = composeTestRule.onNodeWithText("Run", useUnmergedTree = true).bounds()
+        val logsBounds = composeTestRule.onNodeWithText("Logs", useUnmergedTree = true).bounds()
+        val editBounds = composeTestRule.onNodeWithContentDescription("Edit", useUnmergedTree = true).bounds()
+        val deleteBounds = composeTestRule.onNodeWithContentDescription("Delete", useUnmergedTree = true).bounds()
+
+        assertStrictlyLeftOf("nameBounds", nameBounds, "switchBounds", switchBounds)
+        assertStrictlyLeftOf("triggerBounds", triggerBounds, "switchBounds", switchBounds)
+        assertStrictlyAbove("nameBounds", nameBounds, "triggerBounds", triggerBounds)
+        assertStrictlyAbove("triggerBounds", triggerBounds, "queuedBounds", queuedBounds)
+        assertNoOverlap("queuedBounds", queuedBounds, "nodesBounds", nodesBounds)
+        assertNoOverlap("nodesBounds", nodesBounds, "linksBounds", linksBounds)
+        assertNoOverlap("linksBounds", linksBounds, "precBounds", precBounds)
+        assertNoOverlap("precBounds", precBounds, "disabledBounds", disabledBounds)
+        assertStrictlyAbove("disabledBounds", disabledBounds, "runBounds", runBounds)
+        assertNoOverlap("runBounds", runBounds, "logsBounds", logsBounds)
+        assertStrictlyLeftOf("runBounds", runBounds, "editBounds", editBounds)
+        assertStrictlyLeftOf("logsBounds", logsBounds, "editBounds", editBounds)
+        assertTrue("Expected Edit icon not to be clipped", (editBounds.right - editBounds.left).value >= 16f)
+        assertTrue("Expected Delete icon not to be clipped", (deleteBounds.right - deleteBounds.left).value >= 16f)
+        assertStrictlyLeftOf("editBounds", editBounds, "deleteBounds", deleteBounds)
     }
 }

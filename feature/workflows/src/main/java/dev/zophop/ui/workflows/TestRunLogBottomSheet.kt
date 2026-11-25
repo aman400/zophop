@@ -37,6 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.zophop.core.ui.components.CancelExecutionConfirmDialog
 import dev.zophop.core.ui.components.NoSwipeBottomSheet
 import dev.zophop.domain.engine.NodeExecutionStep
 import dev.zophop.domain.engine.NodeStepState
@@ -51,6 +52,15 @@ fun TestRunLogBottomSheet(
 ) {
     val scrollState = rememberScrollState()
     var showFullReport by remember { mutableStateOf(false) }
+    var showCancelConfirmDialog by remember { mutableStateOf(false) }
+    val hasExecutingStep = steps.any { it.state == NodeStepState.EXECUTING }
+    val effectiveIsTesting = isTesting && (hasExecutingStep || steps.isEmpty())
+
+    LaunchedEffect(effectiveIsTesting) {
+        if (!effectiveIsTesting) {
+            showCancelConfirmDialog = false
+        }
+    }
 
     LaunchedEffect(steps.size, steps.map { "${it.nodeId}_${it.state}" }) {
         if (steps.isNotEmpty()) {
@@ -97,14 +107,11 @@ fun TestRunLogBottomSheet(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    val hasExecutingStep = steps.any { it.state == NodeStepState.EXECUTING }
-                    val effectiveIsTesting = isTesting && (hasExecutingStep || steps.isEmpty())
-
                     if (effectiveIsTesting) {
                         CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                         if (onCancelExecution != null) {
                             OutlinedButton(
-                                onClick = onCancelExecution,
+                                onClick = { showCancelConfirmDialog = true },
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                             ) {
                                 Text(
@@ -175,6 +182,14 @@ fun TestRunLogBottomSheet(
                 }
             }
         }
+    }
+
+    if (showCancelConfirmDialog && effectiveIsTesting && onCancelExecution != null) {
+        CancelExecutionConfirmDialog(
+            targetName = workflowName,
+            onConfirm = onCancelExecution,
+            onDismiss = { showCancelConfirmDialog = false },
+        )
     }
 
     if (showFullReport) {
