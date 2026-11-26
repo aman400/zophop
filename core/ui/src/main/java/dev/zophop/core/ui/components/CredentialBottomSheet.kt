@@ -1,7 +1,6 @@
 package dev.zophop.core.ui.components
 
-import androidx.biometric.BiometricManager
-import androidx.biometric.BiometricPrompt
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -52,6 +51,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -65,8 +65,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
-import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -436,43 +434,47 @@ private fun CredentialFieldsList(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         activeSpec.fields.forEach { field ->
-            val currentVal = credentialDataMap[field.key] ?: ""
-            when (field) {
-                is dev.zophop.plugin.api.ConfigFieldSpec.TextField -> {
-                    val isSensitive = field.isSecret ||
-                        field.key.contains("token", true) ||
-                        field.key.contains("password", true) ||
-                        field.key.contains("secret", true) ||
-                        field.key.contains("apiKey", true)
-                    if (isSensitive) {
-                        SensitiveTextField(
-                            value = currentVal,
-                            onValueChange = { newValue -> onDataChanged(credentialDataMap + (field.key to newValue)) },
-                            label = field.label,
-                            tooltipText = field.tooltip ?: field.label,
+            key(activeSpec.typeId, field.key) {
+                val currentVal = credentialDataMap[field.key] ?: ""
+                when (field) {
+                    is dev.zophop.plugin.api.ConfigFieldSpec.TextField -> {
+                        val isSensitive =
+                            field.isSecret ||
+                                field.key.contains("token", true) ||
+                                field.key.contains("password", true) ||
+                                field.key.contains("secret", true) ||
+                                field.key.contains("apiKey", true)
+                        if (isSensitive) {
+                            SensitiveTextField(
+                                value = currentVal,
+                                onValueChange = { newValue -> onDataChanged(credentialDataMap + (field.key to newValue)) },
+                                label = field.label,
+                                tooltipText = field.tooltip ?: field.label,
+                                isLockEnabled = isLockEnabled,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        } else {
+                            InfoTooltipField(
+                                value = currentVal,
+                                onValueChange = { newValue -> onDataChanged(credentialDataMap + (field.key to newValue)) },
+                                label = field.label,
+                                tooltipText = field.tooltip ?: field.label,
+                                placeholder = field.placeholder,
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = field.singleLine,
+                                minLines = field.minLines,
+                            )
+                        }
+                    }
+                    is dev.zophop.plugin.api.ConfigFieldSpec.CodeTemplateField -> {
+                        HeaderInputEditor(
+                            headersString = currentVal,
+                            onHeadersChanged = { newValue -> onDataChanged(credentialDataMap + (field.key to newValue)) },
                             isLockEnabled = isLockEnabled,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    } else {
-                        InfoTooltipField(
-                            value = currentVal,
-                            onValueChange = { newValue -> onDataChanged(credentialDataMap + (field.key to newValue)) },
-                            label = field.label,
-                            tooltipText = field.tooltip ?: field.label,
-                            placeholder = field.placeholder,
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = field.singleLine,
-                            minLines = field.minLines,
                         )
                     }
+                    is dev.zophop.plugin.api.ConfigFieldSpec.DropdownField -> {}
                 }
-                is dev.zophop.plugin.api.ConfigFieldSpec.CodeTemplateField -> {
-                    HeaderInputEditor(
-                        headersString = currentVal,
-                        onHeadersChanged = { newValue -> onDataChanged(credentialDataMap + (field.key to newValue)) },
-                    )
-                }
-                is dev.zophop.plugin.api.ConfigFieldSpec.DropdownField -> {}
             }
         }
     }
@@ -513,37 +515,15 @@ fun SensitiveTextField(
     }
 
     fun requestUnlock() {
-        val authenticators = BiometricAuthHelper.allowedAuthenticators()
-        val biometricManager = BiometricManager.from(context)
-        val canAuthenticate = biometricManager.canAuthenticate(authenticators)
-        if (BiometricAuthHelper.canBypassWhenNoLockEnrolled(context)) {
-            passwordVisible = true
-            return
-        }
-        val activity = context as? FragmentActivity
-        if (activity != null && canAuthenticate == BiometricManager.BIOMETRIC_SUCCESS) {
-            val executor = ContextCompat.getMainExecutor(context)
-            val prompt =
-                BiometricPrompt(
-                    activity,
-                    executor,
-                    object : BiometricPrompt.AuthenticationCallback() {
-                        override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                            super.onAuthenticationSucceeded(result)
-                            passwordVisible = true
-                        }
-                    },
-                )
-            val promptInfo =
-                BiometricPrompt.PromptInfo
-                    .Builder()
-                    .setTitle("Unlock Vault Credential")
-                    .setSubtitle("Authenticate using biometrics or device PIN/pattern to view secret password")
-                    .setAllowedAuthenticators(authenticators)
-                    .build()
-
-            prompt.authenticate(promptInfo)
-        }
+        BiometricAuthHelper.requestBiometricUnlock(
+            context = context,
+            title = "Unlock Vault Credential",
+            subtitle = "Authenticate using biometrics or device PIN/pattern to view secret password",
+            onSuccess = { passwordVisible = true },
+            onError = { message ->
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            },
+        )
     }
 
     OutlinedSecureTextField(

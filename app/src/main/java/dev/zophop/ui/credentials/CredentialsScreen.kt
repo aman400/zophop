@@ -1,7 +1,6 @@
 package dev.zophop.ui.credentials
 
-import androidx.biometric.BiometricManager
-import androidx.biometric.BiometricPrompt
+import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -66,8 +65,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
-import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -114,36 +111,15 @@ fun CredentialsScreen(
     var showAddDialog by remember { mutableStateOf(false) }
 
     fun requestEnableSecurity() {
-        if (BiometricAuthHelper.canBypassWhenNoLockEnrolled(context)) {
-            viewModel.toggleLockCredentialsWithBiometric(true)
-            return
-        }
-        val authenticators = BiometricAuthHelper.allowedAuthenticators()
-        val biometricManager = BiometricManager.from(context)
-        val activity = context as? FragmentActivity
-        if (activity != null && biometricManager.canAuthenticate(authenticators) == BiometricManager.BIOMETRIC_SUCCESS) {
-            val executor = ContextCompat.getMainExecutor(context)
-            val prompt =
-                BiometricPrompt(
-                    activity,
-                    executor,
-                    object : BiometricPrompt.AuthenticationCallback() {
-                        override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                            super.onAuthenticationSucceeded(result)
-                            viewModel.toggleLockCredentialsWithBiometric(true)
-                        }
-                    },
-                )
-            val promptInfo =
-                BiometricPrompt.PromptInfo
-                    .Builder()
-                    .setTitle("Enable Vault Security")
-                    .setSubtitle("Authenticate using biometrics or device PIN/pattern to enable vault security lock.")
-                    .setAllowedAuthenticators(authenticators)
-                    .build()
-
-            prompt.authenticate(promptInfo)
-        }
+        BiometricAuthHelper.requestBiometricUnlock(
+            context = context,
+            title = "Enable Vault Security",
+            subtitle = "Authenticate using biometrics or device PIN/pattern to enable vault security lock.",
+            onSuccess = { viewModel.toggleLockCredentialsWithBiometric(true) },
+            onError = { message ->
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            },
+        )
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
