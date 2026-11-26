@@ -1,8 +1,5 @@
 package dev.zophop.core.ui.components
 
-import androidx.compose.foundation.interaction.FocusInteraction
-import androidx.compose.foundation.interaction.Interaction
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,6 +7,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.DropdownMenu
@@ -18,11 +18,15 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextFieldLabelPosition
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -31,20 +35,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flowOf
-
-@Composable
-fun rememberAlwaysFloatingInteractionSource(): MutableInteractionSource =
-    remember {
-        object : MutableInteractionSource {
-            override val interactions: Flow<Interaction> = flowOf(FocusInteraction.Focus())
-
-            override suspend fun emit(interaction: Interaction) {}
-
-            override fun tryEmit(interaction: Interaction): Boolean = true
-        }
-    }
 
 @Composable
 fun InfoTooltipField(
@@ -62,20 +52,43 @@ fun InfoTooltipField(
     additionalTrailingIcon: (@Composable () -> Unit)? = null,
 ) {
     var showTooltip by remember { mutableStateOf(false) }
-    val interactionSource = rememberAlwaysFloatingInteractionSource()
+    val textFieldState = rememberTextFieldState(value)
+    val currentValue by rememberUpdatedState(value)
+    val currentOnValueChange by rememberUpdatedState(onValueChange)
+    var lastEmittedValue by remember { mutableStateOf(value) }
+
+    LaunchedEffect(value) {
+        if (value != lastEmittedValue && textFieldState.text.toString() != value) {
+            lastEmittedValue = value
+            textFieldState.setTextAndPlaceCursorAtEnd(value)
+        }
+    }
+
+    LaunchedEffect(textFieldState) {
+        snapshotFlow { textFieldState.text.toString() }
+            .collect { updated ->
+                lastEmittedValue = updated
+                if (updated != currentValue) {
+                    currentOnValueChange(updated)
+                }
+            }
+    }
 
     OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
+        state = textFieldState,
         label = { Text(label) },
+        labelPosition = TextFieldLabelPosition.Cutout(isAlwaysMinimized = true),
         placeholder = placeholder?.let { { Text(it) } },
         supportingText = supportingText?.let { { Text(it, fontSize = 10.sp) } },
         readOnly = readOnly,
         enabled = enabled,
         modifier = modifier,
-        singleLine = singleLine,
-        minLines = minLines,
-        interactionSource = interactionSource,
+        lineLimits =
+            if (singleLine) {
+                TextFieldLineLimits.SingleLine
+            } else {
+                TextFieldLineLimits.MultiLine(minHeightInLines = minLines)
+            },
         trailingIcon = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 additionalTrailingIcon?.invoke()
