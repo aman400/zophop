@@ -4,13 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ZopHop User &amp; Feature Manual — Complete Documentation</title>
-  <meta name="description" content="Complete HTML documentation for ZopHop v3.0.0: Visual Workflow Builder, all 20+ nodes, JSON &amp; Regex parsers, cURL import, Preconditions, Live Execution Stepper, Biometric Vault, Themes, Concurrency &amp; Encrypted Backups.">
+  <meta name="description" content="Complete HTML documentation for ZopHop: Visual Workflow Builder, all 20+ nodes, JSON &amp; Regex parsers, cURL import, Preconditions, Live Execution Stepper, Biometric Vault, Themes, Concurrency &amp; Encrypted Backups.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="icon" type="image/svg+xml" href="assets/app-icon.svg">
   <link rel="stylesheet" href="styles.css">
-  <script>const APP_VERSION = "3.0.0";</script>
+  <script src="version.js" defer></script>
   <script src="docs.js" defer></script>
 </head>
 <body>
@@ -21,7 +21,7 @@
       <a href="index.html" class="logo">
         <img src="assets/app-icon.svg" alt="ZopHop Logo" class="logo-img">
         <span class="logo-title">ZopHop</span>
-        <span class="logo-ver app-version-v">v3.0.0</span>
+        <span class="logo-ver app-version-v">v1.0.0</span>
       </a>
 
       <nav class="nav-pages" aria-label="Documentation Pages">
@@ -80,7 +80,7 @@
       <main class="docs-content">
         <div class="doc-hero" id="overview">
           <span class="section-tag">Complete User &amp; Architecture Manual</span>
-          <h1 class="section-title">ZopHop <span class="app-version-v">v3.0.0</span> Documentation</h1>
+          <h1 class="section-title">ZopHop <span class="app-version-v">v1.0.0</span> Documentation</h1>
           <p class="section-subtitle" style="margin-bottom: 18px;">
             ZopHop is an on-device Android automation and forwarding engine. Capture SMS, push notifications, calls, or cron schedules; validate chained preconditions; execute visual workflow graphs; and deliver alerts to ntfy, Gotify, Telegram, SMS, and HTTP webhooks.
           </p>
@@ -150,7 +150,8 @@
                 <tr><td><code>:feature:preconditions</code></td><td>Reusable Preconditions list, Chained Pipeline editor, inline testing &amp; safe cancellation.</td></tr>
                 <tr><td><code>:feature:backup</code></td><td>Portable JSON backup export/import, dependency auto-resolution, PBKDF2/AES password encryption.</td></tr>
                 <tr><td><code>:plugins:*</code></td><td>Built-in SPI modules (<code>sms</code>, <code>notification</code>, <code>ntfy</code>, <code>gotify</code>, <code>call</code>, <code>gps</code>).</td></tr>
-                <tr><td><code>:external:telegram</code></td><td>Standalone external plugin APK (<code>ZopHop-Telegram-Plugin-v1.0.apk</code>) over AIDL IPC.</td></tr>
+                <tr><td><code>:external:telegram</code></td><td>Standalone external plugin APK (<code class="app-telegram-apk-name">ZopHop-Telegram-Plugin-v1.0.0.apk</code>) over AIDL IPC.</td></tr>
+                <tr><td><code>:external:smtp</code></td><td>Standalone external plugin APK (<code class="app-smtp-apk-name">ZopHop-SMTP-Plugin-v1.0.0.apk</code>) for STARTTLS/SMTPS/Plain email delivery over AIDL IPC.</td></tr>
               </tbody>
             </table>
           </div>
@@ -275,7 +276,8 @@
                   <tr><td><strong>Send SMS</strong></td><td><code>dev.zophop.plugin.sms.SEND_SMS_ACTION</code></td><td>Sends outbound SMS via device SIM. Requires <code>SEND_SMS</code> permission.</td></tr>
                   <tr><td><strong>Get GPS Location</strong></td><td><code>dev.zophop.plugin.gps.GET_LOCATION_ACTION</code></td><td>Fetches coordinates and writes <code>latitude</code>, <code>longitude</code>, <code>accuracy</code>, <code>maps_url</code>.</td></tr>
                   <tr><td><strong>Answer / Disconnect Call</strong></td><td><code>dev.zophop.plugin.call.*</code></td><td>Rejects or answers incoming calls paired with <code>CALL_TRIGGER</code> (Android 9+).</td></tr>
-                  <tr><td><strong>Telegram Bot</strong> <span class="pill sky">External APK</span></td><td><code>dev.zophop.plugin.telegram.TELEGRAM_ACTION</code></td><td>Sends messages via <code>@BotFather</code> token (<code>TELEGRAM_AUTH</code>). Requires <code>ZopHop-Telegram-Plugin-v1.0.apk</code>.</td></tr>
+                  <tr><td><strong>Telegram Bot</strong> <span class="pill sky">External APK</span></td><td><code>dev.zophop.plugin.telegram.TELEGRAM_ACTION</code></td><td>Sends messages via <code>@BotFather</code> token (<code>TELEGRAM_AUTH</code>). Requires <code class="app-telegram-apk-name">ZopHop-Telegram-Plugin-v1.0.0.apk</code>.</td></tr>
+                  <tr><td><strong>Send Email (SMTP)</strong> <span class="pill sky">External APK</span></td><td><code>dev.zophop.plugin.smtp.SMTP_ACTION</code></td><td>Sends plain-text or HTML emails via STARTTLS, SMTPS, or Plain SMTP (<code>SMTP_AUTH</code>). Requires <code class="app-smtp-apk-name">ZopHop-SMTP-Plugin-v1.0.0.apk</code>.</td></tr>
                 </tbody>
               </table>
             </div>
@@ -400,7 +402,7 @@
                 <tr><td><code>HEADER_SET</code></td><td><code>headers</code> (multiline <code>Key: Value</code>)</td><td>Cloudflare Access, custom API keys</td></tr>
                 <tr><td><code>NTFY_AUTH</code></td><td><code>serverUrl</code>, <code>topic</code>, <code>token</code></td><td>ntfy Push Action &amp; HTTP Webhook adapter</td></tr>
                 <tr><td><code>GOTIFY_AUTH</code></td><td><code>serverUrl</code>, <code>appToken</code></td><td>Gotify Push Action &amp; HTTP Webhook adapter (<code>X-Gotify-Key</code>)</td></tr>
-                <tr><td>Plugin Specs (e.g. <code>TELEGRAM_AUTH</code>)</td><td>Defined dynamically by plugins</td><td>Discovered automatically via <code>CredentialSpecRegistry</code></td></tr>
+                <tr><td>Plugin Specs (e.g. <code>TELEGRAM_AUTH</code>, <code>SMTP_AUTH</code>)</td><td>Defined dynamically by plugins</td><td>Discovered automatically via <code>CredentialSpecRegistry</code></td></tr>
               </tbody>
             </table>
           </div>
@@ -451,7 +453,7 @@
         <section class="doc-section" id="setup">
           <h2>9. First-Time Setup &amp; Self-Hosted Server Guides</h2>
           <ol>
-            <li>Download <code class="app-apk-name">ZopHop-v3.0.0.apk</code> (and optionally <code>ZopHop-Telegram-Plugin-v1.0.apk</code>) from <a href="https://github.com/aman400/zophop/releases" target="_blank">GitHub Releases</a>.</li>
+            <li>Download <code class="app-apk-name">ZopHop-v1.0.0.apk</code> (and optionally <code class="app-telegram-apk-name">ZopHop-Telegram-Plugin-v1.0.0.apk</code> / <code class="app-smtp-apk-name">ZopHop-SMTP-Plugin-v1.0.0.apk</code>) from <a href="https://github.com/aman400/zophop/releases" target="_blank">GitHub Releases</a>.</li>
             <li>On Google Play Protect prompts, tap <strong>More details → Install anyway</strong>.</li>
             <li>Open <strong>Settings &amp; Permissions</strong> inside ZopHop to grant <code>RECEIVE_SMS</code>, Notification Listener access, <code>POST_NOTIFICATIONS</code> (Android 13+), and <strong>Unrestricted</strong> battery usage.</li>
           </ol>
@@ -589,7 +591,7 @@ adb logcat -s ExternalPluginRegistry:W ExternalPluginExecutor:W</div>
   <footer class="site-footer">
     <div class="container footer-content">
       <div>
-        <p><strong>ZopHop Automation Engine <span class="app-version-v">v3.0.0</span></strong> — Android 8.0+ (API 26–37)</p>
+        <p><strong>ZopHop Automation Engine <span class="app-version-v">v1.0.0</span></strong> — Android 8.0+ (API 26–37)</p>
         <p style="margin-top: 4px;">Open-source software released under the MIT License.</p>
       </div>
       <div class="footer-links">

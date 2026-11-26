@@ -10,8 +10,8 @@ android {
         applicationId = "dev.zophop.plugin.smtp"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = providers.gradleProperty("ZOPHOP_VERSION_CODE").map { it.toInt() }.orElse(1).get()
+        versionName = providers.gradleProperty("ZOPHOP_VERSION").orElse("1.0.0").get()
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -52,7 +52,7 @@ android {
 androidComponents {
     onVariants { variant ->
         val suffix = if (variant.buildType == "debug") "-Debug" else ""
-        val verName = android.defaultConfig.versionName ?: "1.0"
+        val verName = android.defaultConfig.versionName ?: "1.0.0"
         variant.outputs.forEach { output ->
             output.outputFileName.set("ZopHop-SMTP-Plugin$suffix-v$verName.apk")
         }

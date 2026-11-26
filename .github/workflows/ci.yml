@@ -32,8 +32,8 @@ jobs:
       - name: Run All Module Unit & Integration Tests
         run: ./gradlew test --stacktrace
 
-      - name: Build Debug APKs & Plugin AARs
-        run: ./gradlew assembleDebug :core:plugin-api:assembleRelease :core:model:assembleRelease --stacktrace
+      - name: Build Debug APKs (App, Telegram & SMTP Plugins) & Plugin AARs
+        run: ./gradlew :app:assembleDebug :external:telegram:assembleDebug :external:smtp:assembleDebug :core:plugin-api:assembleRelease :core:model:assembleRelease --stacktrace
 
       - name: Upload CI Build Artifacts
         uses: actions/upload-artifact@v4
@@ -41,7 +41,8 @@ jobs:
           name: zophop-ci-artifacts
           path: |
             app/build/outputs/apk/debug/*.apk
-            external/*/build/outputs/apk/debug/*.apk
+            external/telegram/build/outputs/apk/debug/*.apk
+            external/smtp/build/outputs/apk/debug/*.apk
             core/plugin-api/build/outputs/aar/*.aar
             core/model/build/outputs/aar/*.aar
 

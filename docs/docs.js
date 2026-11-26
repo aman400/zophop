@@ -1,6 +1,6 @@
 // ZopHop Interactive Documentation UI Script (App Theme Mode + 6 Palettes + Search + Lightbox)
 document.addEventListener("DOMContentLoaded", () => {
-  const version = typeof APP_VERSION !== "undefined" ? APP_VERSION : "3.0.0";
+  const version = typeof APP_VERSION !== "undefined" ? APP_VERSION : "1.0.0";
 
   // 0. Inject subtle theme-aware background sprites layer across all pages
   if (!document.querySelector(".bg-sprites")) {
@@ -79,6 +79,10 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll(".app-version").forEach(el => (el.textContent = version));
   document.querySelectorAll(".app-version-v").forEach(el => (el.textContent = "v" + version));
   document.querySelectorAll(".app-apk-name").forEach(el => (el.textContent = `ZopHop-v${version}.apk`));
+  document.querySelectorAll(".app-telegram-apk-name").forEach(el => (el.textContent = `ZopHop-Telegram-Plugin-v${version}.apk`));
+  document.querySelectorAll(".app-smtp-apk-name").forEach(el => (el.textContent = `ZopHop-SMTP-Plugin-v${version}.apk`));
+  document.querySelectorAll(".app-plugin-api-aar").forEach(el => (el.textContent = `zophop-plugin-api-v${version}.aar`));
+  document.querySelectorAll(".app-core-model-aar").forEach(el => (el.textContent = `zophop-core-model-v${version}.aar`));
   document.querySelectorAll("a.app-apk-link").forEach(el => {
     el.href = `https://github.com/aman400/zophop/releases/download/v${version}/ZopHop-v${version}.apk`;
   });

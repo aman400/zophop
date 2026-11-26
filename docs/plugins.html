@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="icon" type="image/svg+xml" href="assets/app-icon.svg">
   <link rel="stylesheet" href="styles.css">
-  <script>const APP_VERSION = "3.0.0";</script>
+  <script src="version.js" defer></script>
   <script src="docs.js" defer></script>
 </head>
 <body>
@@ -20,7 +20,7 @@
       <a href="index.html" class="logo">
         <img src="assets/app-icon.svg" alt="ZopHop Logo" class="logo-img">
         <span class="logo-title">ZopHop</span>
-        <span class="logo-ver app-version-v">v3.0.0</span>
+        <span class="logo-ver app-version-v">v1.0.0</span>
       </a>
 
       <nav class="nav-pages" aria-label="Documentation Pages">
@@ -73,7 +73,7 @@
             Extend ZopHop with custom <strong>Triggers</strong>, <strong>Parsers</strong>, <strong>Logic Checks</strong>, or <strong>Delivery Actions</strong> without recompiling the main app. Distribute plugins as standalone APKs over <strong>AIDL IPC</strong> or bundle them in-process via Java <code>ServiceLoader</code>.
           </p>
           <div style="display:flex; gap:10px; flex-wrap:wrap;">
-            <span class="pill">JitPack: com.github.aman400.zophop:plugin-api:<span class="app-version-v">v3.0.0</span></span>
+            <span class="pill">JitPack: com.github.aman400.zophop:plugin-api:<span class="app-version-v">v1.0.0</span></span>
             <span class="pill amber">Offline .aar Assets</span>
             <span class="pill sky">AIDL API v1</span>
           </div>
@@ -135,7 +135,7 @@
     }
 }</div>
             <div class="code-box"><span class="code-label">app/build.gradle.kts</span>dependencies {
-    implementation("com.github.aman400.zophop:plugin-api:v3.0.0")
+    implementation("com.github.aman400.zophop:plugin-api:<span class="app-version-v">v1.0.0</span>")
     // core-model is pulled transitively via plugin-api
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
@@ -148,10 +148,10 @@
           </div>
 
           <div class="tab-panel" id="dep-aar">
-            <p>Place <code>zophop-plugin-api-v3.0.0.aar</code> and <code>zophop-core-model-v3.0.0.aar</code> inside <code>app/libs/</code>:</p>
+            <p>Place <code class="app-plugin-api-aar">zophop-plugin-api-v1.0.0.aar</code> and <code class="app-core-model-aar">zophop-core-model-v1.0.0.aar</code> inside <code>app/libs/</code>:</p>
             <div class="code-box"><span class="code-label">app/build.gradle.kts</span>dependencies {
-    implementation(files("libs/zophop-plugin-api-v3.0.0.aar"))
-    implementation(files("libs/zophop-core-model-v3.0.0.aar"))
+    implementation(files("libs/<span class="app-plugin-api-aar">zophop-plugin-api-v1.0.0.aar</span>"))
+    implementation(files("libs/<span class="app-core-model-aar">zophop-core-model-v1.0.0.aar</span>"))
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
@@ -357,7 +357,7 @@ android {
     }
 }
 dependencies {
-    implementation("com.github.aman400.zophop:plugin-api:v3.0.0")
+    implementation("com.github.aman400.zophop:plugin-api:<span class="app-version-v">v1.0.0</span>")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
@@ -622,7 +622,7 @@ adb logcat -s ExternalPluginRegistry:W ExternalPluginExecutor:W</div>
   <footer class="site-footer">
     <div class="container footer-content">
       <div>
-        <p><strong>ZopHop Automation Engine <span class="app-version-v">v3.0.0</span></strong> — Android 8.0+ (API 26–37)</p>
+        <p><strong>ZopHop Automation Engine <span class="app-version-v">v1.0.0</span></strong> — Android 8.0+ (API 26–37)</p>
         <p style="margin-top: 4px;">Open-source software released under the MIT License.</p>
       </div>
       <div class="footer-links">

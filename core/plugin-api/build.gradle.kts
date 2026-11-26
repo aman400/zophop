@@ -7,7 +7,7 @@ plugins {
 val isJitPack =
     providers.environmentVariable("JITPACK").orNull == "true" ||
         providers.gradleProperty("jitpack").orNull == "true"
-val defaultAppVersion = providers.gradleProperty("ZOPHOP_VERSION").orElse("3.0.0")
+val defaultAppVersion = providers.gradleProperty("ZOPHOP_VERSION").orElse("1.0.0")
 
 val sdkVersion =
     if (isJitPack) {

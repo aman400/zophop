@@ -1,11 +1,11 @@
 # ZopHop — Visual Workflow, OTP Forwarding & Android Automation Engine
 
-[![Version](https://img.shields.io/badge/Version-v3.0.0-10b981?style=flat-square)](https://github.com/aman400/zophop/releases)
+[![Version](https://img.shields.io/badge/Version-v3.1.0-10b981?style=flat-square)](https://github.com/aman400/zophop/releases)
 [![Android](https://img.shields.io/badge/Android-8.0%2B%20(API%2026--37)-34d399?style=flat-square)](https://developer.android.com)
 [![Tech](https://img.shields.io/badge/Kotlin-Jetpack%20Compose%20M3-f59e0b?style=flat-square)](https://kotlinlang.org)
 [![License](https://img.shields.io/badge/License-MIT-64748b?style=flat-square)](LICENSE)
 
-**ZopHop** (`dev.zophop`) is an open-source, privacy-first Android automation and notification forwarding platform built in Kotlin and Jetpack Compose. It captures incoming SMS messages, app notifications, phone calls, and cron schedules; verifies network, VPN, hardware, and chained pipeline preconditions; runs visual workflow graphs with Regex/JSON parsing and conditional branching; and delivers payloads to **ntfy**, **Gotify**, **HTTP webhooks (with cURL import)**, **SMS**, **Telegram (via external plugin)**, or your own **custom AIDL plugins**.
+**ZopHop** (`dev.zophop`) is an open-source, privacy-first Android automation and notification forwarding platform built in Kotlin and Jetpack Compose. It captures incoming SMS messages, app notifications, phone calls, and cron schedules; verifies network, VPN, hardware, and chained pipeline preconditions; runs visual workflow graphs with Regex/JSON parsing and conditional branching; and delivers payloads to **ntfy**, **Gotify**, **HTTP webhooks (with cURL import)**, **SMS**, **Telegram & Email (SMTP) (via external plugins)**, or your own **custom AIDL plugins**.
 
 It is engineered for personal automation, home-lab owners, and self-hosters operating servers behind private VPNs (Tailscale, WireGuard) or strict on-device security constraints.
 
@@ -29,7 +29,7 @@ It is engineered for personal automation, home-lab owners, and self-hosters oper
 
 ---
 
-## Key Features (v3.0.0)
+## Key Features (v3.1.0)
 
 ### 1. Visual Workflow Engine & 20+ Built-In Nodes
 - **4 Trigger Types**: SMS Message (`*sender*`, keyword regex), App Notification (package name + title/body match), Manual Trigger, and Cron Schedule (6 presets + custom 5-field cron).
@@ -38,7 +38,7 @@ It is engineered for personal automation, home-lab owners, and self-hosters oper
   - **JSON Parser**: Extracts values using dot paths (`data.user.id`), array/negative indexing (`items[-1].code`), wildcards (`items[*].id`), recursive descent (`..code`), and 8 typed targets (`STRING`, `INTEGER`, `DECIMAL`, `BOOLEAN`, `JSON_OBJECT`, `JSON_ARRAY`, `ARRAY_LENGTH`, `EXISTS`).
   - **Condition Evaluator**: 14 comparison operators (`EQUALS`, `NOT_EQUALS`, `CONTAINS`, `REGEX_MATCH`, `GREATER_THAN`, `IS_EMPTY`, etc.) with case-sensitivity toggle.
 - **Hardware & Context Checks**: VPN active check, GPS enabled check, Internet connectivity, Bluetooth status, Cellular/SIM readiness, Battery level threshold.
-- **Action & Delivery Nodes**: **ntfy Push**, **Gotify Push**, **HTTP Webhook** (with one-tap **cURL Command Import**), **System Notification**, **Send SMS**, **Get GPS Location**, **Answer / Disconnect Phone Call**, plus **External AIDL Plugins** (`Telegram Bot`, or custom 3rd-party plugins).
+- **Action & Delivery Nodes**: **ntfy Push**, **Gotify Push**, **HTTP Webhook** (with one-tap **cURL Command Import**), **System Notification**, **Send SMS**, **Get GPS Location**, **Answer / Disconnect Phone Call**, plus **External AIDL Plugins** (`Telegram Bot`, `SMTP Email`, or custom 3rd-party plugins).
 
 ### 2. Preconditions, Chained Pipelines & Backoff Retries
 - **7 Reusable Precondition Types**: Internet Connected, VPN Active, Bluetooth Enabled, Battery Level, HTTP Healthcheck Probe, Carrier SIM Status, and **Chained Pipelines** (`PRECONDITION_CHAIN` with circular dependency detection).
@@ -56,7 +56,7 @@ It is engineered for personal automation, home-lab owners, and self-hosters oper
 - **Selective & Password-Encrypted Backups**: Export/import workflows, preconditions, and vault credentials using PBKDF2-HMAC-SHA256 + AES-256-GCM `.zophop` archives.
 
 ### 5. External Plugin Ecosystem (AIDL IPC)
-- Install external Android plugin APKs (such as the official **`ZopHop-Telegram-Plugin-v1.0.apk`**) or build your own plugin APK using `com.github.aman400.zophop:plugin-api:v3.0.0` (served publicly via JitPack and attached as `.aar` release assets).
+- Install external Android plugin APKs (such as the official **`ZopHop-Telegram-Plugin-v3.1.0.apk`** and **`ZopHop-SMTP-Plugin-v3.1.0.apk`**) or build your own plugin APK using `com.github.aman400.zophop:plugin-api:v3.1.0` (served publicly via JitPack and attached as `.aar` release assets).
 - Plugins automatically appear inside ZopHop's Node Catalog and Settings → Plugins with package-signature security checks and automatic Vault credential injection.
 
 ---
@@ -67,7 +67,7 @@ It is engineered for personal automation, home-lab owners, and self-hosters oper
   - **[Overview & Visual Showcase](https://aman400.github.io/zophop/index.html)** ([docs/index.html](docs/index.html))
   - **[Complete User & Feature Manual](https://aman400.github.io/zophop/manual.html)** ([docs/manual.html](docs/manual.html))
   - **[Plugin SDK Reference & Slack Plugin Tutorial](https://aman400.github.io/zophop/plugins.html)** ([docs/plugins.html](docs/plugins.html))
-  - **[Signed Release, Telegram Plugin & AAR Publishing Guide](https://aman400.github.io/zophop/releases.html)** ([docs/releases.html](docs/releases.html))
+  - **[Signed Release, External Plugins & AAR Publishing Guide](https://aman400.github.io/zophop/releases.html)** ([docs/releases.html](docs/releases.html))
 - Offline Markdown reference mirrors: [DOCUMENTATION.md](DOCUMENTATION.md) • [RELEASE_GUIDE.md](RELEASE_GUIDE.md)
 
 ---
@@ -76,24 +76,26 @@ It is engineered for personal automation, home-lab owners, and self-hosters oper
 
 ### 1. Build Release APKs & Plugin SDK AARs
 ```bash
-# Build ZopHop main APK and external Telegram plugin APK
+# Build ZopHop main APK and external plugin APKs (Telegram & SMTP)
 ./gradlew assembleRelease
 
 # Build Plugin SDK AARs (plugin-api and core-model)
 ./gradlew :core:plugin-api:assembleRelease :core:model:assembleRelease
 ```
 Generated outputs:
-- Main app: `app/build/outputs/apk/release/ZopHop-v3.0.0.apk`
-- Telegram plugin: `external/telegram/build/outputs/apk/release/ZopHop-Telegram-Plugin-v1.0.apk`
+- Main app: `app/build/outputs/apk/release/ZopHop-v3.1.0.apk`
+- Telegram plugin: `external/telegram/build/outputs/apk/release/ZopHop-Telegram-Plugin-v3.1.0.apk`
+- SMTP Email plugin: `external/smtp/build/outputs/apk/release/ZopHop-SMTP-Plugin-v3.1.0.apk`
 - SDK AARs: `core/plugin-api/build/outputs/aar/plugin-api-release.aar`, `core/model/build/outputs/aar/model-release.aar`
 
 ### 2. Install via ADB or Sideload
 ```bash
 # Install main app and auto-grant permissions
-adb install -r -g app/build/outputs/apk/release/ZopHop-v3.0.0.apk
+adb install -r -g app/build/outputs/apk/release/ZopHop-v3.1.0.apk
 
-# Optional: Install official Telegram Bot plugin
-adb install -r external/telegram/build/outputs/apk/release/ZopHop-Telegram-Plugin-v1.0.apk
+# Optional: Install official external plugins (Telegram Bot & SMTP Email)
+adb install -r external/telegram/build/outputs/apk/release/ZopHop-Telegram-Plugin-v3.1.0.apk
+adb install -r external/smtp/build/outputs/apk/release/ZopHop-SMTP-Plugin-v3.1.0.apk
 ```
 
 > **Bypassing Google Play Protect prompts on sideloaded builds**:

@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'docs/**'
+      - 'gradle.properties'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -27,6 +28,12 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+
+      - name: Sync docs/version.js from gradle.properties
+        run: |
+          APP_VERSION=$(grep -E '^ZOPHOP_VERSION=' gradle.properties | head -n 1 | cut -d'=' -f2- | tr -d '[:space:]')
+          APP_VERSION="${APP_VERSION:-1.0.0}"
+          printf '// Auto-generated from gradle.properties (ZOPHOP_VERSION) via `./gradlew syncVersion`.\n// Default fallback in docs.js when undefined is "1.0.0".\nconst APP_VERSION = "%s";\n' "$APP_VERSION" > docs/version.js
 
       - name: Setup Pages
         uses: actions/configure-pages@v5

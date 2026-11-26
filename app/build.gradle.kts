@@ -19,8 +19,8 @@ android {
         applicationId = "dev.zophop"
         minSdk = 26
         targetSdk = 36
-        versionCode = providers.gradleProperty("ZOPHOP_VERSION_CODE").map { it.toInt() }.orElse(3).get()
-        versionName = providers.gradleProperty("ZOPHOP_VERSION").orElse("3.0.0").get()
+        versionCode = providers.gradleProperty("ZOPHOP_VERSION_CODE").map { it.toInt() }.orElse(1).get()
+        versionName = providers.gradleProperty("ZOPHOP_VERSION").orElse("1.0.0").get()
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -94,7 +94,7 @@ androidComponents {
     }
     onVariants { variant ->
         val suffix = if (variant.buildType == "debug") "-Debug" else ""
-        val verName = android.defaultConfig.versionName ?: "2.0.0"
+        val verName = android.defaultConfig.versionName ?: "1.0.0"
         variant.outputs.forEach { output ->
             output.outputFileName.set("ZopHop$suffix-v$verName.apk")
         }
