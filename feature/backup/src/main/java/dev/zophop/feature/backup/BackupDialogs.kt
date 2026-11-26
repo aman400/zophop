@@ -1,11 +1,9 @@
 package dev.zophop.feature.backup
 
-import android.app.KeyguardManager
 import android.content.ClipData
 import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -13,8 +11,6 @@ import android.os.PersistableBundle
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.biometric.BiometricManager
-import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -83,8 +79,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
-import androidx.fragment.app.FragmentActivity
+import dev.zophop.core.ui.components.BiometricAuthHelper
 import dev.zophop.core.ui.components.NoSwipeBottomSheet
 import dev.zophop.data.PreconditionEntity
 import dev.zophop.domain.model.Credential
@@ -760,23 +755,6 @@ private fun toggleId(currentSet: Set<String>, id: String): Set<String> =
 private fun toggleAll(selectAll: Boolean, allIds: List<String>): Set<String> =
     if (selectAll) allIds.toSet() else emptySet()
 
-internal fun canBypassBiometricPrompt(
-    isDeviceSecure: Boolean?,
-    canAuthenticateResult: Int,
-): Boolean =
-    isDeviceSecure == false &&
-        (
-            canAuthenticateResult == BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED ||
-                canAuthenticateResult == BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE
-        )
-
-private tailrec fun Context.findFragmentActivity(): FragmentActivity? =
-    when (this) {
-        is FragmentActivity -> this
-        is ContextWrapper -> baseContext.findFragmentActivity()
-        else -> null
-    }
-
 fun requestBiometricUnlock(
     context: Context,
     title: String,
@@ -784,66 +762,13 @@ fun requestBiometricUnlock(
     onSuccess: () -> Unit,
     onError: (String) -> Unit = {},
 ) {
-    val authenticators =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            BiometricManager.Authenticators.BIOMETRIC_STRONG or
-                BiometricManager.Authenticators.DEVICE_CREDENTIAL
-        } else {
-            BiometricManager.Authenticators.BIOMETRIC_WEAK or
-                BiometricManager.Authenticators.DEVICE_CREDENTIAL
-        }
-    val keyguardManager = context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
-    val biometricManager = BiometricManager.from(context)
-    val canAuthenticate = biometricManager.canAuthenticate(authenticators)
-
-    val activity = context.findFragmentActivity()
-    when {
-        canBypassBiometricPrompt(isDeviceSecure = keyguardManager?.isDeviceSecure, canAuthenticateResult = canAuthenticate) ->
-            onSuccess()
-        activity == null ->
-            onError("Device authentication required: FragmentActivity unavailable")
-        canAuthenticate != BiometricManager.BIOMETRIC_SUCCESS ->
-            onError("Device authentication unavailable (error code: $canAuthenticate)")
-        else ->
-            try {
-                val executor = ContextCompat.getMainExecutor(context)
-                val prompt =
-                    BiometricPrompt(
-                        activity,
-                        executor,
-                        object : BiometricPrompt.AuthenticationCallback() {
-                            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                                super.onAuthenticationSucceeded(result)
-                                onSuccess()
-                            }
-
-                            override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                                super.onAuthenticationError(errorCode, errString)
-                                if (errorCode != BiometricPrompt.ERROR_USER_CANCELED &&
-                                    errorCode != BiometricPrompt.ERROR_NEGATIVE_BUTTON
-                                ) {
-                                    onError(errString.toString())
-                                }
-                            }
-                        },
-                    )
-                val promptInfo =
-                    BiometricPrompt.PromptInfo
-                        .Builder()
-                        .setTitle(title)
-                        .setSubtitle(subtitle)
-                        .setAllowedAuthenticators(authenticators)
-                        .build()
-
-                prompt.authenticate(promptInfo)
-            } catch (e: SecurityException) {
-                onError(e.message ?: "Authentication failed")
-            } catch (e: IllegalArgumentException) {
-                onError(e.message ?: "Authentication failed")
-            } catch (e: IllegalStateException) {
-                onError(e.message ?: "Authentication failed")
-            }
-    }
+    BiometricAuthHelper.requestBiometricUnlock(
+        context = context,
+        title = title,
+        subtitle = subtitle,
+        onSuccess = onSuccess,
+        onError = onError,
+    )
 }
 
 @Composable
