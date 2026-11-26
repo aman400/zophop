@@ -640,4 +640,160 @@ class BackupSerializerTest {
         val restoredInlineCc = restoredNode.preconditions[1] as Precondition.ChainCheck
         assertTrue(restoredInlineCc.nodes.single().configJson.contains("inline_chain_secret_555"))
     }
+
+    @Test
+    fun testResolveConflicts_keepBothRemapsChainedPipelineAndInlineChainCredentials() {
+        val oldCredId = "old_cred_chain"
+        val oldPrecId = "old_chain_prec"
+        val cred = Credential(id = oldCredId, name = "SMTP Cred", type = "SMTP_AUTH")
+
+        val pipelineJson = dev.zophop.domain.model.AppJson.encodeToString(
+            dev.zophop.domain.model.WorkflowGraph(
+                nodes = listOf(
+                    WorkflowNode(
+                        id = "pn1",
+                        name = "Step 1",
+                        type = NodeType.HTTP_ACTION,
+                        configJson = """{"credentialId":"$oldCredId"}""",
+                    ),
+                    WorkflowNode(
+                        id = "pn2",
+                        name = "Step 2",
+                        type = NodeType.TEMPLATE_FORMATTER,
+                    ),
+                ),
+                connections = listOf(WorkflowConnection(fromNodeId = "pn1", toNodeId = "pn2")),
+            ),
+        )
+        val chainEntity = PreconditionEntity(
+            id = oldPrecId,
+            name = "Chain Rule",
+            type = "CHAINED_CHECK",
+            pipelineJson = pipelineJson,
+        )
+        val workflow = Workflow(
+            id = "wf_old",
+            name = "Chained Flow",
+            nodes = listOf(
+                WorkflowNode(
+                    id = "wn1",
+                    name = "SMTP",
+                    type = "dev.zophop.plugin.smtp.SMTP_ACTION",
+                    configJson = """{"credentialId":"$oldCredId"}""",
+                    preconditions = listOf(
+                        Precondition.ChainCheck(
+                            id = oldPrecId,
+                            name = "Chain Rule",
+                            nodes = listOf(
+                                WorkflowNode(
+                                    id = "in1",
+                                    name = "Inline 1",
+                                    type = NodeType.HTTP_ACTION,
+                                    configJson = """{"credentialId":"$oldCredId"}""",
+                                ),
+                                WorkflowNode(
+                                    id = "in2",
+                                    name = "Inline 2",
+                                    type = NodeType.TEMPLATE_FORMATTER,
+                                ),
+                            ),
+                            connections = listOf(WorkflowConnection(fromNodeId = "in1", toNodeId = "in2")),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val resolved = BackupSerializer.resolveConflicts(
+            parsed = ParsedBackupData(
+                workflows = listOf(workflow),
+                credentials = listOf(cred),
+                preconditions = listOf(chainEntity),
+            ),
+            strategy = ImportConflictStrategy.KEEP_BOTH,
+            existingWorkflows = emptyList(),
+            existingCredentials = listOf(cred),
+            existingPreconditions = listOf(chainEntity),
+        )
+
+        val newCredId = resolved.credentials.single().id
+        val newPrec = resolved.preconditions.single()
+        assertNotEquals(oldCredId, newCredId)
+        assertNotEquals(oldPrecId, newPrec.id)
+
+        val remappedPipelineGraph = dev.zophop.domain.model.AppJson.decodeFromString<dev.zophop.domain.model.WorkflowGraph>(
+            newPrec.pipelineJson,
+        )
+        assertTrue(remappedPipelineGraph.nodes[0].configJson.contains(newCredId))
+        assertFalse(remappedPipelineGraph.nodes[0].configJson.contains(oldCredId))
+        assertNotEquals("pn1", remappedPipelineGraph.nodes[0].id)
+        assertEquals(remappedPipelineGraph.nodes[0].id, remappedPipelineGraph.connections.single().fromNodeId)
+        assertEquals(remappedPipelineGraph.nodes[1].id, remappedPipelineGraph.connections.single().toNodeId)
+
+        val inlineChain = resolved.workflows.single().nodes.single().preconditions.single() as Precondition.ChainCheck
+        assertEquals(newPrec.id, inlineChain.id)
+        assertTrue(inlineChain.nodes[0].configJson.contains(newCredId))
+        assertFalse(inlineChain.nodes[0].configJson.contains(oldCredId))
+        assertNotEquals("in1", inlineChain.nodes[0].id)
+        assertEquals(inlineChain.nodes[0].id, inlineChain.connections.single().fromNodeId)
+        assertEquals(inlineChain.nodes[1].id, inlineChain.connections.single().toNodeId)
+    }
+
+    @Test
+    fun testEncryptedBackupProtectsSmtpAndTelegramPluginCredentials() {
+        val pin = "PluginPin#2026"
+        val smtpCred = Credential(
+            id = "cred_smtp_1",
+            name = "Work SMTP",
+            type = "SMTP_AUTH",
+            dataMap = mapOf(
+                "host" to "smtp.gmail.com",
+                "port" to "587",
+                "username" to "alerts@example.com",
+                "password" to "smtp_app_password_secret",
+            ),
+        )
+        val telegramCred = Credential(
+            id = "cred_tg_1",
+            name = "Alert Bot",
+            type = "TELEGRAM_AUTH",
+            dataMap = mapOf(
+                "botToken" to "123456:ABC-DEF_telegram_secret",
+                "chatId" to "-100123456",
+            ),
+        )
+        val smtpWorkflow = Workflow(
+            id = "WFSMTP01",
+            name = "Forward via SMTP",
+            nodes = listOf(
+                WorkflowNode(
+                    id = "n_smtp",
+                    name = "Send Email",
+                    type = "dev.zophop.plugin.smtp.SMTP_ACTION",
+                    configJson = """{"credentialId":"cred_smtp_1","password":"inline_smtp_password","toAddresses":"ops@example.com"}""",
+                ),
+            ),
+        )
+
+        val exported = BackupSerializer.createBackupJson(
+            workflows = listOf(smtpWorkflow),
+            credentials = listOf(smtpCred, telegramCred),
+            preconditions = emptyList(),
+            password = pin,
+        )
+
+        assertFalse(exported.contains("smtp_app_password_secret"))
+        assertFalse(exported.contains("123456:ABC-DEF_telegram_secret"))
+        assertFalse(exported.contains("inline_smtp_password"))
+        assertTrue(exported.contains("smtp.gmail.com"))
+
+        val parsed = BackupSerializer.parseImport(exported)
+        assertTrue(parsed.isEncrypted)
+
+        val decrypted = BackupSerializer.decryptBackupData(parsed, pin)
+        assertFalse(decrypted.isEncrypted)
+        assertEquals("smtp_app_password_secret", decrypted.credentials[0].dataMap["password"])
+        assertEquals("123456:ABC-DEF_telegram_secret", decrypted.credentials[1].dataMap["botToken"])
+        assertTrue(decrypted.workflows.single().nodes.single().configJson.contains("inline_smtp_password"))
+    }
 }

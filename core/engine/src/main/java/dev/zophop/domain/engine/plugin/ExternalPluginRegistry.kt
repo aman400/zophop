@@ -31,6 +31,19 @@ open class ExternalPluginRegistry(
         const val ACTION_NODE_SERVICE = "dev.zophop.plugin.ACTION_NODE_SERVICE"
         private const val DISCOVERY_TIMEOUT_MS = 5_000L
         private const val TAG = "ExternalPluginRegistry"
+
+        fun isNodeTypeMissingExternalPlugin(
+            nodeType: String,
+            availableExternalTypeIds: Set<String>?,
+        ): Boolean {
+            if (availableExternalTypeIds == null || nodeType.isBlank()) return false
+            if (BuiltInPluginRegistry.getBuiltInManifestByTypeId(nodeType) != null) return false
+            return availableExternalTypeIds.none { installedTypeId ->
+                installedTypeId.equals(nodeType, ignoreCase = true) ||
+                    installedTypeId.endsWith(".$nodeType", ignoreCase = true) ||
+                    nodeType.endsWith(".$installedTypeId", ignoreCase = true)
+            }
+        }
     }
 
     private val discoveredPlugins = ConcurrentHashMap<String, ExternalPluginServiceInfo>()
@@ -38,7 +51,14 @@ open class ExternalPluginRegistry(
     open fun getDiscoveredPlugins(): List<ExternalPluginServiceInfo> = discoveredPlugins.values.toList()
 
     open fun getPluginByTypeId(typeId: String): ExternalPluginServiceInfo? {
-        val plugin = discoveredPlugins[typeId] ?: return null
+        val plugin =
+            discoveredPlugins[typeId]
+                ?: discoveredPlugins.values.find {
+                    it.manifest.typeId.equals(typeId, ignoreCase = true) ||
+                        it.manifest.typeId.endsWith(".$typeId", ignoreCase = true) ||
+                        typeId.endsWith(".${it.manifest.typeId}", ignoreCase = true)
+                }
+                ?: return null
         val ctx = context ?: return plugin
         val disabledPluginsStr =
             ctx

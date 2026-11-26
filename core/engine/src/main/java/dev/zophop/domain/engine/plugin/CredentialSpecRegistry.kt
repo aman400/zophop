@@ -22,6 +22,22 @@ open class CredentialSpecRegistry(
 
     open suspend fun getCredentialSpecByTypeId(typeId: String): CredentialSpec? {
         val all = getAllCredentialSpecs()
-        return all.find { it.typeId == typeId }
+        return all.find { it.typeId.equals(typeId, ignoreCase = true) }
+    }
+
+    companion object {
+        fun isCredentialTypeMissingPlugin(
+            credentialType: String,
+            availableCredentialTypeIds: Set<String>?,
+        ): Boolean {
+            if (availableCredentialTypeIds == null || credentialType.isBlank()) return false
+            if (BuiltInPluginRegistry.getBuiltInCredentialSpecs().any {
+                    it.typeId.equals(credentialType, ignoreCase = true)
+                }
+            ) {
+                return false
+            }
+            return availableCredentialTypeIds.none { it.equals(credentialType, ignoreCase = true) }
+        }
     }
 }

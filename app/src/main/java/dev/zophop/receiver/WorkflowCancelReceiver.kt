@@ -4,8 +4,11 @@ import android.app.NotificationManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import dev.zophop.data.AppDatabase
-import dev.zophop.data.RoomWorkflowRepository
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
+import dev.zophop.data.WorkflowRepository
 import dev.zophop.domain.engine.ActiveExecutionTracker
 import dev.zophop.domain.engine.ExecutionJobRegistry
 import dev.zophop.worker.WorkflowQueueManager
@@ -20,6 +23,12 @@ import kotlin.time.Duration.Companion.milliseconds
  * BroadcastReceiver for handling notification Cancel action taps during active workflow execution.
  */
 class WorkflowCancelReceiver : BroadcastReceiver() {
+    @EntryPoint
+    @InstallIn(SingletonComponent::class)
+    interface ReceiverEntryPoint {
+        fun workflowRepository(): WorkflowRepository
+    }
+
     @Suppress("TooGenericExceptionCaught")
     override fun onReceive(
         context: Context?,
@@ -43,6 +52,12 @@ class WorkflowCancelReceiver : BroadcastReceiver() {
                     false
                 }
 
+            val appContext = context.applicationContext ?: context
+            val workflowRepository =
+                EntryPointAccessors
+                    .fromApplication(appContext, ReceiverEntryPoint::class.java)
+                    .workflowRepository()
+
             val pendingResult = goAsync()
             CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
                 try {
@@ -55,8 +70,6 @@ class WorkflowCancelReceiver : BroadcastReceiver() {
                     } else {
                         ActiveExecutionTracker.clearAll()
                     }
-                    val db = AppDatabase.getInstance(context.applicationContext ?: context)
-                    val workflowRepository = RoomWorkflowRepository(db.workflowDao(), db.preconditionDao())
                     WorkflowQueueManager.cancelPendingLogsForWorkflow(
                         workflowRepository = workflowRepository,
                         workflowId = workflowId,

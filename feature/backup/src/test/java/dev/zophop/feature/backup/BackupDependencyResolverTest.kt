@@ -1,8 +1,11 @@
 package dev.zophop.feature.backup
 
 import dev.zophop.data.PreconditionEntity
+import dev.zophop.domain.model.AppJson
 import dev.zophop.domain.model.Precondition
+import dev.zophop.domain.model.PreconditionType
 import dev.zophop.domain.model.Workflow
+import dev.zophop.domain.model.WorkflowGraph
 import dev.zophop.domain.model.WorkflowNode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -238,5 +241,61 @@ class BackupDependencyResolverTest {
         assertTrue("cred_b" !in depsA.credentialIds)
         assertTrue("cred_extra_b" !in depsA.credentialIds)
         assertTrue("prec_b" !in depsA.preconditionIds)
+    }
+
+    @Test
+    fun testResolveWorkflowDependencies_chainedPreconditionsAndPipelineGraphCredentials() {
+        val inlineChainNode = WorkflowNode(
+            id = "cn_inline",
+            name = "Inline Auth Step",
+            type = "HTTP_ACTION",
+            configJson = """{"credentialId":"cred_inline_chain"}""",
+            preconditions = listOf(Precondition.InternetCheck(id = "nested_prec_id")),
+        )
+        val wfNode = WorkflowNode(
+            id = "n1",
+            name = "SMTP Action",
+            type = "dev.zophop.plugin.smtp.SMTP_ACTION",
+            configJson = """{"credentialId":"cred_smtp"}""",
+            preconditions = listOf(
+                Precondition.ChainCheck(
+                    id = "prec_chain_entity",
+                    name = "Chain",
+                    nodes = listOf(inlineChainNode),
+                ),
+            ),
+        )
+        val wf = Workflow(id = "wf_chain", name = "Chained WF", nodes = listOf(wfNode))
+
+        val pipelineJson = AppJson.encodeToString(
+            WorkflowGraph(
+                nodes = listOf(
+                    WorkflowNode(
+                        id = "cn_entity",
+                        name = "Entity Chain Step",
+                        type = "HTTP_ACTION",
+                        configJson = """{"credentialId":"cred_entity_pipeline"}""",
+                    ),
+                ),
+            ),
+        )
+        val chainEntity = PreconditionEntity(
+            id = "prec_chain_entity",
+            name = "Chain Entity",
+            type = PreconditionType.CHAINED_CHECK.name,
+            pipelineJson = pipelineJson,
+        )
+
+        val deps = BackupDependencyResolver.resolveWorkflowDependencies(
+            selectedWorkflowIds = setOf("wf_chain"),
+            availableWorkflows = listOf(wf),
+            availablePreconditions = listOf(chainEntity),
+        )
+
+        assertEquals(setOf("prec_chain_entity", "nested_prec_id"), deps.preconditionIds)
+        assertEquals(
+            setOf("cred_smtp", "cred_inline_chain", "cred_entity_pipeline"),
+            deps.credentialIds,
+        )
     }
 }

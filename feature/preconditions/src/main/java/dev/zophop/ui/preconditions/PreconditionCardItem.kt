@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -85,6 +86,7 @@ import dev.zophop.ui.workflows.WorkflowUiHelper
 fun PreconditionCardItem(
     precondition: PreconditionEntity,
     linkedWorkflowCount: Int = 0,
+    missingPluginCount: Int = 0,
     onTestPreconditionWithProgress: ((PreconditionEntity, (List<NodeExecutionStep>) -> Unit, (PreconditionResult) -> Unit) -> Unit)? = null,
     onCancelTestPrecondition: ((String) -> Unit)? = null,
     onToggle: (Boolean) -> Unit,
@@ -211,6 +213,7 @@ fun PreconditionCardItem(
                 PreconditionMetadataBadges(
                     precondition = precondition,
                     linkedWorkflowCount = linkedWorkflowCount,
+                    missingPluginCount = missingPluginCount,
                 )
 
                 HorizontalDivider(
@@ -476,12 +479,34 @@ private fun PreconditionTestStatusChip(
 private fun PreconditionMetadataBadges(
     precondition: PreconditionEntity,
     linkedWorkflowCount: Int,
+    missingPluginCount: Int = 0,
 ) {
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
+        if (missingPluginCount > 0) {
+            Surface(
+                color = MaterialTheme.colorScheme.tertiaryContainer,
+                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                shape = RoundedCornerShape(6.dp),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Icon(Icons.Default.Warning, contentDescription = null, modifier = Modifier.size(12.dp))
+                    Text(
+                        text = if (missingPluginCount == 1) "Missing Plugin" else "$missingPluginCount Missing Plugins",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+        }
         val isRetry = precondition.onFailureAction.equals("RETRY", ignoreCase = true)
         val isQueue = precondition.onFailureAction.equals("QUEUE", ignoreCase = true)
         if (isQueue) {

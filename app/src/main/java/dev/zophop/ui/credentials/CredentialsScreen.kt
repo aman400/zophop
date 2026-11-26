@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -48,9 +49,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -60,12 +63,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.zophop.core.ui.components.BiometricAuthHelper
 import dev.zophop.core.ui.components.CredentialBottomSheet
+import dev.zophop.domain.engine.plugin.CredentialSpecRegistry
 import dev.zophop.domain.model.Credential
 import dev.zophop.domain.model.optString
 import dev.zophop.domain.model.parseJsonObjectSafe
@@ -82,6 +90,25 @@ fun CredentialsScreen(
     val preconditions by viewModel.preconditions.collectAsState()
 
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var pluginRefreshTick by remember { mutableIntStateOf(0) }
+    DisposableEffect(lifecycleOwner) {
+        val observer =
+            LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) {
+                    pluginRefreshTick++
+                }
+            }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+    var availableCredentialTypeIds by remember { mutableStateOf<Set<String>?>(null) }
+    LaunchedEffect(pluginRefreshTick) {
+        val specs = CredentialSpecRegistry(context).getAllCredentialSpecs()
+        availableCredentialTypeIds = specs.map { it.typeId }.toSet()
+    }
     var editingCredential by remember { mutableStateOf<Credential?>(null) }
     var pendingDeleteCredential by remember { mutableStateOf<Credential?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
@@ -182,10 +209,19 @@ fun CredentialsScreen(
                             preconditions.filter { prec -> prec.credentialId == cred.id }
                         }
 
+                    val isMissingPlugin =
+                        remember(cred.type, availableCredentialTypeIds) {
+                            CredentialSpecRegistry.isCredentialTypeMissingPlugin(
+                                credentialType = cred.type,
+                                availableCredentialTypeIds = availableCredentialTypeIds,
+                            )
+                        }
+
                     CredentialCardItem(
                         credential = cred,
                         linkedWorkflowCount = linkedWorkflows.size,
                         linkedPreconditionCount = linkedPreconditions.size,
+                        isMissingPlugin = isMissingPlugin,
                         onEdit = { editingCredential = cred },
                         onDelete = { pendingDeleteCredential = cred },
                     )
@@ -416,6 +452,7 @@ fun CredentialCardItem(
     credential: Credential,
     linkedWorkflowCount: Int = 0,
     linkedPreconditionCount: Int = 0,
+    isMissingPlugin: Boolean = false,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
@@ -554,12 +591,62 @@ fun CredentialCardItem(
                     }
                 }
 
+                if (isMissingPlugin) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.65f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.tertiary,
+                                modifier = Modifier.size(15.dp),
+                            )
+                            Text(
+                                text = "Plugin not installed (${credential.type})",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+
                 // Usage Badges
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
+                    if (isMissingPlugin) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.tertiaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                            shape = RoundedCornerShape(4.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                            ) {
+                                Icon(Icons.Default.Warning, contentDescription = null, modifier = Modifier.size(11.dp))
+                                Text(
+                                    text = "Missing Plugin",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
+                    }
                     Surface(
                         color =
                             if (linkedWorkflowCount >

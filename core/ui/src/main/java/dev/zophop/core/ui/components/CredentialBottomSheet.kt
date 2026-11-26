@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenuItem
@@ -48,8 +49,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -64,6 +67,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import dev.zophop.domain.engine.plugin.CredentialSpecRegistry
 import dev.zophop.domain.model.Credential
 import dev.zophop.domain.model.CredentialType
 
@@ -77,15 +84,31 @@ fun CredentialBottomSheet(
     onSave: (Credential) -> Unit,
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var pluginRefreshTick by remember { mutableIntStateOf(0) }
+    DisposableEffect(lifecycleOwner) {
+        val observer =
+            LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) {
+                    pluginRefreshTick++
+                }
+            }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
     val specRegistry =
         remember {
-            dev.zophop.domain.engine.plugin
-                .CredentialSpecRegistry(context)
+            CredentialSpecRegistry(context)
         }
     var credentialSpecs by remember { mutableStateOf<List<dev.zophop.plugin.api.CredentialSpec>>(emptyList()) }
+    var availableCredentialTypeIds by remember { mutableStateOf<Set<String>?>(null) }
 
-    androidx.compose.runtime.LaunchedEffect(Unit) {
-        credentialSpecs = specRegistry.getAllCredentialSpecs()
+    LaunchedEffect(pluginRefreshTick) {
+        val specs = specRegistry.getAllCredentialSpecs()
+        credentialSpecs = specs
+        availableCredentialTypeIds = specs.map { it.typeId }.toSet()
     }
 
     NoSwipeBottomSheet(
@@ -96,7 +119,12 @@ fun CredentialBottomSheet(
         var errorMessage by remember { mutableStateOf<String?>(null) }
 
         var credentialDataMap by remember { mutableStateOf(credential?.dataMap ?: emptyMap()) }
-        val activeSpec = credentialSpecs.find { it.typeId == selectedTypeId }
+        val activeSpec = credentialSpecs.find { it.typeId.equals(selectedTypeId, ignoreCase = true) }
+        val isMissingPlugin =
+            CredentialSpecRegistry.isCredentialTypeMissingPlugin(
+                credentialType = selectedTypeId,
+                availableCredentialTypeIds = availableCredentialTypeIds,
+            )
 
         var showEditConfirmationDialog by remember { mutableStateOf(false) }
         var pendingSavedCredential by remember { mutableStateOf<Credential?>(null) }
@@ -219,6 +247,10 @@ fun CredentialBottomSheet(
                     onTypeSelected = { selectedTypeId = it },
                 )
 
+                if (isMissingPlugin) {
+                    CredentialMissingPluginBanner(credentialType = selectedTypeId)
+                }
+
                 if (activeSpec != null) {
                     CredentialFieldsList(
                         activeSpec = activeSpec,
@@ -261,6 +293,46 @@ fun CredentialBottomSheet(
                     }
                 },
             )
+        }
+    }
+}
+
+@Composable
+private fun CredentialMissingPluginBanner(credentialType: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.6f),
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Warning,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.tertiary,
+                modifier = Modifier.size(18.dp),
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = "External plugin not installed",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+                Text(
+                    text =
+                        "Credential type '$credentialType' requires its external plugin APK to view or edit fields. " +
+                            "Existing saved credential values remain preserved.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.9f),
+                )
+            }
         }
     }
 }

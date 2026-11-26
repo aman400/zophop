@@ -174,17 +174,31 @@ object BackupSerializer {
     private fun parseBundle(obj: JsonObject): ParsedBackupData {
         try {
             val bundle = AppJson.decodeFromString<BackupBundle>(obj.toString())
+            val normalizedWorkflows =
+                bundle.workflows.map { wf ->
+                    wf.copy(nodes = wf.nodes.map(::decryptLocalDbNodeSecrets))
+                }
+            val normalizedPreconditions =
+                bundle.preconditions.map { prec ->
+                    prec.copy(
+                        headers = DatabaseEncryption.decrypt(prec.headers),
+                        pipelineJson = decryptLocalDbPipelineSecrets(prec.pipelineJson),
+                    )
+                }
             val hasEncryptedItems =
                 bundle.isEncrypted ||
                     bundle.verificationToken != null ||
                     bundle.credentials.any { it.dataMap.values.any { v -> PasswordBasedEncryption.isEncryptedWithPassword(v) } } ||
-                    bundle.workflows.any { workflowHasEncryptedSecrets(it) } ||
-                    bundle.preconditions.any { it.headers.contains(PasswordBasedEncryption.PREFIX) || it.pipelineJson.contains(PasswordBasedEncryption.PREFIX) }
+                    normalizedWorkflows.any { workflowHasEncryptedSecrets(it) } ||
+                    normalizedPreconditions.any {
+                        it.headers.contains(PasswordBasedEncryption.PREFIX) ||
+                            it.pipelineJson.contains(PasswordBasedEncryption.PREFIX)
+                    }
 
             return ParsedBackupData(
-                workflows = bundle.workflows,
+                workflows = normalizedWorkflows,
                 credentials = bundle.credentials,
-                preconditions = bundle.preconditions,
+                preconditions = normalizedPreconditions,
                 isEncrypted = hasEncryptedItems,
                 verificationToken = bundle.verificationToken,
             )
@@ -372,51 +386,27 @@ object BackupSerializer {
         }
 
         val precIdMap = mutableMapOf<String, String>()
+        parsed.preconditions.forEach { prec ->
+            precIdMap[prec.id] = UUID.randomUUID().toString()
+        }
         val remappedPrecs = parsed.preconditions.map { prec ->
-            val newId = UUID.randomUUID().toString()
-            precIdMap[prec.id] = newId
+            val newId = precIdMap.getValue(prec.id)
             val newName = if (prec.name in existingPrecNames) "${prec.name} (Imported)" else prec.name
             val remappedCredId = credIdMap[prec.credentialId] ?: prec.credentialId
-            prec.copy(id = newId, name = newName, credentialId = remappedCredId)
+            val remappedPipeline = remapPipelineJsonIds(prec.pipelineJson, credIdMap, precIdMap)
+            prec.copy(
+                id = newId,
+                name = newName,
+                credentialId = remappedCredId,
+                pipelineJson = remappedPipeline,
+            )
         }
 
         val remappedWorkflows = parsed.workflows.map { wf ->
             val newWfId = generateShortWorkflowId()
             val newWfName = if (wf.name in existingWfNames) "${wf.name} (Imported)" else wf.name
-
-            val nodeIdMap = mutableMapOf<String, String>()
-            val remappedNodes = wf.nodes.map { node ->
-                val newNodeId = UUID.randomUUID().toString()
-                nodeIdMap[node.id] = newNodeId
-
-                val updatedConfig = remapCredentialIdsInConfigJson(node.configJson, credIdMap)
-
-                val remappedNodePrecs = node.preconditions.map { p ->
-                    val newPId = precIdMap[p.id] ?: p.id
-                    when (p) {
-                        is Precondition.InternetCheck -> p.copy(id = newPId)
-                        is Precondition.VpnCheck -> p.copy(id = newPId)
-                        is Precondition.HealthCheck -> p.copy(id = newPId)
-                        is Precondition.SimCheck -> p.copy(id = newPId)
-                        is Precondition.GpsCheck -> p.copy(id = newPId)
-                        is Precondition.BatteryCheck -> p.copy(id = newPId)
-                        is Precondition.ChainCheck -> p.copy(id = newPId)
-                    }
-                }
-
-                node.copy(
-                    id = newNodeId,
-                    configJson = updatedConfig,
-                    preconditions = remappedNodePrecs,
-                )
-            }
-
-            val remappedConnections = wf.connections.map { conn ->
-                conn.copy(
-                    fromNodeId = nodeIdMap[conn.fromNodeId] ?: conn.fromNodeId,
-                    toNodeId = nodeIdMap[conn.toNodeId] ?: conn.toNodeId,
-                )
-            }
+            val (remappedNodes, remappedConnections) =
+                remapNodesAndConnections(wf.nodes, wf.connections, credIdMap, precIdMap)
 
             wf.copy(
                 id = newWfId,
@@ -431,6 +421,90 @@ object BackupSerializer {
             credentials = remappedCreds,
             preconditions = remappedPrecs,
         )
+    }
+
+    private fun remapNodesAndConnections(
+        nodes: List<WorkflowNode>,
+        connections: List<WorkflowConnection>,
+        credIdMap: Map<String, String>,
+        precIdMap: Map<String, String>,
+    ): Pair<List<WorkflowNode>, List<WorkflowConnection>> {
+        val nodeIdMap = mutableMapOf<String, String>()
+        val remappedNodes = nodes.map { node ->
+            val newNodeId = UUID.randomUUID().toString()
+            nodeIdMap[node.id] = newNodeId
+            val updatedConfig = remapCredentialIdsInConfigJson(node.configJson, credIdMap)
+            val remappedNodePrecs = node.preconditions.map { p ->
+                val newPId = precIdMap[p.id] ?: p.id
+                when (p) {
+                    is Precondition.InternetCheck -> p.copy(id = newPId)
+                    is Precondition.VpnCheck -> p.copy(id = newPId)
+                    is Precondition.HealthCheck -> p.copy(id = newPId)
+                    is Precondition.SimCheck -> p.copy(id = newPId)
+                    is Precondition.GpsCheck -> p.copy(id = newPId)
+                    is Precondition.BatteryCheck -> p.copy(id = newPId)
+                    is Precondition.ChainCheck -> {
+                        val (chainNodes, chainConns) =
+                            remapNodesAndConnections(p.nodes, p.connections, credIdMap, precIdMap)
+                        p.copy(id = newPId, nodes = chainNodes, connections = chainConns)
+                    }
+                }
+            }
+            node.copy(
+                id = newNodeId,
+                configJson = updatedConfig,
+                preconditions = remappedNodePrecs,
+            )
+        }
+        val remappedConnections = connections.map { conn ->
+            conn.copy(
+                fromNodeId = nodeIdMap[conn.fromNodeId] ?: conn.fromNodeId,
+                toNodeId = nodeIdMap[conn.toNodeId] ?: conn.toNodeId,
+            )
+        }
+        return remappedNodes to remappedConnections
+    }
+
+    private fun remapPipelineJsonIds(
+        pipelineJson: String,
+        credIdMap: Map<String, String>,
+        precIdMap: Map<String, String>,
+    ): String {
+        if (pipelineJson.isBlank()) return pipelineJson
+        return try {
+            val graph = AppJson.decodeFromString<WorkflowGraph>(pipelineJson)
+            val (remappedNodes, remappedConns) =
+                remapNodesAndConnections(graph.nodes, graph.connections, credIdMap, precIdMap)
+            AppJson.encodeToString(graph.copy(nodes = remappedNodes, connections = remappedConns))
+        } catch (_: Exception) {
+            remapCredentialIdsInConfigJson(pipelineJson, credIdMap)
+        }
+    }
+
+    private fun decryptLocalDbNodeSecrets(node: WorkflowNode): WorkflowNode =
+        node.copy(
+            configJson = DatabaseEncryption.decryptNodeConfig(node.configJson),
+            preconditions =
+                node.preconditions.map { prec ->
+                    when (prec) {
+                        is Precondition.HealthCheck ->
+                            prec.copy(headers = DatabaseEncryption.decrypt(prec.headers))
+                        is Precondition.ChainCheck ->
+                            prec.copy(nodes = prec.nodes.map(::decryptLocalDbNodeSecrets))
+                        else -> prec
+                    }
+                },
+        )
+
+    private fun decryptLocalDbPipelineSecrets(pipelineJson: String): String {
+        if (pipelineJson.isBlank()) return pipelineJson
+        return try {
+            val graph = AppJson.decodeFromString<WorkflowGraph>(pipelineJson)
+            val updatedNodes = graph.nodes.map(::decryptLocalDbNodeSecrets)
+            AppJson.encodeToString(graph.copy(nodes = updatedNodes))
+        } catch (_: Exception) {
+            pipelineJson
+        }
     }
 
     // --- Deserialization Helpers ---

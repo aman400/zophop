@@ -2,8 +2,11 @@ package dev.zophop.worker
 
 import android.content.Context
 import android.util.Log
+import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedInject
 import dev.zophop.data.AppDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -11,27 +14,23 @@ import java.io.IOException
 
 private const val TAG = "DeliveryWorker"
 
-class DeliveryWorker(
-    appContext: Context,
-    params: WorkerParameters,
+@Suppress("ktlint:standard:annotation")
+@HiltWorker
+class DeliveryWorker @AssistedInject constructor(
+    @Assisted appContext: Context,
+    @Assisted params: WorkerParameters,
+    private val forwardingManager: ForwardingManager,
+    private val workflowQueueManager: WorkflowQueueManager,
+    private val database: AppDatabase,
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result =
         withContext(Dispatchers.IO) {
             try {
-                val forwardingManager = ForwardingManager.getInstance(applicationContext)
                 forwardingManager.processPendingQueue()
-                WorkflowQueueManager.processQueuedWorkflows(applicationContext)
+                workflowQueueManager.processQueuedWorkflows()
 
-                val pendingMessages =
-                    AppDatabase
-                        .getInstance(applicationContext)
-                        .messageDao()
-                        .getPendingMessages()
-                val queuedWorkflowLogs =
-                    AppDatabase
-                        .getInstance(applicationContext)
-                        .workflowDao()
-                        .getQueuedWorkflowLogs()
+                val pendingMessages = database.messageDao().getPendingMessages()
+                val queuedWorkflowLogs = database.workflowDao().getQueuedWorkflowLogs()
 
                 if (pendingMessages.isNotEmpty() || queuedWorkflowLogs.isNotEmpty()) {
                     Result.retry()

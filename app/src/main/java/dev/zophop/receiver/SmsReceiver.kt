@@ -5,15 +5,13 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
 import android.util.Log
-import dev.zophop.data.AppDatabase
+import dagger.hilt.android.AndroidEntryPoint
 import dev.zophop.data.DefaultWorkflowInitializer
-import dev.zophop.data.EncryptedSettingsRepository
-import dev.zophop.data.RoomCredentialRepository
-import dev.zophop.data.RoomWorkflowRepository
+import dev.zophop.data.SettingsRepository
 import dev.zophop.data.WorkflowExecutionLogEntity
+import dev.zophop.data.WorkflowRepository
 import dev.zophop.domain.engine.ExecutionJobRegistry
 import dev.zophop.domain.engine.NodeExecutionStep
-import dev.zophop.domain.engine.PreconditionEvaluator
 import dev.zophop.domain.engine.WorkflowEngine
 import dev.zophop.domain.engine.WorkflowExecutionResult
 import dev.zophop.domain.engine.toJsonString
@@ -27,9 +25,23 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import javax.inject.Inject
 import kotlin.time.Duration.Companion.milliseconds
 
+@AndroidEntryPoint
 class SmsReceiver : BroadcastReceiver() {
+    @Inject
+    lateinit var settingsRepository: SettingsRepository
+
+    @Inject
+    lateinit var workflowRepository: WorkflowRepository
+
+    @Inject
+    lateinit var workflowInitializer: DefaultWorkflowInitializer
+
+    @Inject
+    lateinit var workflowEngine: WorkflowEngine
+
     @Suppress("TooGenericExceptionCaught")
     override fun onReceive(
         context: Context,
@@ -37,7 +49,7 @@ class SmsReceiver : BroadcastReceiver() {
     ) {
         if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
         Log.i("SmsReceiver", "SMS_RECEIVED broadcast received by SmsReceiver")
-        val (sender, fullBody) = extractSmsData(context, intent) ?: run {
+        val (sender, fullBody) = extractSmsData(intent) ?: run {
             Log.w("SmsReceiver", "extractSmsData returned null (globalWorkflowsEnabled may be false or empty body)")
             return
         }
@@ -54,8 +66,8 @@ class SmsReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun extractSmsData(context: Context, intent: Intent): Pair<String, String>? {
-        val isEnabled = EncryptedSettingsRepository(context).getSettings().globalWorkflowsEnabled
+    private fun extractSmsData(intent: Intent): Pair<String, String>? {
+        val isEnabled = settingsRepository.getSettings().globalWorkflowsEnabled
         if (!isEnabled) return null
 
         return parseSmsMessages(intent) ?: parseFallbackSmsExtras(intent)
@@ -80,11 +92,7 @@ class SmsReceiver : BroadcastReceiver() {
     private suspend fun processSmsWorkflows(context: Context, sender: String, fullBody: String) {
         dev.zophop.domain.engine.plugin.BuiltInPluginRegistry.discoverBundledModules()
 
-        val db = AppDatabase.getInstance(context)
-        val workflowRepository = RoomWorkflowRepository(db.workflowDao(), db.preconditionDao())
-        val credentialRepository = RoomCredentialRepository(db.credentialDao())
-
-        DefaultWorkflowInitializer(workflowRepository).checkAndInitialize()
+        workflowInitializer.checkAndInitialize()
 
         val activeWorkflows = workflowRepository.getActiveWorkflows()
         val smsWorkflows = activeWorkflows.filter { workflow ->
@@ -93,11 +101,9 @@ class SmsReceiver : BroadcastReceiver() {
         Log.i("SmsReceiver", "Found ${smsWorkflows.size} active SMS workflows (out of ${activeWorkflows.size} active workflows)")
         if (smsWorkflows.isEmpty()) return
 
-        val evaluator = PreconditionEvaluator(context, credentialRepository = credentialRepository)
-        val engine = WorkflowEngine(evaluator, credentialRepository)
         val executionScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-        val showWorkflowNotifications = EncryptedSettingsRepository(context).getSettings().showWorkflowNotifications
+        val showWorkflowNotifications = settingsRepository.getSettings().showWorkflowNotifications
         val baseContextMap = mapOf(
             "sender" to sender,
             "header" to sender,
@@ -137,7 +143,7 @@ class SmsReceiver : BroadcastReceiver() {
                 )
                 workflowRepository.saveExecutionLog(initialLog)
 
-                val result = engine.executeWorkflowWithProgress(
+                val result = workflowEngine.executeWorkflowWithProgress(
                     workflow = workflow,
                     context = workflowContext,
                     appContext = context,

@@ -7,7 +7,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.security.GeneralSecurityException
 import java.security.KeyStore
-import java.security.SecureRandom
 import java.security.Security
 import java.util.Base64
 import javax.crypto.Cipher
@@ -23,8 +22,6 @@ object DatabaseEncryption {
     private const val GCM_IV_LENGTH = 12
     private const val KEY_ALIAS = "zophop_db_encryption_key"
     private const val ANDROID_KEYSTORE = "AndroidKeyStore"
-
-    private val secureRandom = SecureRandom()
 
     @Volatile
     private var cachedKeyStoreKey: SecretKey? = null
@@ -141,12 +138,15 @@ object DatabaseEncryption {
     fun encrypt(plainText: String): String {
         if (plainText.isBlank() || isEncrypted(plainText)) return plainText
         val secretKey = getOrInitSecretKey()
-        val iv = ByteArray(GCM_IV_LENGTH)
-        secureRandom.nextBytes(iv)
 
         val cipher = Cipher.getInstance(ALGORITHM)
-        val spec = GCMParameterSpec(GCM_TAG_LENGTH, iv)
-        cipher.init(Cipher.ENCRYPT_MODE, secretKey, spec)
+        // AndroidKeyStore keys default to randomizedEncryptionRequired=true and forbid caller-provided IVs.
+        // Letting the JCE/Keystore provider generate the GCM IV satisfies both AndroidKeyStore and JVM providers.
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey)
+        val iv = cipher.iv
+        require(iv != null && iv.size == GCM_IV_LENGTH) {
+            "Expected $GCM_IV_LENGTH-byte GCM IV, got ${iv?.size}"
+        }
 
         val cipherText = cipher.doFinal(plainText.toByteArray(Charsets.UTF_8))
         val combined = ByteArray(iv.size + cipherText.size)

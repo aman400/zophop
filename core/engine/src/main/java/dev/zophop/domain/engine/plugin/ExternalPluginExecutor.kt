@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.content.pm.PackageManager
 import android.os.IBinder
 import android.os.RemoteException
 import dev.zophop.data.CredentialRepository
@@ -44,6 +45,7 @@ class ExternalPluginExecutor(
     }
 
     internal var aidlInterfaceResolver: (IBinder?) -> INodePluginService? = INodePluginService.Stub::asInterface
+    internal var packageInstalledChecker: (Context, String) -> Boolean = ::isPackageInstalled
 
     override suspend fun execute(
         node: WorkflowNode,
@@ -83,23 +85,54 @@ class ExternalPluginExecutor(
                 }
             }.toString()
 
-        val resultJson =
+        val callResult =
             withTimeoutOrNull(IPC_TIMEOUT_MS) {
                 executeViaAidlService(ctx, intent, node.id, node.configJson, inputContextJson)
-            }
+            } ?: AidlCallResult.TimedOut
 
-        return when {
-            resultJson == null ->
+        return when (callResult) {
+            is AidlCallResult.TimedOut ->
                 NodeExecutionResult.Failed(
                     "Timeout (${IPC_TIMEOUT_MS / 1000}s) waiting for plugin '${pluginInfo.manifest.displayName}'",
                 )
-            resultJson.isBlank() ->
-                NodeExecutionResult.Failed(
-                    "Failed to connect or receive response from plugin '${pluginInfo.manifest.displayName}'",
-                )
-            else -> parsePluginResult(resultJson, explicitSecrets, context)
+            is AidlCallResult.Unavailable ->
+                if (!packageInstalledChecker(ctx, pluginInfo.packageName)) {
+                    NodeExecutionResult.Failed(
+                        "Plugin '${pluginInfo.manifest.displayName}' (${pluginInfo.packageName}) is not installed",
+                    )
+                } else {
+                    NodeExecutionResult.Failed(
+                        "Failed to connect or receive response from plugin '${pluginInfo.manifest.displayName}'",
+                    )
+                }
+            is AidlCallResult.Success ->
+                if (callResult.resultJson.isBlank()) {
+                    NodeExecutionResult.Failed(
+                        "Failed to connect or receive response from plugin '${pluginInfo.manifest.displayName}'",
+                    )
+                } else {
+                    parsePluginResult(callResult.resultJson, explicitSecrets, context)
+                }
         }
     }
+
+    private sealed interface AidlCallResult {
+        data class Success(
+            val resultJson: String,
+        ) : AidlCallResult
+
+        data object Unavailable : AidlCallResult
+
+        data object TimedOut : AidlCallResult
+    }
+
+    private fun isPackageInstalled(ctx: Context, packageName: String): Boolean =
+        try {
+            ctx.packageManager.getPackageInfo(packageName, 0)
+            true
+        } catch (_: PackageManager.NameNotFoundException) {
+            false
+        }
 
     private fun parsePluginResult(
         resultJson: String,
@@ -189,7 +222,7 @@ class ExternalPluginExecutor(
         nodeId: String,
         configJson: String,
         inputContextJson: String,
-    ): String? =
+    ): AidlCallResult =
         suspendCancellableCoroutine { continuation ->
             var isResumed = false
             val connection =
@@ -201,13 +234,15 @@ class ExternalPluginExecutor(
                             if (aidlService == null) {
                                 isResumed = true
                                 ctx.unbindService(this)
-                                continuation.resume(null)
+                                continuation.resume(AidlCallResult.Unavailable)
                                 return
                             }
                             val result = aidlService.executeNode(nodeId, configJson, inputContextJson)
                             isResumed = true
                             ctx.unbindService(this)
-                            continuation.resume(result)
+                            continuation.resume(
+                                if (result != null) AidlCallResult.Success(result) else AidlCallResult.Unavailable,
+                            )
                         } catch (ignored: RemoteException) {
                             if (!isResumed) {
                                 isResumed = true
@@ -215,7 +250,7 @@ class ExternalPluginExecutor(
                                     ctx.unbindService(this)
                                 } catch (_: Exception) {
                                 }
-                                continuation.resume(null)
+                                continuation.resume(AidlCallResult.Unavailable)
                             }
                         } catch (ignored: Exception) {
                             if (!isResumed) {
@@ -224,7 +259,7 @@ class ExternalPluginExecutor(
                                     ctx.unbindService(this)
                                 } catch (_: Exception) {
                                 }
-                                continuation.resume(null)
+                                continuation.resume(AidlCallResult.Unavailable)
                             }
                         }
                     }
@@ -232,14 +267,14 @@ class ExternalPluginExecutor(
                     override fun onServiceDisconnected(name: ComponentName?) {
                         if (!isResumed) {
                             isResumed = true
-                            continuation.resume(null)
+                            continuation.resume(AidlCallResult.Unavailable)
                         }
                     }
 
                     override fun onBindingDied(name: ComponentName?) {
                         if (!isResumed) {
                             isResumed = true
-                            continuation.resume(null)
+                            continuation.resume(AidlCallResult.Unavailable)
                         }
                     }
 
@@ -250,7 +285,7 @@ class ExternalPluginExecutor(
                                 ctx.unbindService(this)
                             } catch (_: Exception) {
                             }
-                            continuation.resume(null)
+                            continuation.resume(AidlCallResult.Unavailable)
                         }
                     }
                 }
@@ -264,7 +299,7 @@ class ExternalPluginExecutor(
 
             if (!bound) {
                 isResumed = true
-                continuation.resume(null)
+                continuation.resume(AidlCallResult.Unavailable)
             }
 
             continuation.invokeOnCancellation {

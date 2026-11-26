@@ -21,11 +21,13 @@ import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
 import androidx.fragment.app.FragmentActivity
+import dagger.hilt.android.AndroidEntryPoint
 import dev.zophop.core.ui.AppThemeMode
 import dev.zophop.core.ui.AppThemePalette
 import dev.zophop.core.ui.resolveDarkTheme
 import dev.zophop.service.SmsForwarderService
 
+@AndroidEntryPoint
 class MainActivity : FragmentActivity() {
     private val viewModel: MainViewModel by viewModels()
 
@@ -111,6 +113,7 @@ class MainActivity : FragmentActivity() {
         super.onResume()
         checkPermissions()
         viewModel.checkPermissionsAndStatus()
+        viewModel.discoverInstalledPlugins()
     }
 
     override fun onNewIntent(intent: android.content.Intent) {

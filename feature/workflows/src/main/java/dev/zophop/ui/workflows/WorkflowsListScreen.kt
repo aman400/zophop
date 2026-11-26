@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -60,6 +61,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -73,17 +75,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.zophop.core.ui.components.NoSwipeBottomSheet
 import dev.zophop.data.MessageEntity
 import dev.zophop.data.WorkflowExecutionLogEntity
 import dev.zophop.domain.engine.NodeExecutionStep
 import dev.zophop.domain.engine.WorkflowExecutionResult
+import dev.zophop.domain.engine.plugin.ExternalPluginRegistry
 import dev.zophop.domain.model.NodeType
+import dev.zophop.domain.model.Precondition
 import dev.zophop.domain.model.Workflow
 import dev.zophop.domain.model.WorkflowNode
 import dev.zophop.domain.model.generateShortWorkflowId
@@ -125,6 +133,27 @@ fun WorkflowsListScreen(
     var selectedWorkflowLogsInitialTab by remember { mutableIntStateOf(0) }
     var showCreateTriggerSheet by remember { mutableStateOf(false) }
     var pendingDeleteWorkflow by remember { mutableStateOf<Workflow?>(null) }
+
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var pluginRefreshTick by remember { mutableIntStateOf(0) }
+    DisposableEffect(lifecycleOwner) {
+        val observer =
+            LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) {
+                    pluginRefreshTick++
+                }
+            }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+    var availableExternalTypeIds by remember { mutableStateOf<Set<String>?>(null) }
+    LaunchedEffect(pluginRefreshTick) {
+        val plugins = ExternalPluginRegistry(context).discoverPlugins()
+        availableExternalTypeIds = plugins.map { it.manifest.typeId }.toSet()
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -174,9 +203,14 @@ fun WorkflowsListScreen(
                 }
             } else {
                 items(workflows, key = { it.id }) { workflow ->
+                    val missingPluginCount =
+                        remember(workflow, availableExternalTypeIds) {
+                            countMissingExternalPlugins(workflow, availableExternalTypeIds)
+                        }
                     WorkflowCardItem(
                         workflow = workflow,
                         isQueued = workflow.id in queuedWorkflowIds,
+                        missingPluginCount = missingPluginCount,
                         onToggle = { enabled ->
                             onToggleWorkflow?.invoke(workflow.id, enabled)
                         },
@@ -299,6 +333,7 @@ fun WorkflowsListScreen(
 fun WorkflowCardItem(
     workflow: Workflow,
     isQueued: Boolean = false,
+    missingPluginCount: Int = 0,
     onToggle: (Boolean) -> Unit,
     onRunManual: () -> Unit,
     onEdit: () -> Unit,
@@ -381,6 +416,7 @@ fun WorkflowCardItem(
                     workflow = workflow,
                     preconditionCount = preconditionCount,
                     isQueued = isQueued,
+                    missingPluginCount = missingPluginCount,
                     onQueueClick = { onViewQueue?.invoke() ?: onViewLogs() },
                 )
 
@@ -491,6 +527,7 @@ private fun WorkflowMetadataBadges(
     workflow: Workflow,
     preconditionCount: Int,
     isQueued: Boolean,
+    missingPluginCount: Int = 0,
     onQueueClick: () -> Unit,
 ) {
     FlowRow(
@@ -498,6 +535,27 @@ private fun WorkflowMetadataBadges(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        if (missingPluginCount > 0) {
+            Surface(
+                color = MaterialTheme.colorScheme.tertiaryContainer,
+                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                shape = RoundedCornerShape(6.dp),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Icon(Icons.Default.Warning, contentDescription = null, modifier = Modifier.size(12.dp))
+                    Text(
+                        text = if (missingPluginCount == 1) "Missing Plugin" else "$missingPluginCount Missing Plugins",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+        }
         if (isQueued) {
             Surface(
                 color = MaterialTheme.colorScheme.secondaryContainer,
@@ -709,7 +767,7 @@ fun CreateTriggerSelectionBottomSheet(
     onDismiss: () -> Unit,
     onSelectTrigger: (dev.zophop.plugin.api.NodePluginManifest) -> Unit,
 ) {
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     val unifiedRegistry =
         remember {
             dev.zophop.domain.engine.plugin
@@ -717,7 +775,7 @@ fun CreateTriggerSelectionBottomSheet(
         }
     var triggerManifests by remember { mutableStateOf<List<dev.zophop.plugin.api.NodePluginManifest>>(emptyList()) }
 
-    androidx.compose.runtime.LaunchedEffect(Unit) {
+    LaunchedEffect(Unit) {
         val allManifests = unifiedRegistry.getAllManifests()
         triggerManifests = allManifests.filter { it.category == dev.zophop.plugin.api.NodeCategory.TRIGGER }
     }
@@ -1453,5 +1511,27 @@ private fun QueuedMessageCard(
                 color = MaterialTheme.colorScheme.outline,
             )
         }
+    }
+}
+
+private fun collectWorkflowNodeTypes(nodes: List<WorkflowNode>): Set<String> =
+    buildSet {
+        nodes.forEach { node ->
+            if (node.type.isNotBlank()) add(node.type)
+            node.preconditions.forEach { prec ->
+                if (prec is Precondition.ChainCheck) {
+                    addAll(collectWorkflowNodeTypes(prec.nodes))
+                }
+            }
+        }
+    }
+
+internal fun countMissingExternalPlugins(
+    workflow: Workflow,
+    availableExternalTypeIds: Set<String>?,
+): Int {
+    if (availableExternalTypeIds == null) return 0
+    return collectWorkflowNodeTypes(workflow.nodes).count { type ->
+        ExternalPluginRegistry.isNodeTypeMissingExternalPlugin(type, availableExternalTypeIds)
     }
 }

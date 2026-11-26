@@ -25,6 +25,7 @@ class DefaultBackupServiceTest {
         val workflows = mutableListOf<Workflow>()
         val credentials = mutableListOf<Credential>()
         val preconditions = mutableListOf<PreconditionEntity>()
+        val installedNodeTypes = mutableSetOf("HTTP_ACTION", "MANUAL_TRIGGER")
 
         override suspend fun getWorkflows(): List<Workflow> = workflows.toList()
 
@@ -48,6 +49,9 @@ class DefaultBackupServiceTest {
             encryptedValue.removePrefix("local_enc:")
 
         override fun isBiometricLockEnabled(): Boolean = biometricLockEnabled
+
+        override suspend fun getMissingNodeTypes(nodeTypes: Collection<String>): Set<String> =
+            nodeTypes.filter { it.isNotBlank() && it !in installedNodeTypes }.toSet()
     }
 
     @Test
@@ -365,5 +369,173 @@ class DefaultBackupServiceTest {
 
         bridge.biometricLockEnabled = false
         assertFalse(service.isBiometricLockEnabled())
+    }
+
+    @Test
+    fun testExportAndImport_chainedPreconditionSmtpWorkflow_keepBothEndToEnd() = runTest {
+        val testDispatcher = StandardTestDispatcher(testScheduler)
+        val sourceBridge = FakeBackupBridge()
+        val sourceService = DefaultBackupService(sourceBridge, testDispatcher)
+
+        val smtpCred = Credential(
+            id = "cred_smtp",
+            name = "SMTP Account",
+            type = "SMTP_AUTH",
+            dataMap = mapOf(
+                "host" to "smtp.example.com",
+                "username" to "bot@example.com",
+                "password" to "local_enc:smtp_secret_pass",
+            ),
+        )
+        val chainPipelineCred = Credential(
+            id = "cred_chain_http",
+            name = "Chain Auth",
+            type = CredentialType.BEARER_TOKEN,
+            dataMap = mapOf("token" to "local_enc:chain_token_xyz"),
+        )
+        val chainPipelineJson = dev.zophop.domain.model.AppJson.encodeToString(
+            dev.zophop.domain.model.WorkflowGraph(
+                nodes = listOf(
+                    WorkflowNode(
+                        id = "cn_1",
+                        name = "Auth Ping",
+                        type = "HTTP_ACTION",
+                        configJson = """{"credentialId":"cred_chain_http","url":"https://auth.example.com"}""",
+                    ),
+                ),
+            ),
+        )
+        val chainPrec = PreconditionEntity(
+            id = "prec_chain",
+            name = "Auth Chain",
+            type = "CHAINED_CHECK",
+            pipelineJson = chainPipelineJson,
+        )
+        val workflow = Workflow(
+            id = "wf_smtp",
+            name = "Email Alert",
+            nodes = listOf(
+                WorkflowNode(
+                    id = "n_smtp",
+                    name = "SMTP Action",
+                    type = "dev.zophop.plugin.smtp.SMTP_ACTION",
+                    configJson = """{"credentialId":"cred_smtp","toAddresses":"ops@example.com"}""",
+                    preconditions = listOf(Precondition.ChainCheck(id = "prec_chain", name = "Auth Chain")),
+                ),
+            ),
+        )
+
+        sourceBridge.workflows.add(workflow)
+        sourceBridge.credentials.addAll(listOf(smtpCred, chainPipelineCred))
+        sourceBridge.preconditions.add(chainPrec)
+
+        val exportedJson = sourceService.exportBackup(
+            ExportOptions(
+                includeWorkflows = true,
+                selectedWorkflowIds = setOf("wf_smtp"),
+                includeCredentials = false,
+                includePreconditions = false,
+                autoIncludeDependencies = true,
+                encryptSecrets = true,
+                password = "Pin#4321",
+            ),
+        )
+
+        assertFalse(exportedJson.contains("smtp_secret_pass"))
+        assertFalse(exportedJson.contains("chain_token_xyz"))
+
+        // Target already has same IDs -> import with KEEP_BOTH
+        val targetBridge = FakeBackupBridge()
+        targetBridge.workflows.add(workflow)
+        targetBridge.credentials.addAll(listOf(smtpCred, chainPipelineCred))
+        targetBridge.preconditions.add(chainPrec)
+        val targetService = DefaultBackupService(targetBridge, testDispatcher)
+
+        val parsed = targetService.parseImport(exportedJson)
+        val decrypted = targetService.decryptImport(parsed, "Pin#4321")
+        val result = targetService.executeImport(decrypted, ImportConflictStrategy.KEEP_BOTH)
+
+        assertEquals(1, result.importedWorkflowsCount)
+        assertEquals(2, result.importedCredentialsCount)
+        assertEquals(1, result.importedPreconditionsCount)
+
+        val importedCreds = targetBridge.credentials.filter { it.name.endsWith("(Imported)") }
+        assertEquals(2, importedCreds.size)
+        val importedSmtpCredId = importedCreds.first { it.type == "SMTP_AUTH" }.id
+        val importedChainCredId = importedCreds.first { it.type == CredentialType.BEARER_TOKEN }.id
+
+        val importedPrec = targetBridge.preconditions.first { it.name == "Auth Chain (Imported)" }
+        assertTrue(importedPrec.pipelineJson.contains(importedChainCredId))
+        assertFalse(importedPrec.pipelineJson.contains("cred_chain_http"))
+
+        val importedWf = targetBridge.workflows.first { it.name == "Email Alert (Imported)" }
+        assertTrue(importedWf.nodes.single().configJson.contains(importedSmtpCredId))
+        assertEquals(importedPrec.id, importedWf.nodes.single().preconditions.single().id)
+    }
+
+    @Test
+    fun testFindMissingNodeTypes_detectsMissingExternalNodesAcrossWorkflowAndChains() = runTest {
+        val testDispatcher = StandardTestDispatcher(testScheduler)
+        val bridge = FakeBackupBridge()
+        val service = DefaultBackupService(bridge, testDispatcher)
+
+        val chainGraphJson = dev.zophop.domain.model.AppJson.encodeToString(
+            dev.zophop.domain.model.WorkflowGraph(
+                nodes = listOf(
+                    WorkflowNode(
+                        id = "cn_ext",
+                        name = "Telegram Ping",
+                        type = "dev.zophop.plugin.telegram.TELEGRAM_ACTION",
+                    ),
+                ),
+            ),
+        )
+        val data = ParsedBackupData(
+            workflows = listOf(
+                Workflow(
+                    id = "wf_ext",
+                    name = "External Flow",
+                    nodes = listOf(
+                        WorkflowNode(id = "n1", name = "Manual", type = "MANUAL_TRIGGER"),
+                        WorkflowNode(
+                            id = "n2",
+                            name = "Send Email",
+                            type = "dev.zophop.plugin.smtp.SMTP_ACTION",
+                            preconditions = listOf(
+                                Precondition.ChainCheck(
+                                    id = "inline_c",
+                                    name = "Inline",
+                                    nodes = listOf(
+                                        WorkflowNode(
+                                            id = "in1",
+                                            name = "Inline Ext",
+                                            type = "com.example.slack.SLACK_ACTION",
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+            preconditions = listOf(
+                PreconditionEntity(
+                    id = "prec_c",
+                    name = "Entity Chain",
+                    type = "CHAINED_CHECK",
+                    pipelineJson = chainGraphJson,
+                ),
+            ),
+        )
+
+        val missing = service.findMissingNodeTypes(data)
+        assertEquals(
+            setOf(
+                "dev.zophop.plugin.smtp.SMTP_ACTION",
+                "com.example.slack.SLACK_ACTION",
+                "dev.zophop.plugin.telegram.TELEGRAM_ACTION",
+            ),
+            missing,
+        )
     }
 }

@@ -2,6 +2,8 @@ plugins {
     id("com.android.library")
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.ksp)
+    alias(libs.plugins.hilt)
 }
 
 android {
@@ -52,6 +54,9 @@ dependencies {
     implementation(libs.androidx.biometric)
 
     implementation(libs.kotlinx.serialization.json)
+
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.compiler)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

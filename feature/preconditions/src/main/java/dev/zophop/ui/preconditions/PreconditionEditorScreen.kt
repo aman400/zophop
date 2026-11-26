@@ -40,19 +40,25 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.zophop.core.ui.components.CancelExecutionConfirmDialog
 import dev.zophop.core.ui.components.IconPickerModalBottomSheet
 import dev.zophop.core.ui.components.IconSelectorBadge
@@ -64,6 +70,7 @@ import dev.zophop.domain.engine.NodeExecutionStep
 import dev.zophop.domain.engine.NodeStepState
 import dev.zophop.domain.engine.PreconditionResult
 import dev.zophop.domain.engine.markStepsAsCancelled
+import dev.zophop.domain.engine.plugin.ExternalPluginRegistry
 import dev.zophop.domain.model.AppJson
 import dev.zophop.domain.model.Credential
 import dev.zophop.domain.model.NodeType
@@ -96,6 +103,7 @@ fun PreconditionEditorScreen(
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
+    val availableExternalTypeIds = rememberAvailableExternalNodeTypes()
 
     val linkedWorkflows =
         remember(workflows, precondition?.id) {
@@ -348,6 +356,7 @@ fun PreconditionEditorScreen(
                 queueTimeoutMinutes = queueTimeoutMinutes,
                 onQueueTimeoutMinutesChanged = { queueTimeoutMinutes = it },
                 chainNodes = chainNodes,
+                availableExternalTypeIds = availableExternalTypeIds,
                 onAddStep = { showAddNodeDialog = true },
                 onEditStep = { node -> editingChainNode = node },
                 onDeleteStep = { node -> nodePendingDeletion = node },
@@ -844,6 +853,7 @@ private fun PreconditionMetaFields(
 @Composable
 private fun PreconditionPipelineStepsSection(
     chainNodes: List<WorkflowNode>,
+    availableExternalTypeIds: Set<String>? = null,
     isTesting: Boolean,
     onAddStep: () -> Unit,
     onEditStep: (WorkflowNode) -> Unit,
@@ -909,12 +919,17 @@ private fun PreconditionPipelineStepsSection(
                 val isRootNode = index == 0
 
                 androidx.compose.runtime.key(node.id) {
+                    val isMissingPlugin =
+                        remember(node.type, availableExternalTypeIds) {
+                            ExternalPluginRegistry.isNodeTypeMissingExternalPlugin(node.type, availableExternalTypeIds)
+                        }
                     PreconditionChainNodeItem(
                         node = node,
                         index = index,
                         isRootNode = isRootNode,
                         isLast = isLast,
                         isTesting = isTesting,
+                        isMissingPlugin = isMissingPlugin,
                         onEdit = { onEditStep(node) },
                         onDelete = { onDeleteStep(node) },
                         onMoveUp = { onMoveUp(index) },
@@ -1131,6 +1146,7 @@ private fun PreconditionEditorBody(
     queueTimeoutMinutes: String,
     onQueueTimeoutMinutesChanged: (String) -> Unit,
     chainNodes: List<WorkflowNode>,
+    availableExternalTypeIds: Set<String>? = null,
     onAddStep: () -> Unit,
     onEditStep: (WorkflowNode) -> Unit,
     onDeleteStep: (WorkflowNode) -> Unit,
@@ -1234,6 +1250,7 @@ private fun PreconditionEditorBody(
 
         PreconditionPipelineStepsSection(
             chainNodes = chainNodes,
+            availableExternalTypeIds = availableExternalTypeIds,
             isTesting = isTesting,
             onAddStep = onAddStep,
             onEditStep = onEditStep,
@@ -1411,4 +1428,29 @@ private fun AddChainNodeDialogWrapper(
             onNodeAdded(newNode, updatedName, conn)
         },
     )
+}
+
+@Composable
+private fun rememberAvailableExternalNodeTypes(): Set<String>? {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var pluginRefreshTick by remember { mutableIntStateOf(0) }
+    DisposableEffect(lifecycleOwner) {
+        val observer =
+            LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) {
+                    pluginRefreshTick++
+                }
+            }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+    var availableExternalTypeIds by remember { mutableStateOf<Set<String>?>(null) }
+    LaunchedEffect(pluginRefreshTick) {
+        val plugins = ExternalPluginRegistry(context).discoverPlugins()
+        availableExternalTypeIds = plugins.map { it.manifest.typeId }.toSet()
+    }
+    return availableExternalTypeIds
 }
