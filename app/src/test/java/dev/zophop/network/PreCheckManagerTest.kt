@@ -5,6 +5,7 @@ import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -165,5 +166,41 @@ class PreCheckManagerTest {
             val manager = PreCheckManager(context = null, okHttpClient = okHttpClient)
             val result = manager.checkServerHealth("https://ntfy.sh")
             assertTrue("Generic server probe 404 confirms host reachability", result is PreCheckResult.Passed)
+        }
+
+    @Test
+    fun testCustomHealthcheck_redactsSecretsAndRejectsUserInfoUrls() =
+        runTest {
+            val failingClient =
+                OkHttpClient
+                    .Builder()
+                    .addInterceptor {
+                        throw java.io.IOException(
+                            "Connect failed to https://my.host/health?token=my_query_tok_999 with Bearer hdr_tok_888",
+                        )
+                    }.build()
+
+            val manager = PreCheckManager(context = null, okHttpClient = failingClient)
+            val errResult =
+                manager.checkCustomServerHealth(
+                    serverUrl = "https://my.host",
+                    customUrl = "https://my.host/health?token=my_query_tok_999",
+                    headers = "Authorization: Bearer hdr_tok_888",
+                )
+            assertTrue(errResult is PreCheckResult.Failed)
+            val reason = (errResult as PreCheckResult.Failed).reason
+            assertFalse("Reason must redact query token", reason.contains("my_query_tok_999"))
+            assertFalse("Reason must redact header token", reason.contains("hdr_tok_888"))
+
+            val userInfoResult =
+                manager.checkCustomServerHealth(
+                    serverUrl = "https://my.host",
+                    customUrl = "https://user:secretpass@my.host/health",
+                )
+            assertTrue(userInfoResult is PreCheckResult.Failed)
+            assertFalse(
+                "Reason must not leak embedded password",
+                (userInfoResult as PreCheckResult.Failed).reason.contains("secretpass"),
+            )
         }
 }

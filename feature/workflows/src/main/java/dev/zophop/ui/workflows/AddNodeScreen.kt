@@ -34,10 +34,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.zophop.core.ui.components.ZopHopSpriteBackdrop
 import dev.zophop.plugin.api.NodeCategory
 import dev.zophop.plugin.api.NodePluginManifest
 
@@ -85,110 +87,113 @@ fun AddNodeScreen(
             regularManifests.filter { it.category == NodeCategory.ACTION }
         }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Add Pipeline Step Node") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-            )
-        },
-    ) { padding ->
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(horizontal = 20.dp)
-                    .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(10.dp),
+    ZopHopSpriteBackdrop(seedKey = "add_node_${workflowTriggerType.orEmpty()}") {
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                TopAppBar(
+                    title = { Text("Add Pipeline Step Node") },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                )
+            },
+        ) { padding ->
+            Column(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .padding(horizontal = 20.dp)
+                        .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                Row(
-                    modifier = Modifier.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(10.dp),
                 ) {
-                    Icon(
-                        Icons.Default.Check,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp),
-                    )
-                    Column {
-                        Text(
-                            text = "Condition & Hardware Check Nodes",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.Check,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp),
                         )
-                        Text(
-                            text = "Condition check nodes inspect system state (VPN, GPS, Internet, Bluetooth, SIM, Battery), validate rules, and return contextual variables for downstream steps.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 11.sp,
-                        )
+                        Column {
+                            Text(
+                                text = "Condition & Hardware Check Nodes",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                text = "Condition check nodes inspect system state (VPN, GPS, Internet, Bluetooth, SIM, Battery), validate rules, and return contextual variables for downstream steps.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 11.sp,
+                            )
+                        }
                     }
                 }
-            }
 
-            if (conditionCheckNodes.isNotEmpty()) {
-                Text(
-                    text = "🛡️ System & Condition Checks",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                conditionCheckNodes.forEach { manifest ->
-                    PluginNodeSelectionCard(manifest = manifest, onClick = { onSelectNodeType(manifest.typeId) })
+                if (conditionCheckNodes.isNotEmpty()) {
+                    Text(
+                        text = "🛡️ System & Condition Checks",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    conditionCheckNodes.forEach { manifest ->
+                        PluginNodeSelectionCard(manifest = manifest, onClick = { onSelectNodeType(manifest.typeId) })
+                    }
                 }
-            }
 
-            if (extractionNodes.isNotEmpty()) {
-                Text(
-                    text = "🔍 Parsers & Extraction",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                extractionNodes.forEach { manifest ->
-                    PluginNodeSelectionCard(manifest = manifest, onClick = { onSelectNodeType(manifest.typeId) })
+                if (extractionNodes.isNotEmpty()) {
+                    Text(
+                        text = "🔍 Parsers & Extraction",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    extractionNodes.forEach { manifest ->
+                        PluginNodeSelectionCard(manifest = manifest, onClick = { onSelectNodeType(manifest.typeId) })
+                    }
                 }
-            }
 
-            if (logicNodes.isNotEmpty()) {
-                Text(
-                    text = "⚙️ Logic & Rules",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                logicNodes.forEach { manifest ->
-                    PluginNodeSelectionCard(manifest = manifest, onClick = { onSelectNodeType(manifest.typeId) })
+                if (logicNodes.isNotEmpty()) {
+                    Text(
+                        text = "⚙️ Logic & Rules",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    logicNodes.forEach { manifest ->
+                        PluginNodeSelectionCard(manifest = manifest, onClick = { onSelectNodeType(manifest.typeId) })
+                    }
                 }
-            }
 
-            if (actionNodes.isNotEmpty()) {
-                Text(
-                    text = "🚀 Actions & Delivery",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                actionNodes.forEach { manifest ->
-                    PluginNodeSelectionCard(manifest = manifest, onClick = { onSelectNodeType(manifest.typeId) })
+                if (actionNodes.isNotEmpty()) {
+                    Text(
+                        text = "🚀 Actions & Delivery",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    actionNodes.forEach { manifest ->
+                        PluginNodeSelectionCard(manifest = manifest, onClick = { onSelectNodeType(manifest.typeId) })
+                    }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(36.dp))
+                Spacer(modifier = Modifier.height(36.dp))
+            }
         }
     }
 }

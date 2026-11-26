@@ -75,7 +75,7 @@ fun PreconditionEntity.toDomain(): Precondition =
                 icon = icon,
                 targetUrl = targetUrl,
                 method = method,
-                headers = headers,
+                headers = DatabaseEncryption.decrypt(headers),
                 expectedStatus = expectedStatus,
                 onFailureAction = onFailureAction,
                 maxRetries = maxRetries,
@@ -126,9 +126,7 @@ fun PreconditionEntity.toDomain(): Precondition =
             if (pipelineJson.isNotBlank()) {
                 try {
                     val graph = AppJson.decodeFromString<WorkflowGraph>(pipelineJson)
-                    nodesList = graph.nodes.map { node ->
-                        node.copy(configJson = DatabaseEncryption.decryptNodeConfig(node.configJson))
-                    }
+                    nodesList = graph.nodes.map { node -> node.withDecryptedSecrets() }
                     connectionsList = graph.connections
                 } catch (_: Exception) {
                     val legacy = parseLegacyPipeline(pipelineJson)
@@ -222,5 +220,44 @@ fun PreconditionEntity.getStepCount(): Int {
     } catch (_: Exception) {
         val legacy = parseLegacyPipeline(pipelineJson)
         legacy.first.size.coerceAtLeast(1)
+    }
+}
+
+fun PreconditionEntity.withEncryptedSecrets(): PreconditionEntity {
+    val encryptedHeaders =
+        if (headers.isNotBlank()) DatabaseEncryption.encrypt(headers) else headers
+    val encryptedPipeline = transformPipelineJsonSecrets(pipelineJson, encrypt = true)
+    return copy(headers = encryptedHeaders, pipelineJson = encryptedPipeline)
+}
+
+fun PreconditionEntity.withDecryptedSecrets(): PreconditionEntity {
+    val decryptedHeaders = DatabaseEncryption.decrypt(headers)
+    val decryptedPipeline = transformPipelineJsonSecrets(pipelineJson, encrypt = false)
+    return copy(headers = decryptedHeaders, pipelineJson = decryptedPipeline)
+}
+
+private fun transformPipelineJsonSecrets(
+    pipelineJson: String,
+    encrypt: Boolean,
+): String {
+    if (pipelineJson.isBlank()) return pipelineJson
+    return try {
+        val graph = AppJson.decodeFromString<WorkflowGraph>(pipelineJson)
+        val transformedNodes =
+            graph.nodes.map { node ->
+                if (encrypt) node.withEncryptedSecrets() else node.withDecryptedSecrets()
+            }
+        AppJson.encodeToString(graph.copy(nodes = transformedNodes))
+    } catch (_: Exception) {
+        val (nodes, conns) = parseLegacyPipeline(pipelineJson)
+        if (nodes.isEmpty()) {
+            pipelineJson
+        } else {
+            val transformedNodes =
+                nodes.map { node ->
+                    if (encrypt) node.withEncryptedSecrets() else node.withDecryptedSecrets()
+                }
+            AppJson.encodeToString(WorkflowGraph(nodes = transformedNodes, connections = conns))
+        }
     }
 }

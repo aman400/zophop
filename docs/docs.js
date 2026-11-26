@@ -2,6 +2,79 @@
 document.addEventListener("DOMContentLoaded", () => {
   const version = typeof APP_VERSION !== "undefined" ? APP_VERSION : "3.0.0";
 
+  // 0. Inject subtle theme-aware background sprites layer across all pages
+  if (!document.querySelector(".bg-sprites")) {
+    const bgLayer = document.createElement("div");
+    bgLayer.className = "bg-sprites";
+    bgLayer.setAttribute("aria-hidden", "true");
+    bgLayer.innerHTML = `
+      <div class="bg-sprite bg-sprite--bolt">
+        <svg viewBox="0 0 120 120" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M76 22 L44 62 L72 62 L40 98"/>
+          <circle cx="76" cy="22" r="9" fill="currentColor" fill-opacity="0.22"/>
+          <circle cx="40" cy="98" r="9" fill="currentColor" fill-opacity="0.22"/>
+        </svg>
+      </div>
+      <div class="bg-sprite bg-sprite--accent bg-sprite--sms">
+        <svg viewBox="0 0 120 120" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M22 30 h76 a12 12 0 0 1 12 12 v40 a12 12 0 0 1 -12 12 H52 l-18 14 v-14 H22 a12 12 0 0 1 -12 -12 V42 a12 12 0 0 1 12 -12 z"/>
+          <circle cx="42" cy="62" r="3.5" fill="currentColor"/>
+          <circle cx="60" cy="62" r="3.5" fill="currentColor"/>
+          <circle cx="78" cy="62" r="3.5" fill="currentColor"/>
+        </svg>
+      </div>
+      <div class="bg-sprite bg-sprite--accent bg-sprite--cron">
+        <svg viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="50" cy="54" r="32" stroke-dasharray="6 5"/>
+          <path d="M50 34 v20 l14 8"/>
+          <path d="M38 14 h24"/>
+        </svg>
+      </div>
+      <div class="bg-sprite bg-sprite--graph">
+        <svg viewBox="0 0 140 120" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M30 60 C55 60 55 28 84 28"/>
+          <path d="M30 60 C55 60 55 92 84 92"/>
+          <path d="M98 28 L118 60 L98 92"/>
+          <rect x="14" y="48" width="24" height="24" rx="7" fill="currentColor" fill-opacity="0.16"/>
+          <circle cx="92" cy="28" r="10" fill="currentColor" fill-opacity="0.16"/>
+          <circle cx="92" cy="92" r="10" fill="currentColor" fill-opacity="0.16"/>
+          <circle cx="120" cy="60" r="8" fill="currentColor" fill-opacity="0.24"/>
+        </svg>
+      </div>
+      <div class="bg-sprite bg-sprite--webhook">
+        <svg viewBox="0 0 120 120" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M40 28 c-10 0 -12 6 -12 14 v10 c0 6 -4 8 -8 8 c4 0 8 2 8 8 v10 c0 8 2 14 12 14"/>
+          <path d="M80 28 c10 0 12 6 12 14 v10 c0 6 4 8 8 8 c-4 0 -8 2 -8 8 v10 c0 8 -2 14 -12 14"/>
+          <circle cx="60" cy="60" r="6" fill="currentColor" fill-opacity="0.28"/>
+          <path d="M49 48 a16 16 0 0 1 22 0" stroke-opacity="0.8"/>
+          <path d="M49 72 a16 16 0 0 0 22 0" stroke-opacity="0.8"/>
+        </svg>
+      </div>
+      <div class="bg-sprite bg-sprite--accent bg-sprite--pulse">
+        <svg viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M50 18 c-14 0 -22 10 -22 24 v14 l-6 10 h56 l-6 -10 V42 c0 -14 -8 -24 -22 -24 z"/>
+          <path d="M42 74 a8 8 0 0 0 16 0"/>
+          <path d="M18 36 a38 38 0 0 1 8 -18" stroke-dasharray="4 4"/>
+          <path d="M82 36 a38 38 0 0 0 -8 -18" stroke-dasharray="4 4"/>
+        </svg>
+      </div>
+      <div class="bg-sprite bg-sprite--vault">
+        <svg viewBox="0 0 120 120" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M60 16 L96 30 v28 c0 24 -15 39 -36 46 C39 97 24 82 24 58 V30 L60 16 z"/>
+          <circle cx="60" cy="54" r="8" fill="currentColor" fill-opacity="0.22"/>
+          <path d="M60 62 v14"/>
+        </svg>
+      </div>
+      <div class="bg-sprite bg-sprite--accent bg-sprite--plugin">
+        <svg viewBox="0 0 120 120" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M36 28 h20 a8 8 0 0 1 16 0 h16 v20 a8 8 0 0 1 0 16 v24 H36 V64 a8 8 0 0 0 0 -16 V28 z"/>
+          <circle cx="62" cy="58" r="10" stroke-dasharray="3 3"/>
+        </svg>
+      </div>
+    `;
+    document.body.prepend(bgLayer);
+  }
+
   // 1. Sync version placeholders across any page
   document.querySelectorAll(".app-version").forEach(el => (el.textContent = version));
   document.querySelectorAll(".app-version-v").forEach(el => (el.textContent = "v" + version));

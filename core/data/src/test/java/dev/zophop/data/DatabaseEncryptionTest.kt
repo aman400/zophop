@@ -170,4 +170,77 @@ class DatabaseEncryptionTest {
         assertTrue("Restored node config must restore headers", restoredHttpNode.configJson.contains("Authorization: Bearer token_999"))
         assertTrue("Restored node config must restore bearerToken", restoredHttpNode.configJson.contains("inline_bearer_xyz"))
     }
+
+    @Test
+    fun testNestedJsonAndExpandedSensitiveKeysEncryptedPreservingCredentialId() {
+        val node =
+            WorkflowNode(
+                id = "node-nested",
+                name = "Nested Config",
+                type = "HTTP_ACTION",
+                configJson =
+                    """{"credentialId":"cred_keep_plain_1","webhookUrl":"https://hooks.example.com/secret","nested":{"access_token":"nested_tok_abc","privateKey":"priv_key_xyz","label":"ok"}}""",
+            )
+        val workflow = Workflow(id = "wf-nested", name = "Nested", nodes = listOf(node))
+
+        val entity = WorkflowEntity.fromDomain(workflow)
+        assertTrue("credentialId must remain unencrypted for lookups", entity.graphJson.contains("cred_keep_plain_1"))
+        assertFalse("webhookUrl must be encrypted", entity.graphJson.contains("https://hooks.example.com/secret"))
+        assertFalse("nested access_token must be encrypted", entity.graphJson.contains("nested_tok_abc"))
+        assertFalse("nested privateKey must be encrypted", entity.graphJson.contains("priv_key_xyz"))
+
+        val restored = entity.toDomain().nodes.first()
+        assertTrue(restored.configJson.contains("https://hooks.example.com/secret"))
+        assertTrue(restored.configJson.contains("nested_tok_abc"))
+        assertTrue(restored.configJson.contains("priv_key_xyz"))
+    }
+
+    @Test
+    fun testWorkflowEntityEncryptsInlineHealthCheckAndChainedPreconditionSecrets() {
+        val healthCheck =
+            dev.zophop.domain.model.Precondition.HealthCheck(
+                id = "hc_1",
+                targetUrl = "https://api.example.com/health",
+                headers = "Authorization: Bearer inline_hc_secret",
+            )
+        val chainCheck =
+            dev.zophop.domain.model.Precondition.ChainCheck(
+                id = "cc_1",
+                name = "Chain",
+                nodes =
+                    listOf(
+                        WorkflowNode(
+                            id = "cn1",
+                            name = "Auth Step",
+                            type = "HTTP_ACTION",
+                            configJson = """{"url":"https://api.example.com/auth","bearerToken":"chain_node_secret"}""",
+                        ),
+                    ),
+            )
+        val workflow =
+            Workflow(
+                id = "wf-prec-enc",
+                name = "Prec Enc",
+                nodes =
+                    listOf(
+                        WorkflowNode(
+                            id = "n1",
+                            name = "Action",
+                            type = "HTTP_ACTION",
+                            preconditions = listOf(healthCheck, chainCheck),
+                        ),
+                    ),
+            )
+
+        val entity = WorkflowEntity.fromDomain(workflow)
+        assertFalse(entity.graphJson.contains("inline_hc_secret"))
+        assertFalse(entity.graphJson.contains("chain_node_secret"))
+
+        val restored = entity.toDomain()
+        val restoredPrecs = restored.nodes.first().preconditions
+        val restoredHc = restoredPrecs[0] as dev.zophop.domain.model.Precondition.HealthCheck
+        val restoredCc = restoredPrecs[1] as dev.zophop.domain.model.Precondition.ChainCheck
+        assertEquals("Authorization: Bearer inline_hc_secret", restoredHc.headers)
+        assertTrue(restoredCc.nodes.first().configJson.contains("chain_node_secret"))
+    }
 }

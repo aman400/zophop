@@ -5,8 +5,10 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import dev.zophop.data.DeliveryNode
 import dev.zophop.domain.engine.HttpHeaderUtils
+import dev.zophop.plugin.api.ExecutionLogFormatter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -96,33 +98,60 @@ open class PreCheckManager(
                     "${serverUrl.trimEnd('/')}/v1/health"
                 }
 
-            if (target.isBlank() || (!target.startsWith("http://") && !target.startsWith("https://"))) {
-                return@withContext PreCheckResult.Failed("Invalid target URL format: $target")
-            }
-
-            try {
-                val requestBuilder = Request.Builder().url(target)
-
-                when (method.uppercase()) {
-                    "HEAD" -> requestBuilder.head()
-                    "POST" -> requestBuilder.post(ByteArray(0).toRequestBody(null))
-                    else -> requestBuilder.get()
+            val parsedUrl = target.toHttpUrlOrNull()
+            when {
+                target.isBlank() || parsedUrl == null || (parsedUrl.scheme != "http" && parsedUrl.scheme != "https") -> {
+                    val safeTarget = ExecutionLogFormatter.redactUrl(target)
+                    PreCheckResult.Failed("Invalid target URL format: $safeTarget")
                 }
-
-                if (headers.isNotBlank()) {
-                    HttpHeaderUtils.parseHeaders(headers).forEach { (k, v) ->
-                        requestBuilder.addHeader(k, v)
-                    }
+                parsedUrl.username.isNotEmpty() || parsedUrl.password.isNotEmpty() -> {
+                    PreCheckResult.Failed("Invalid target URL: embedded credentials are not allowed")
                 }
-
-                val request = requestBuilder.build()
-                clientCallCustom(request, expectedStatus, isCustomEndpoint)
-            } catch (e: IOException) {
-                PreCheckResult.Failed("Healthcheck request error: ${e.message}")
-            } catch (e: IllegalArgumentException) {
-                PreCheckResult.Failed("Healthcheck request error: ${e.message}")
+                else -> executeCustomHealthRequest(parsedUrl, method, headers, expectedStatus, isCustomEndpoint)
             }
         }
+
+    private fun executeCustomHealthRequest(
+        parsedUrl: okhttp3.HttpUrl,
+        method: String,
+        headers: String,
+        expectedStatus: Int,
+        isCustomEndpoint: Boolean,
+    ): PreCheckResult {
+        val explicitSecrets = collectSecrets(parsedUrl, headers)
+        return try {
+            val request = buildHealthcheckRequest(parsedUrl, method, headers)
+            clientCallCustom(request, expectedStatus, isCustomEndpoint, explicitSecrets)
+        } catch (e: IOException) {
+            val safeMsg = ExecutionLogFormatter.redactSecrets(e.message.orEmpty(), explicitSecrets)
+            PreCheckResult.Failed("Healthcheck request error: $safeMsg")
+        } catch (e: IllegalArgumentException) {
+            val safeMsg = ExecutionLogFormatter.redactSecrets(e.message.orEmpty(), explicitSecrets)
+            PreCheckResult.Failed("Healthcheck request error: $safeMsg")
+        }
+    }
+
+    private fun buildHealthcheckRequest(
+        parsedUrl: okhttp3.HttpUrl,
+        method: String,
+        headers: String,
+    ): Request {
+        val requestBuilder = Request.Builder().url(parsedUrl)
+        when (method.uppercase()) {
+            "HEAD" -> requestBuilder.head()
+            "POST" -> requestBuilder.post(ByteArray(0).toRequestBody(null))
+            else -> requestBuilder.get()
+        }
+        if (headers.isNotBlank()) {
+            HttpHeaderUtils.parseHeaders(headers).forEach { (k, v) ->
+                val safeVal = HttpHeaderUtils.sanitizeHeaderValue(v)
+                if (HttpHeaderUtils.isValidHeaderName(k)) {
+                    requestBuilder.addHeader(k, safeVal)
+                }
+            }
+        }
+        return requestBuilder.build()
+    }
 
     suspend fun checkServerHealth(serverUrl: String): PreCheckResult =
         withContext(Dispatchers.IO) {
@@ -133,6 +162,7 @@ open class PreCheckManager(
         request: Request,
         expectedStatus: Int,
         isCustomEndpoint: Boolean = false,
+        explicitSecrets: List<String> = emptyList(),
     ): PreCheckResult =
         try {
             okHttpClient.newCall(request).execute().use { response ->
@@ -146,8 +176,30 @@ open class PreCheckManager(
                 }
             }
         } catch (e: IOException) {
-            PreCheckResult.Failed("Unreachable: ${e.message}")
+            val safeMsg = ExecutionLogFormatter.redactSecrets(e.message.orEmpty(), explicitSecrets)
+            PreCheckResult.Failed("Unreachable: $safeMsg")
         } catch (e: IllegalArgumentException) {
-            PreCheckResult.Failed("Unreachable: ${e.message}")
+            val safeMsg = ExecutionLogFormatter.redactSecrets(e.message.orEmpty(), explicitSecrets)
+            PreCheckResult.Failed("Unreachable: $safeMsg")
         }
+
+    private fun collectSecrets(
+        parsedUrl: okhttp3.HttpUrl,
+        headers: String,
+    ): List<String> {
+        val secrets = mutableListOf<String>()
+        for (name in parsedUrl.queryParameterNames) {
+            parsedUrl.queryParameterValues(name).filterNotNull().forEach { v ->
+                if (v.length >= 4) secrets.add(v)
+            }
+        }
+        if (headers.isNotBlank()) {
+            HttpHeaderUtils.parseHeaders(headers).forEach { (k, v) ->
+                if (ExecutionLogFormatter.isSensitiveHeader(k) && v.isNotBlank()) {
+                    secrets.add(v)
+                }
+            }
+        }
+        return secrets
+    }
 }

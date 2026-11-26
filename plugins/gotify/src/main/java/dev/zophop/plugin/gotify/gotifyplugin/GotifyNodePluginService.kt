@@ -2,12 +2,16 @@ package dev.zophop.plugin.gotify.gotifyplugin
 
 import android.app.Service
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Binder
 import android.os.IBinder
+import android.os.Process
 import dev.zophop.domain.model.optInt
 import dev.zophop.domain.model.optString
 import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ConfigFieldSpec
 import dev.zophop.plugin.api.CredentialSpec
+import dev.zophop.plugin.api.ExecutionLogFormatter
 import dev.zophop.plugin.api.HttpCredentialAdapter
 import dev.zophop.plugin.api.INodePluginService
 import dev.zophop.plugin.api.NodeCategory
@@ -117,6 +121,9 @@ class GotifyNodePluginService : Service() {
                 configJson: String,
                 inputContextJson: String,
             ): String {
+                if (!isTrustedCaller()) {
+                    return fail("Unauthorized caller")
+                }
                 val params = parseGotifyServiceParams(configJson, inputContextJson)
                 if (params.serverUrl.isBlank()) {
                     return fail("Gotify serverUrl is empty")
@@ -125,7 +132,10 @@ class GotifyNodePluginService : Service() {
             }
 
             private fun dispatchGotifyRequest(params: GotifyServiceParams): String {
-                val targetUrl = "${params.serverUrl}/message" + (if (params.appToken.isNotBlank()) "?token=${params.appToken}" else "")
+                val cleanToken = params.appToken.replace(Regex("[\\r\\n\\u0000]"), "").trim()
+                val encodedToken = java.net.URLEncoder.encode(cleanToken, Charsets.UTF_8.name())
+                val explicitSecrets = listOfNotNull(cleanToken.takeIf { it.isNotBlank() }, encodedToken.takeIf { it.isNotBlank() })
+                val targetUrl = "${params.serverUrl}/message" + (if (cleanToken.isNotBlank()) "?token=$encodedToken" else "")
                 val jsonBody =
                     buildJsonObject {
                         put("title", params.title)
@@ -139,7 +149,7 @@ class GotifyNodePluginService : Service() {
                             .Builder()
                             .url(targetUrl)
                             .post(jsonBody.toRequestBody("application/json; charset=utf-8".toMediaType()))
-                    if (params.appToken.isNotBlank()) requestBuilder.addHeader("X-Gotify-Key", params.appToken)
+                    if (cleanToken.isNotBlank()) requestBuilder.addHeader("X-Gotify-Key", cleanToken)
 
                     val response = okHttpClient.newCall(requestBuilder.build()).execute()
                     response.use { resp ->
@@ -147,13 +157,16 @@ class GotifyNodePluginService : Service() {
                         if (resp.isSuccessful) {
                             success("Delivered to Gotify server")
                         } else {
-                            fail("Gotify request failed: HTTP ${resp.code} - $respBody")
+                            val safeBody = ExecutionLogFormatter.redactSecrets(respBody, explicitSecrets)
+                            fail("Gotify request failed: HTTP ${resp.code} - $safeBody")
                         }
                     }
                 } catch (e: IOException) {
-                    fail("Gotify dispatch failed: ${e.message}")
+                    val safeMsg = ExecutionLogFormatter.redactSecrets(e.message.orEmpty(), explicitSecrets)
+                    fail("Gotify dispatch failed: $safeMsg")
                 } catch (e: IllegalArgumentException) {
-                    fail("Gotify dispatch failed: ${e.message}")
+                    val safeMsg = ExecutionLogFormatter.redactSecrets(e.message.orEmpty(), explicitSecrets)
+                    fail("Gotify dispatch failed: $safeMsg")
                 }
             }
 
@@ -170,6 +183,13 @@ class GotifyNodePluginService : Service() {
                     put("errorReason", reason)
                 }.toString()
         }
+
+    private fun isTrustedCaller(): Boolean {
+        val callingUid = Binder.getCallingUid()
+        val myUid = Process.myUid()
+        if (callingUid == myUid) return true
+        return packageManager.checkSignatures(myUid, callingUid) == PackageManager.SIGNATURE_MATCH
+    }
 
     override fun onBind(intent: Intent?): IBinder = binder
 }

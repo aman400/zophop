@@ -41,7 +41,7 @@ class SmsReceiver : BroadcastReceiver() {
             Log.w("SmsReceiver", "extractSmsData returned null (globalWorkflowsEnabled may be false or empty body)")
             return
         }
-        Log.i("SmsReceiver", "Processing incoming SMS from '$sender', body length: ${fullBody.length}")
+        Log.i("SmsReceiver", "Processing incoming SMS, body length: ${fullBody.length}")
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
             try {
@@ -93,7 +93,7 @@ class SmsReceiver : BroadcastReceiver() {
         Log.i("SmsReceiver", "Found ${smsWorkflows.size} active SMS workflows (out of ${activeWorkflows.size} active workflows)")
         if (smsWorkflows.isEmpty()) return
 
-        val evaluator = PreconditionEvaluator(context)
+        val evaluator = PreconditionEvaluator(context, credentialRepository = credentialRepository)
         val engine = WorkflowEngine(evaluator, credentialRepository)
         val executionScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -149,15 +149,15 @@ class SmsReceiver : BroadcastReceiver() {
 
                 if (result is WorkflowExecutionResult.Ignored) {
                     // Trigger filtered out the event — discard the RUNNING log, no history needed.
-                    Log.i("SmsReceiver", "Workflow '${workflow.name}' ignored (trigger filter): ${result.reason}")
+                    Log.i("SmsReceiver", "Workflow '${workflow.name}' ignored (trigger filter)")
                     stepLogSync.finalize(finalLog = null, deleteOnIgnored = true)
                     return@launch
                 }
 
                 val resultDetails = when (result) {
                     is WorkflowExecutionResult.Success -> "SUCCESS"
-                    is WorkflowExecutionResult.PreconditionFailed -> "FAILED (Node: ${result.nodeId}, Reason: ${result.reason})"
-                    is WorkflowExecutionResult.Failed -> "FAILED (Node: ${result.nodeId}, Reason: ${result.reason})"
+                    is WorkflowExecutionResult.PreconditionFailed -> "FAILED (Node: ${result.nodeId})"
+                    is WorkflowExecutionResult.Failed -> "FAILED (Node: ${result.nodeId})"
                     is WorkflowExecutionResult.Cancelled -> "CANCELLED"
                 }
                 Log.i("SmsReceiver", "Workflow '${workflow.name}' completed with result: $resultDetails")

@@ -7,12 +7,14 @@ import android.content.ServiceConnection
 import android.os.IBinder
 import android.os.RemoteException
 import dev.zophop.data.CredentialRepository
+import dev.zophop.data.DatabaseEncryption
 import dev.zophop.domain.model.WorkflowNode
 import dev.zophop.domain.model.optBoolean
 import dev.zophop.domain.model.optJsonObject
 import dev.zophop.domain.model.optString
 import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ExecutionContext
+import dev.zophop.plugin.api.ExecutionLogFormatter
 import dev.zophop.plugin.api.INodePluginService
 import dev.zophop.plugin.api.NodeExecutionResult
 import dev.zophop.plugin.api.NodeExecutor
@@ -38,7 +40,10 @@ class ExternalPluginExecutor(
 ) : NodeExecutor {
     companion object {
         private const val IPC_TIMEOUT_MS = 15_000L
+        private const val CRED_PREFIX = "_cred_"
     }
+
+    internal var aidlInterfaceResolver: (IBinder?) -> INodePluginService? = INodePluginService.Stub::asInterface
 
     override suspend fun execute(
         node: WorkflowNode,
@@ -46,78 +51,122 @@ class ExternalPluginExecutor(
         appContext: Context?,
     ): NodeExecutionResult =
         withContext(Dispatchers.IO) {
-            val ctx = appContext ?: return@withContext NodeExecutionResult.Failed("Context unavailable for plugin execution")
+            if (appContext == null) {
+                NodeExecutionResult.Failed("Context unavailable for plugin execution")
+            } else {
+                executeWithAppContext(node, context, appContext)
+            }
+        }
 
-            val intent =
-                Intent().apply {
-                    component = ComponentName(pluginInfo.packageName, pluginInfo.serviceClassName)
-                }
+    private suspend fun executeWithAppContext(
+        node: WorkflowNode,
+        context: ExecutionContext,
+        ctx: Context,
+    ): NodeExecutionResult {
+        val intent =
+            Intent().apply {
+                component = ComponentName(pluginInfo.packageName, pluginInfo.serviceClassName)
+            }
 
-            injectCredentialsIfPresent(node.configJson, context)
+        val scopedCredentials = resolveScopedCredentials(node.configJson)
+        val explicitSecrets = collectExplicitSecrets(node.configJson, scopedCredentials)
 
-            val inputContextJson =
-                buildJsonObject {
-                    for ((k, v) in context.getAll()) {
+        val inputContextJson =
+            buildJsonObject {
+                for ((k, v) in context.getAll()) {
+                    if (!k.startsWith(CRED_PREFIX)) {
                         put(k, v.toString())
                     }
-                }.toString()
-
-            val resultJson =
-                withTimeoutOrNull(IPC_TIMEOUT_MS) {
-                    executeViaAidlService(ctx, intent, node.id, node.configJson, inputContextJson)
                 }
+                for ((k, v) in scopedCredentials) {
+                    put(k, v)
+                }
+            }.toString()
 
-            if (resultJson == null) {
-                return@withContext NodeExecutionResult.Failed(
+        val resultJson =
+            withTimeoutOrNull(IPC_TIMEOUT_MS) {
+                executeViaAidlService(ctx, intent, node.id, node.configJson, inputContextJson)
+            }
+
+        return when {
+            resultJson == null ->
+                NodeExecutionResult.Failed(
                     "Timeout (${IPC_TIMEOUT_MS / 1000}s) waiting for plugin '${pluginInfo.manifest.displayName}'",
                 )
-            }
-
-            if (resultJson.isBlank()) {
-                return@withContext NodeExecutionResult.Failed(
+            resultJson.isBlank() ->
+                NodeExecutionResult.Failed(
                     "Failed to connect or receive response from plugin '${pluginInfo.manifest.displayName}'",
                 )
+            else -> parsePluginResult(resultJson, explicitSecrets, context)
+        }
+    }
+
+    private fun parsePluginResult(
+        resultJson: String,
+        explicitSecrets: List<String>,
+        context: ExecutionContext,
+    ): NodeExecutionResult =
+        try {
+            val json = parseJsonObjectSafe(resultJson)
+            val isSuccess = json.optBoolean("isSuccess", false)
+            val isIgnored = json.optBoolean("isIgnored", false)
+            val outputPort = json.optString("outputPort", "main")
+            val rawLogMessage = json.optString("logMessage", "Plugin '${pluginInfo.manifest.displayName}' executed")
+            val rawErrorReason = json.optString("errorReason", "Plugin execution failed")
+            val logMessage = ExecutionLogFormatter.redactSecrets(rawLogMessage, explicitSecrets)
+            val errorReason = ExecutionLogFormatter.redactSecrets(rawErrorReason, explicitSecrets)
+
+            populateOutputDataMap(json.optJsonObject("outputDataMap"), context)
+
+            when {
+                isIgnored -> NodeExecutionResult.Ignored(errorReason)
+                isSuccess -> NodeExecutionResult.Success(outputPort = outputPort, logMessage = logMessage)
+                else -> NodeExecutionResult.Failed(errorReason)
             }
-
-            try {
-                val json = parseJsonObjectSafe(resultJson)
-                val isSuccess = json.optBoolean("isSuccess", false)
-                val isIgnored = json.optBoolean("isIgnored", false)
-                val outputPort = json.optString("outputPort", "main")
-                val logMessage = json.optString("logMessage", "Plugin '${pluginInfo.manifest.displayName}' executed")
-                val errorReason = json.optString("errorReason", "Plugin execution failed")
-
-                populateOutputDataMap(json.optJsonObject("outputDataMap"), context)
-
-                when {
-                    isIgnored -> NodeExecutionResult.Ignored(errorReason)
-                    isSuccess -> NodeExecutionResult.Success(outputPort = outputPort, logMessage = logMessage)
-                    else -> NodeExecutionResult.Failed(errorReason)
-                }
-            } catch (e: SerializationException) {
-                NodeExecutionResult.Failed(
-                    "Failed to parse response from plugin '${pluginInfo.manifest.displayName}': ${e.message}",
-                )
-            }
+        } catch (e: SerializationException) {
+            val safeMsg = ExecutionLogFormatter.redactSecrets(e.message.orEmpty(), explicitSecrets)
+            NodeExecutionResult.Failed(
+                "Failed to parse response from plugin '${pluginInfo.manifest.displayName}': $safeMsg",
+            )
         }
 
-    private suspend fun injectCredentialsIfPresent(configJson: String, context: ExecutionContext) {
+    private suspend fun resolveScopedCredentials(configJson: String): Map<String, String> {
         val config = parseJsonObjectSafe(configJson)
         val credentialId = config.optString("credentialId", "").trim()
-        if (credentialId.isNotBlank() && credentialRepository != null) {
-            val cred = credentialRepository.getCredentialById(credentialId)
-            if (cred != null) {
-                for ((k, v) in cred.dataMap) {
-                    context.set("_cred_$k", v)
-                }
+        val cred =
+            if (credentialId.isNotBlank() && credentialRepository != null) {
+                credentialRepository.getCredentialById(credentialId)
+            } else {
+                null
+            }
+        return cred?.dataMap?.entries?.associate { (k, v) -> "$CRED_PREFIX$k" to v } ?: emptyMap()
+    }
+
+    private fun collectExplicitSecrets(
+        configJson: String,
+        scopedCredentials: Map<String, String>,
+    ): List<String> {
+        val secrets = mutableListOf<String>()
+        for ((k, v) in scopedCredentials) {
+            val rawKey = k.removePrefix(CRED_PREFIX)
+            if (v.isNotBlank() && (DatabaseEncryption.isSensitiveKey(rawKey) || v.length >= 4)) {
+                secrets.add(v)
             }
         }
+        val config = parseJsonObjectSafe(configJson)
+        for ((k, v) in config) {
+            val content = (v as? JsonPrimitive)?.takeIf { it.isString }?.content
+            if (DatabaseEncryption.isSensitiveKey(k) && !content.isNullOrBlank()) {
+                secrets.add(content)
+            }
+        }
+        return secrets
     }
 
     private fun populateOutputDataMap(outputData: JsonObject?, context: ExecutionContext) {
         if (outputData == null) return
         for ((k, value) in outputData) {
-            if (value !is JsonNull) {
+            if (!k.startsWith(CRED_PREFIX) && value !is JsonNull) {
                 context.set(k, extractPrimitiveValue(value))
             }
         }
@@ -148,7 +197,7 @@ class ExternalPluginExecutor(
                     override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
                         if (isResumed) return
                         try {
-                            val aidlService = INodePluginService.Stub.asInterface(service)
+                            val aidlService = aidlInterfaceResolver(service)
                             if (aidlService == null) {
                                 isResumed = true
                                 ctx.unbindService(this)

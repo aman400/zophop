@@ -56,14 +56,7 @@ object BackupSerializer {
                 wf.copy(
                     nodes =
                         wf.nodes.map { node ->
-                            val rawConfig = DatabaseEncryption.decryptNodeConfig(node.configJson)
-                            val config =
-                                if (!password.isNullOrBlank()) {
-                                    encryptSensitiveJsonKeys(rawConfig, password)
-                                } else {
-                                    rawConfig
-                                }
-                            node.copy(configJson = config)
+                            exportWorkflowNodeSecrets(node, password, decryptLocalStorageValue)
                         },
                 )
             }
@@ -84,18 +77,14 @@ object BackupSerializer {
 
         val processedPreconditions =
             preconditions.map { prec ->
+                val cleanHeaders = decryptLocalStorageValue(prec.headers)
                 val headers =
-                    if (!password.isNullOrBlank()) {
-                        encryptSensitiveJsonKeys(prec.headers, password)
+                    if (!password.isNullOrBlank() && cleanHeaders.isNotBlank()) {
+                        PasswordBasedEncryption.encrypt(cleanHeaders, password)
                     } else {
-                        prec.headers
+                        cleanHeaders
                     }
-                val pipeline =
-                    if (!password.isNullOrBlank()) {
-                        encryptSensitiveJsonKeys(prec.pipelineJson, password)
-                    } else {
-                        prec.pipelineJson
-                    }
+                val pipeline = exportPipelineJsonSecrets(prec.pipelineJson, password, decryptLocalStorageValue)
                 prec.copy(headers = headers, pipelineJson = pipeline)
             }
 
@@ -142,7 +131,7 @@ object BackupSerializer {
         }
         if (isWorkflowObject(obj)) {
             val wf = parseWorkflow(obj)
-            val hasEncrypted = wf.nodes.any { it.configJson.contains(PasswordBasedEncryption.PREFIX) }
+            val hasEncrypted = workflowHasEncryptedSecrets(wf)
             return ParsedBackupData(
                 workflows = listOf(wf),
                 isEncrypted = hasEncrypted,
@@ -189,7 +178,7 @@ object BackupSerializer {
                 bundle.isEncrypted ||
                     bundle.verificationToken != null ||
                     bundle.credentials.any { it.dataMap.values.any { v -> PasswordBasedEncryption.isEncryptedWithPassword(v) } } ||
-                    bundle.workflows.any { it.nodes.any { n -> n.configJson.contains(PasswordBasedEncryption.PREFIX) } } ||
+                    bundle.workflows.any { workflowHasEncryptedSecrets(it) } ||
                     bundle.preconditions.any { it.headers.contains(PasswordBasedEncryption.PREFIX) || it.pipelineJson.contains(PasswordBasedEncryption.PREFIX) }
 
             return ParsedBackupData(
@@ -229,7 +218,7 @@ object BackupSerializer {
         val hasEncryptedItems = isEncryptedFlag ||
             verificationToken != null ||
             credentials.any { it.dataMap.values.any { v -> PasswordBasedEncryption.isEncryptedWithPassword(v) } } ||
-            workflows.any { it.nodes.any { n -> n.configJson.contains(PasswordBasedEncryption.PREFIX) } } ||
+            workflows.any { workflowHasEncryptedSecrets(it) } ||
             preconditions.any {
                 it.headers.contains(PasswordBasedEncryption.PREFIX) ||
                     it.pipelineJson.contains(PasswordBasedEncryption.PREFIX)
@@ -263,7 +252,7 @@ object BackupSerializer {
         }
 
         val hasEncrypted = credentials.any { it.dataMap.values.any { v -> PasswordBasedEncryption.isEncryptedWithPassword(v) } } ||
-            workflows.any { it.nodes.any { n -> n.configJson.contains(PasswordBasedEncryption.PREFIX) } } ||
+            workflows.any { workflowHasEncryptedSecrets(it) } ||
             preconditions.any {
                 it.headers.contains(PasswordBasedEncryption.PREFIX) ||
                     it.pipelineJson.contains(PasswordBasedEncryption.PREFIX)
@@ -311,17 +300,19 @@ object BackupSerializer {
 
         // Decrypt Workflows
         val decryptedWorkflows = parsed.workflows.map { wf ->
-            val updatedNodes = wf.nodes.map { node ->
-                val decryptedConfig = decryptSensitiveJsonKeys(node.configJson, password)
-                node.copy(configJson = decryptedConfig)
-            }
+            val updatedNodes = wf.nodes.map { node -> decryptWorkflowNodeSecrets(node, password) }
             wf.copy(nodes = updatedNodes)
         }
 
         // Decrypt Preconditions
         val decryptedPreconditions = parsed.preconditions.map { prec ->
-            val updatedHeaders = decryptSensitiveJsonKeys(prec.headers, password)
-            val updatedPipeline = decryptSensitiveJsonKeys(prec.pipelineJson, password)
+            val updatedHeaders =
+                if (PasswordBasedEncryption.isEncryptedWithPassword(prec.headers)) {
+                    PasswordBasedEncryption.decrypt(prec.headers, password)
+                } else {
+                    decryptSensitiveJsonKeys(prec.headers, password)
+                }
+            val updatedPipeline = decryptPipelineJsonSecrets(prec.pipelineJson, password)
             prec.copy(headers = updatedHeaders, pipelineJson = updatedPipeline)
         }
 
@@ -742,19 +733,13 @@ object BackupSerializer {
         return try {
             val json = parseJsonObjectSafe(jsonString)
             if (json.isEmpty()) return jsonString
-            var modified = false
-            val newMap = json.toMutableMap()
-            for ((key, value) in json) {
-                val strVal = value.optString()
+            val (transformed, modified) = transformBackupJsonObject(json) { key, value ->
                 val shouldEncrypt = DatabaseEncryption.isSensitiveKey(key) &&
-                    strVal.isNotBlank() &&
-                    !PasswordBasedEncryption.isEncryptedWithPassword(strVal)
-                if (shouldEncrypt) {
-                    newMap[key] = JsonPrimitive(PasswordBasedEncryption.encrypt(strVal, password))
-                    modified = true
-                }
+                    value.isNotBlank() &&
+                    !PasswordBasedEncryption.isEncryptedWithPassword(value)
+                if (shouldEncrypt) PasswordBasedEncryption.encrypt(value, password) else value
             }
-            if (modified) AppJson.encodeToString(JsonObject(newMap)) else jsonString
+            if (modified) AppJson.encodeToString(transformed) else jsonString
         } catch (_: Exception) {
             jsonString
         }
@@ -765,18 +750,166 @@ object BackupSerializer {
         return try {
             val json = parseJsonObjectSafe(jsonString)
             if (json.isEmpty()) return jsonString
-            var modified = false
-            val newMap = json.toMutableMap()
-            for ((key, value) in json) {
-                val strVal = value.optString()
-                if (PasswordBasedEncryption.isEncryptedWithPassword(strVal)) {
-                    newMap[key] = JsonPrimitive(PasswordBasedEncryption.decrypt(strVal, password))
-                    modified = true
+            val (transformed, modified) = transformBackupJsonObject(json) { _, value ->
+                if (PasswordBasedEncryption.isEncryptedWithPassword(value)) {
+                    PasswordBasedEncryption.decrypt(value, password)
+                } else {
+                    value
                 }
             }
-            if (modified) AppJson.encodeToString(JsonObject(newMap)) else jsonString
+            if (modified) AppJson.encodeToString(transformed) else jsonString
         } catch (_: Exception) {
             jsonString
         }
     }
+
+    private fun transformBackupJsonObject(
+        obj: JsonObject,
+        transform: (key: String, value: String) -> String,
+    ): Pair<JsonObject, Boolean> {
+        var modified = false
+        val newMap = obj.toMutableMap()
+        for ((key, value) in obj) {
+            val (updated, changed) = transformBackupElement(key, value, transform)
+            if (changed) {
+                newMap[key] = updated
+                modified = true
+            }
+        }
+        return JsonObject(newMap) to modified
+    }
+
+    private fun transformBackupElement(
+        key: String,
+        value: JsonElement,
+        transform: (key: String, value: String) -> String,
+    ): Pair<JsonElement, Boolean> =
+        when (value) {
+            is JsonPrimitive -> {
+                if (value.isString) {
+                    val updated = transform(key, value.content)
+                    if (updated != value.content) JsonPrimitive(updated) to true else value to false
+                } else {
+                    value to false
+                }
+            }
+            is JsonObject -> transformBackupJsonObject(value, transform)
+            is JsonArray -> {
+                var arrModified = false
+                val mapped = value.map { elem ->
+                    val (updated, changed) = transformBackupElement(key, elem, transform)
+                    if (changed) arrModified = true
+                    updated
+                }
+                JsonArray(mapped) to arrModified
+            }
+        }
+
+    private fun exportWorkflowNodeSecrets(
+        node: WorkflowNode,
+        password: String?,
+        decryptLocalStorageValue: (String) -> String,
+    ): WorkflowNode {
+        val rawConfig = DatabaseEncryption.decryptNodeConfig(node.configJson)
+        val exportedConfig =
+            if (!password.isNullOrBlank()) encryptSensitiveJsonKeys(rawConfig, password) else rawConfig
+        val exportedPrecs =
+            node.preconditions.map { prec ->
+                exportPreconditionSecrets(prec, password, decryptLocalStorageValue)
+            }
+        return node.copy(configJson = exportedConfig, preconditions = exportedPrecs)
+    }
+
+    private fun exportPreconditionSecrets(
+        prec: Precondition,
+        password: String?,
+        decryptLocalStorageValue: (String) -> String,
+    ): Precondition =
+        when (prec) {
+            is Precondition.HealthCheck -> {
+                val cleanHeaders = decryptLocalStorageValue(prec.headers)
+                val exportedHeaders =
+                    if (!password.isNullOrBlank() && cleanHeaders.isNotBlank()) {
+                        PasswordBasedEncryption.encrypt(cleanHeaders, password)
+                    } else {
+                        cleanHeaders
+                    }
+                prec.copy(headers = exportedHeaders)
+            }
+            is Precondition.ChainCheck ->
+                prec.copy(
+                    nodes = prec.nodes.map { n -> exportWorkflowNodeSecrets(n, password, decryptLocalStorageValue) },
+                )
+            else -> prec
+        }
+
+    private fun exportPipelineJsonSecrets(
+        pipelineJson: String,
+        password: String?,
+        decryptLocalStorageValue: (String) -> String,
+    ): String {
+        if (pipelineJson.isBlank()) return pipelineJson
+        return try {
+            val graph = AppJson.decodeFromString<WorkflowGraph>(pipelineJson)
+            val updatedNodes = graph.nodes.map { n -> exportWorkflowNodeSecrets(n, password, decryptLocalStorageValue) }
+            AppJson.encodeToString(graph.copy(nodes = updatedNodes))
+        } catch (_: Exception) {
+            if (!password.isNullOrBlank()) encryptSensitiveJsonKeys(pipelineJson, password) else pipelineJson
+        }
+    }
+
+    private fun decryptWorkflowNodeSecrets(
+        node: WorkflowNode,
+        password: CharSequence,
+    ): WorkflowNode {
+        val decryptedConfig = decryptSensitiveJsonKeys(node.configJson, password)
+        val decryptedPrecs = node.preconditions.map { prec -> decryptPreconditionSecrets(prec, password) }
+        return node.copy(configJson = decryptedConfig, preconditions = decryptedPrecs)
+    }
+
+    private fun decryptPreconditionSecrets(
+        prec: Precondition,
+        password: CharSequence,
+    ): Precondition =
+        when (prec) {
+            is Precondition.HealthCheck -> {
+                val decryptedHeaders =
+                    if (PasswordBasedEncryption.isEncryptedWithPassword(prec.headers)) {
+                        PasswordBasedEncryption.decrypt(prec.headers, password)
+                    } else {
+                        prec.headers
+                    }
+                prec.copy(headers = decryptedHeaders)
+            }
+            is Precondition.ChainCheck ->
+                prec.copy(nodes = prec.nodes.map { n -> decryptWorkflowNodeSecrets(n, password) })
+            else -> prec
+        }
+
+    private fun decryptPipelineJsonSecrets(
+        pipelineJson: String,
+        password: CharSequence,
+    ): String {
+        if (pipelineJson.isBlank()) return pipelineJson
+        return try {
+            val graph = AppJson.decodeFromString<WorkflowGraph>(pipelineJson)
+            val updatedNodes = graph.nodes.map { n -> decryptWorkflowNodeSecrets(n, password) }
+            AppJson.encodeToString(graph.copy(nodes = updatedNodes))
+        } catch (_: Exception) {
+            decryptSensitiveJsonKeys(pipelineJson, password)
+        }
+    }
+
+    private fun workflowHasEncryptedSecrets(wf: Workflow): Boolean =
+        wf.nodes.any { nodeHasEncryptedSecrets(it) }
+
+    private fun nodeHasEncryptedSecrets(node: WorkflowNode): Boolean =
+        node.configJson.contains(PasswordBasedEncryption.PREFIX) ||
+            node.preconditions.any { prec ->
+                when (prec) {
+                    is Precondition.HealthCheck -> prec.headers.contains(PasswordBasedEncryption.PREFIX)
+                    is Precondition.ChainCheck -> prec.nodes.any { nodeHasEncryptedSecrets(it) }
+                    else -> false
+                }
+            }
 }

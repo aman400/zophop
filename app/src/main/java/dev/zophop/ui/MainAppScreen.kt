@@ -54,11 +54,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.zophop.core.ui.components.CancelExecutionConfirmDialog
+import dev.zophop.core.ui.components.ZopHopSpriteBackdrop
 import dev.zophop.data.MessageEntity
 import dev.zophop.data.PreconditionEntity
 import dev.zophop.domain.engine.NodeStepState
@@ -259,70 +261,73 @@ fun MainAppScreen(
                 )
             }
             is MainScreenDestination.MainTabs -> {
-                Scaffold(
-                    topBar = {
-                        MainTopAppBar(
-                            selectedTab = selectedTab,
-                            workflows = workflows,
-                            preconditions = preconditions,
-                            credentials = credentials,
-                            isEngineEnabled = uiState.isEnabled,
-                            queuedCount = totalQueuedCount,
-                            onExportBackup = { showExportBackupDialog = true },
-                            onImportBackup = { showImportBackupDialog = true },
-                        )
-                    },
-                    bottomBar = {
-                        MainBottomNavigationBar(
-                            selectedTab = selectedTab,
-                            onTabSelected = { selectedTab = it },
-                        )
-                    },
-                ) { innerPadding ->
-                    Column(
-                        modifier =
-                            Modifier
-                                .fillMaxSize()
-                                .padding(innerPadding),
-                    ) {
-                        activeExecutionState?.let { activeState ->
-                            ActiveExecutionBanner(
-                                activeState = activeState,
-                                onViewSheet = { showActiveExecutionSheet = true },
-                                onCancelExecution = { viewModel.cancelWorkflowExecution(activeState.workflowId) },
-                            )
-                        }
-
-                        Box(
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .weight(1f),
-                        ) {
-                            MainTabContent(
+                ZopHopSpriteBackdrop(seedKey = "tab_${selectedTab.name}") {
+                    Scaffold(
+                        containerColor = Color.Transparent,
+                        topBar = {
+                            MainTopAppBar(
                                 selectedTab = selectedTab,
-                                viewModel = viewModel,
                                 workflows = workflows,
                                 preconditions = preconditions,
                                 credentials = credentials,
-                                queuedMessages = queuedMessages,
-                                queuedWorkflowIds = queuedWorkflowIds,
-                                hasSmsPermission = hasSmsPermission,
-                                onRequestSmsPermission = onRequestSmsPermission,
-                                hasNotificationPermission = hasNotificationPermission,
-                                onRequestNotificationPermission = onRequestNotificationPermission,
-                                onEditWorkflow = { activeEditingWorkflow = it },
-                                onViewLogs = {
-                                    activeLogsInitialTab = 0
-                                    activeLogsWorkflow = it
-                                },
-                                onViewQueue = {
-                                    activeLogsInitialTab = 1
-                                    activeLogsWorkflow = it
-                                },
-                                onEditPrecondition = { activeEditingPrecondition = it },
-                                onProcessQueueNow = { viewModel.processQueueNow() },
+                                isEngineEnabled = uiState.isEnabled,
+                                queuedCount = totalQueuedCount,
+                                onExportBackup = { showExportBackupDialog = true },
+                                onImportBackup = { showImportBackupDialog = true },
                             )
+                        },
+                        bottomBar = {
+                            MainBottomNavigationBar(
+                                selectedTab = selectedTab,
+                                onTabSelected = { selectedTab = it },
+                            )
+                        },
+                    ) { innerPadding ->
+                        Column(
+                            modifier =
+                                Modifier
+                                    .fillMaxSize()
+                                    .padding(innerPadding),
+                        ) {
+                            activeExecutionState?.let { activeState ->
+                                ActiveExecutionBanner(
+                                    activeState = activeState,
+                                    onViewSheet = { showActiveExecutionSheet = true },
+                                    onCancelExecution = { viewModel.cancelWorkflowExecution(activeState.workflowId) },
+                                )
+                            }
+
+                            Box(
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f),
+                            ) {
+                                MainTabContent(
+                                    selectedTab = selectedTab,
+                                    viewModel = viewModel,
+                                    workflows = workflows,
+                                    preconditions = preconditions,
+                                    credentials = credentials,
+                                    queuedMessages = queuedMessages,
+                                    queuedWorkflowIds = queuedWorkflowIds,
+                                    hasSmsPermission = hasSmsPermission,
+                                    onRequestSmsPermission = onRequestSmsPermission,
+                                    hasNotificationPermission = hasNotificationPermission,
+                                    onRequestNotificationPermission = onRequestNotificationPermission,
+                                    onEditWorkflow = { activeEditingWorkflow = it },
+                                    onViewLogs = {
+                                        activeLogsInitialTab = 0
+                                        activeLogsWorkflow = it
+                                    },
+                                    onViewQueue = {
+                                        activeLogsInitialTab = 1
+                                        activeLogsWorkflow = it
+                                    },
+                                    onEditPrecondition = { activeEditingPrecondition = it },
+                                    onProcessQueueNow = { viewModel.processQueueNow() },
+                                )
+                            }
                         }
                     }
                 }

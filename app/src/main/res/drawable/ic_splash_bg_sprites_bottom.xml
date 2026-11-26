@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="180dp"
+    android:height="180dp"
+    android:viewportWidth="180"
+    android:viewportHeight="180">
+
+    <!-- Subtle webhook braces sprite -->
+    <path
+        android:pathData="M118,30 c-6,0 -7,4 -7,9 v6 c0,4 -3,5 -5,5 c2,0 5,1 5,5 v6 c0,5 1,9 7,9 M144,30 c6,0 7,4 7,9 v6 c0,4 3,5 5,5 c-2,0 -5,1 -5,5 v6 c0,5 -1,9 -7,9"
+        android:strokeColor="#1410B981"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:fillColor="#18F59E0B"
+        android:pathData="M127,50 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0" />
+
+    <!-- Subtle vault shield sprite -->
+    <path
+        android:pathData="M42,108 L64,117 v15 c0,13 -9,21 -22,26 c-13,-5 -22,-13 -22,-26 v-15 z"
+        android:strokeColor="#1410B981"
+        android:strokeWidth="2.2"
+        android:strokeLineJoin="round" />
+    <path
+        android:fillColor="#1810B981"
+        android:pathData="M37.5,132 a4.5,4.5 0 1,0 9,0 a4.5,4.5 0 1,0 -9,0" />
+
+    <!-- Subtle plugin connector sprite -->
+    <path
+        android:pathData="M114,116 h14 a5,5 0 0 1 10,0 h12 v14 a5,5 0 0 1 0,10 v14 h-36 v-14 a5,5 0 0 0 0,-10 z"
+        android:strokeColor="#14F59E0B"
+        android:strokeWidth="2"
+        android:strokeLineJoin="round" />
+</vector>

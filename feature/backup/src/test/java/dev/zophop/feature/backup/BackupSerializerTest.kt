@@ -556,4 +556,88 @@ class BackupSerializerTest {
         assertEquals(1, chain.connections.size)
         assertEquals("cn2", chain.connections.single().toNodeId)
     }
+
+    @Test
+    fun testEncryptedBackupProtectsPreconditionHeadersChainsAndInlinePreconditions() {
+        val pin = "StrongPin99"
+        val chainPipelineJson = dev.zophop.domain.model.AppJson.encodeToString(
+            dev.zophop.domain.model.WorkflowGraph(
+                nodes = listOf(
+                    WorkflowNode(
+                        id = "cn1",
+                        name = "Auth Step",
+                        type = NodeType.HTTP_ACTION,
+                        configJson = """{"url":"https://auth.example.com","bearerToken":"chain_entity_secret_111"}""",
+                    ),
+                ),
+            ),
+        )
+        val precEntity = PreconditionEntity(
+            id = "prec_hc_secret",
+            name = "Protected Healthcheck",
+            type = "HEALTH_CHECK",
+            targetUrl = "https://api.example.com/health",
+            headers = "Authorization: Bearer prec_entity_header_secret_222",
+            pipelineJson = chainPipelineJson,
+        )
+        val workflow = Workflow(
+            id = "WFPREC99",
+            name = "Inline Prec Flow",
+            nodes = listOf(
+                WorkflowNode(
+                    id = "n1",
+                    name = "Webhook",
+                    type = NodeType.HTTP_ACTION,
+                    configJson = """{"url":"https://api.example.com","nested":{"access_token":"nested_node_secret_333"}}""",
+                    preconditions = listOf(
+                        Precondition.HealthCheck(
+                            id = "inline_hc",
+                            targetUrl = "https://api.example.com/ping",
+                            headers = "X-Api-Key: inline_hc_secret_444",
+                        ),
+                        Precondition.ChainCheck(
+                            id = "inline_cc",
+                            name = "Inline Chain",
+                            nodes = listOf(
+                                WorkflowNode(
+                                    id = "icn1",
+                                    name = "Token Step",
+                                    type = NodeType.HTTP_ACTION,
+                                    configJson = """{"url":"https://api.example.com","bearerToken":"inline_chain_secret_555"}""",
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val exported = BackupSerializer.createBackupJson(
+            workflows = listOf(workflow),
+            credentials = emptyList(),
+            preconditions = listOf(precEntity),
+            password = pin,
+        )
+
+        assertFalse("PreconditionEntity pipeline secret must not appear in plaintext", exported.contains("chain_entity_secret_111"))
+        assertFalse("PreconditionEntity header secret must not appear in plaintext", exported.contains("prec_entity_header_secret_222"))
+        assertFalse("Nested node JSON secret must not appear in plaintext", exported.contains("nested_node_secret_333"))
+        assertFalse("Inline HealthCheck header secret must not appear in plaintext", exported.contains("inline_hc_secret_444"))
+        assertFalse("Inline ChainCheck node secret must not appear in plaintext", exported.contains("inline_chain_secret_555"))
+
+        val parsed = BackupSerializer.parseImport(exported)
+        assertTrue(parsed.isEncrypted)
+
+        val decrypted = BackupSerializer.decryptBackupData(parsed, pin)
+        val restoredPrec = decrypted.preconditions.single()
+        assertEquals("Authorization: Bearer prec_entity_header_secret_222", restoredPrec.headers)
+        assertTrue(restoredPrec.pipelineJson.contains("chain_entity_secret_111"))
+
+        val restoredNode = decrypted.workflows.single().nodes.single()
+        assertTrue(restoredNode.configJson.contains("nested_node_secret_333"))
+        val restoredInlineHc = restoredNode.preconditions[0] as Precondition.HealthCheck
+        assertEquals("X-Api-Key: inline_hc_secret_444", restoredInlineHc.headers)
+        val restoredInlineCc = restoredNode.preconditions[1] as Precondition.ChainCheck
+        assertTrue(restoredInlineCc.nodes.single().configJson.contains("inline_chain_secret_555"))
+    }
 }

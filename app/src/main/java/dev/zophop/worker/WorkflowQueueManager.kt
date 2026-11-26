@@ -321,7 +321,7 @@ object WorkflowQueueManager {
                 reconcileStaleRunningLogs(workflowRepo)
 
                 val credentialRepo = RoomCredentialRepository(db.credentialDao())
-                val evaluator = PreconditionEvaluator(appContext)
+                val evaluator = PreconditionEvaluator(appContext, credentialRepository = credentialRepo)
                 val engine = WorkflowEngine(evaluator, credentialRepo)
 
                 val queuedLogs = db.workflowDao().getQueuedWorkflowLogs()

@@ -376,12 +376,11 @@ class ForwardingManager(
                     }
                 } catch (e: SQLException) {
                     Log.e(TAG, "Database error in active queue polling", e)
-                    synchronized(this@ForwardingManager) { isPollingActive = false }
                 } catch (e: IllegalStateException) {
                     Log.e(TAG, "State error in active queue polling", e)
-                    synchronized(this@ForwardingManager) { isPollingActive = false }
                 } catch (e: IOException) {
                     Log.e(TAG, "IO error in active queue polling", e)
+                } finally {
                     synchronized(this@ForwardingManager) { isPollingActive = false }
                 }
             }

@@ -87,4 +87,28 @@ class GotifyNodePluginServiceTest {
             val detailedLog = (result as NodeExecutionResult.Success).logMessage
             assertFalse("Gotify logMessage must NOT expose raw appToken", detailedLog.contains("secret_tok_999"))
         }
+
+    @Test
+    fun testGotifyActionExecutor_redactsEncodedTokenFromIoException() =
+        runTest {
+            val client =
+                OkHttpClient
+                    .Builder()
+                    .addInterceptor {
+                        throw java.io.IOException("Failed calling https://gotify.example.com/message?token=tok%2Bspecial")
+                    }.build()
+            val executor = GotifyActionExecutor(okHttpClient = client)
+            val node =
+                WorkflowNode(
+                    id = "g2",
+                    name = "Gotify",
+                    type = "dev.zophop.plugin.gotify.GOTIFY_ACTION",
+                    configJson = """{"serverUrl":"https://gotify.example.com","appToken":"tok+special","title":"Alert","template":"Hi"}""",
+                )
+            val result = executor.execute(node, ExecutionContext(), null)
+            assertTrue(result is NodeExecutionResult.Failed)
+            val reason = (result as NodeExecutionResult.Failed).reason
+            assertFalse("Raw token must be redacted", reason.contains("tok+special"))
+            assertFalse("URL-encoded token must be redacted", reason.contains("tok%2Bspecial"))
+        }
 }

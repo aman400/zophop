@@ -1,6 +1,8 @@
 package dev.zophop.data
 
 import dev.zophop.domain.model.AppJson
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.security.GeneralSecurityException
@@ -80,19 +82,58 @@ object DatabaseEncryption {
         return SecretKeySpec(keyBytes, "AES")
     }
 
+    private val SENSITIVE_KEY_EXACT =
+        setOf(
+            "token",
+            "apptoken",
+            "app_token",
+            "bottoken",
+            "bot_token",
+            "accesstoken",
+            "access_token",
+            "refreshtoken",
+            "refresh_token",
+            "password",
+            "passwd",
+            "pwd",
+            "passphrase",
+            "secret",
+            "clientsecret",
+            "client_secret",
+            "apikey",
+            "api_key",
+            "x-api-key",
+            "x_api_key",
+            "headers",
+            "headersjson",
+            "headers_json",
+            "authheader",
+            "auth_header",
+            "authorization",
+            "cookie",
+            "privatekey",
+            "private_key",
+            "signingkey",
+            "signing_key",
+            "webhookurl",
+            "webhook_url",
+            "credential",
+            "credentials",
+        )
+
     fun isSensitiveKey(key: String): Boolean {
-        val lower = key.lowercase()
-        return lower == "token" ||
-            lower == "apptoken" ||
-            lower == "bottoken" ||
-            lower == "password" ||
-            lower == "secret" ||
-            lower == "apikey" ||
-            lower == "api_key" ||
-            lower == "headers" ||
+        val lower = key.trim().lowercase()
+        return lower in SENSITIVE_KEY_EXACT ||
             lower.endsWith("token") ||
             lower.endsWith("secret") ||
-            lower.endsWith("password")
+            lower.endsWith("password") ||
+            lower.endsWith("passphrase") ||
+            lower.endsWith("apikey") ||
+            lower.endsWith("api_key") ||
+            lower.endsWith("privatekey") ||
+            lower.endsWith("private_key") ||
+            lower.endsWith("signingkey") ||
+            lower.endsWith("signing_key")
     }
 
     fun isEncrypted(value: String): Boolean = value.startsWith(PREFIX)
@@ -151,21 +192,64 @@ object DatabaseEncryption {
     private fun transformSensitiveKeys(configJson: String, transform: (String) -> String): String {
         if (configJson.isBlank()) return configJson
         return try {
-            val root = AppJson.parseToJsonElement(configJson) as? JsonObject ?: return configJson
-            var modified = false
-            val newMap = root.toMutableMap()
-            for ((key, value) in root) {
-                if (!isSensitiveKey(key)) continue
-                val strVal = if (value is JsonPrimitive) value.content else continue
-                val transformed = transform(strVal)
-                if (transformed != strVal) {
-                    newMap[key] = JsonPrimitive(transformed)
-                    modified = true
-                }
+            val root = AppJson.parseToJsonElement(configJson) as? JsonObject
+            if (root == null) {
+                configJson
+            } else {
+                val (transformedObj, modified) = transformJsonObject(root, transform)
+                if (modified) transformedObj.toString() else configJson
             }
-            if (modified) JsonObject(newMap).toString() else configJson
         } catch (_: Exception) {
             configJson
         }
+    }
+
+    private fun transformJsonObject(
+        obj: JsonObject,
+        transform: (String) -> String,
+    ): Pair<JsonObject, Boolean> {
+        var modified = false
+        val newMap = obj.toMutableMap()
+        for ((key, value) in obj) {
+            val (updated, changed) = transformEntry(key, value, transform)
+            if (changed) {
+                newMap[key] = updated
+                modified = true
+            }
+        }
+        return JsonObject(newMap) to modified
+    }
+
+    private fun transformEntry(
+        key: String,
+        value: JsonElement,
+        transform: (String) -> String,
+    ): Pair<JsonElement, Boolean> =
+        when (value) {
+            is JsonPrimitive -> {
+                if (isSensitiveKey(key) && value.isString) {
+                    val transformed = transform(value.content)
+                    if (transformed != value.content) JsonPrimitive(transformed) to true else value to false
+                } else {
+                    value to false
+                }
+            }
+            is JsonObject -> transformJsonObject(value, transform)
+            is JsonArray -> transformJsonArray(key, value, transform)
+        }
+
+    private fun transformJsonArray(
+        parentKey: String,
+        arr: JsonArray,
+        transform: (String) -> String,
+    ): Pair<JsonArray, Boolean> {
+        var modified = false
+        val newList =
+            arr.map { elem ->
+                val (updated, changed) = transformEntry(parentKey, elem, transform)
+                if (changed) modified = true
+                updated
+            }
+        return JsonArray(newList) to modified
     }
 }

@@ -2,11 +2,13 @@ package dev.zophop.feature.backup
 
 import android.app.KeyguardManager
 import android.content.ClipData
+import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.PersistableBundle
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -421,7 +423,16 @@ fun ExportBackupBottomSheet(
                         onClick = {
                             handleExport { json ->
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                clipboard.setPrimaryClip(ClipData.newPlainText("ZopHop Backup", json))
+                                val clip =
+                                    ClipData.newPlainText("ZopHop Backup", json).apply {
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                            description.extras =
+                                                PersistableBundle().apply {
+                                                    putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
+                                                }
+                                        }
+                                    }
+                                clipboard.setPrimaryClip(clip)
                                 Toast.makeText(context, "Backup JSON copied to clipboard", Toast.LENGTH_SHORT).show()
                                 onExportFinished(json)
                                 onDismiss()
@@ -1514,6 +1525,12 @@ private fun ExportPasswordCard(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                Text(
+                    text = "Unencrypted export: API tokens, passwords, and headers will be stored in plaintext JSON. Enable password encryption before copying or sharing.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
                 )
             }
         }

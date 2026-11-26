@@ -2,6 +2,7 @@ package dev.zophop.domain.engine.executors
 
 import android.content.Context
 import dev.zophop.data.CredentialRepository
+import dev.zophop.data.DatabaseEncryption
 import dev.zophop.domain.engine.HttpHeaderUtils
 import dev.zophop.domain.engine.plugin.BuiltInPluginRegistry
 import dev.zophop.domain.model.Credential
@@ -78,23 +79,41 @@ class HttpActionExecutor(
         val expectedStatus = config.optInt("expectedStatus", 200)
 
         val rawTargetUrl = context.interpolate(effectiveRawUrl).trim()
-        if (rawTargetUrl.isBlank()) {
-            return@withContext NodeExecutionResult.Failed("HTTP URL is empty")
-        }
-
         val targetUrl = appendQueryParams(rawTargetUrl, queryParams, context)
         val parsedHttpUrl = targetUrl.toHttpUrlOrNull()
-        if (parsedHttpUrl == null || (parsedHttpUrl.scheme != "https" && parsedHttpUrl.scheme != "http")) {
-            return@withContext NodeExecutionResult.Failed("Invalid HTTP/HTTPS URL")
+        when {
+            rawTargetUrl.isBlank() -> NodeExecutionResult.Failed("HTTP URL is empty")
+            parsedHttpUrl == null || (parsedHttpUrl.scheme != "https" && parsedHttpUrl.scheme != "http") ->
+                NodeExecutionResult.Failed("Invalid HTTP/HTTPS URL")
+            parsedHttpUrl.username.isNotEmpty() || parsedHttpUrl.password.isNotEmpty() ->
+                NodeExecutionResult.Failed("Invalid HTTP/HTTPS URL: embedded credentials are not allowed")
+            else ->
+                executeHttpRequest(
+                    config = config,
+                    targetUrl = targetUrl,
+                    parsedHttpUrl = parsedHttpUrl,
+                    method = method,
+                    expectedStatus = expectedStatus,
+                    context = context,
+                    resolvedCred = resolvedCred,
+                )
         }
-        if (parsedHttpUrl.username.isNotEmpty() || parsedHttpUrl.password.isNotEmpty()) {
-            return@withContext NodeExecutionResult.Failed("Invalid HTTP/HTTPS URL: embedded credentials are not allowed")
-        }
+    }
 
+    private suspend fun executeHttpRequest(
+        config: JsonObject,
+        targetUrl: String,
+        parsedHttpUrl: okhttp3.HttpUrl,
+        method: String,
+        expectedStatus: Int,
+        context: ExecutionContext,
+        resolvedCred: Credential?,
+    ): NodeExecutionResult {
         val safeUrl = redactSensitiveUrlParams(targetUrl)
         val bodyType = config.optString("bodyType", "JSON").uppercase()
         val interpolatedBody = context.interpolate(config.optString("bodyTemplate", ""))
         val request = buildRequest(config, targetUrl, method, bodyType, interpolatedBody, context, resolvedCred).build()
+        val explicitSecrets = collectExplicitSecrets(config, parsedHttpUrl, request, context, resolvedCred)
         val reqHeadersBlock =
             ExecutionLogFormatter.formatHeadersBlock(
                 (0 until request.headers.size).map { idx ->
@@ -103,7 +122,7 @@ class HttpActionExecutor(
             )
         val startNs = System.nanoTime()
 
-        try {
+        return try {
             val response = okHttpClient.newCall(request).await()
             val elapsedMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(0L)
             response.use { resp ->
@@ -116,18 +135,25 @@ class HttpActionExecutor(
                     requestHeadersBlock = reqHeadersBlock,
                     requestBody = if (method == "GET" || method == "HEAD") "" else interpolatedBody,
                     elapsedMs = elapsedMs,
+                    explicitSecrets = explicitSecrets,
                     context = context,
                 )
             }
         } catch (e: IOException) {
             val elapsedMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(0L)
-            NodeExecutionResult.Failed(buildFailureDetails(method, safeUrl, bodyType, reqHeadersBlock, elapsedMs, e))
+            NodeExecutionResult.Failed(
+                buildFailureDetails(method, safeUrl, bodyType, reqHeadersBlock, elapsedMs, e, explicitSecrets),
+            )
         } catch (e: IllegalArgumentException) {
             val elapsedMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(0L)
-            NodeExecutionResult.Failed(buildFailureDetails(method, safeUrl, bodyType, reqHeadersBlock, elapsedMs, e))
+            NodeExecutionResult.Failed(
+                buildFailureDetails(method, safeUrl, bodyType, reqHeadersBlock, elapsedMs, e, explicitSecrets),
+            )
         } catch (e: IllegalStateException) {
             val elapsedMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(0L)
-            NodeExecutionResult.Failed(buildFailureDetails(method, safeUrl, bodyType, reqHeadersBlock, elapsedMs, e))
+            NodeExecutionResult.Failed(
+                buildFailureDetails(method, safeUrl, bodyType, reqHeadersBlock, elapsedMs, e, explicitSecrets),
+            )
         }
     }
 
@@ -138,8 +164,11 @@ class HttpActionExecutor(
         reqHeadersBlock: String,
         elapsedMs: Long,
         error: Throwable,
+        explicitSecrets: List<String>,
     ): String {
-        val summary = "HTTP $method $safeUrl failed (${error::class.simpleName}): ${error.message ?: "Request exception"}"
+        val rawErrMsg = error.message ?: "Request exception"
+        val safeErrMsg = ExecutionLogFormatter.redactSecrets(rawErrMsg, explicitSecrets)
+        val summary = "HTTP $method $safeUrl failed (${error::class.simpleName}): $safeErrMsg"
         val sections = mutableListOf<Pair<String, String>>()
         sections.add(
             "Request Details" to
@@ -269,6 +298,7 @@ class HttpActionExecutor(
         requestHeadersBlock: String,
         requestBody: String,
         elapsedMs: Long,
+        explicitSecrets: List<String>,
         context: ExecutionContext,
     ): NodeExecutionResult {
         val responseBody = resp.body?.string() ?: ""
@@ -290,7 +320,8 @@ class HttpActionExecutor(
             sections.add("Request Headers" to requestHeadersBlock)
         }
         if (requestBody.isNotBlank()) {
-            sections.add("Request Body" to ExecutionLogFormatter.previewText(requestBody, 2000))
+            val redactedReqBody = ExecutionLogFormatter.redactSecrets(requestBody, explicitSecrets)
+            sections.add("Request Body" to ExecutionLogFormatter.previewText(redactedReqBody, 2000))
         }
         sections.add(
             "Response Summary" to
@@ -300,7 +331,8 @@ class HttpActionExecutor(
             sections.add("Headers" to responseHeadersBlock)
         }
         if (responseBody.isNotBlank()) {
-            sections.add("Response Body" to ExecutionLogFormatter.previewText(responseBody, 8000))
+            val redactedRespBody = ExecutionLogFormatter.redactSecrets(responseBody, explicitSecrets)
+            sections.add("Response Body" to ExecutionLogFormatter.previewText(redactedRespBody, 8000))
         }
 
         val isSuccess = resp.code == expectedStatus || (expectedStatus == 200 && resp.isSuccessful)
@@ -313,20 +345,64 @@ class HttpActionExecutor(
         }
     }
 
-    private fun redactSensitiveUrlParams(rawUrl: String): String {
-        val httpUrl = rawUrl.toHttpUrlOrNull() ?: return rawUrl
-        val sensitiveKeys = setOf("token", "apptoken", "bottoken", "apikey", "api_key", "secret", "password", "key")
-        if (httpUrl.queryParameterNames.none { it.lowercase() in sensitiveKeys }) {
-            return rawUrl
+    private fun collectExplicitSecrets(
+        config: JsonObject,
+        parsedHttpUrl: okhttp3.HttpUrl,
+        request: Request,
+        context: ExecutionContext,
+        resolvedCred: Credential?,
+    ): List<String> {
+        val secrets = mutableListOf<String>()
+        resolvedCred?.dataMap?.forEach { (k, v) ->
+            if (DatabaseEncryption.isSensitiveKey(k) && v.isNotBlank()) {
+                secrets.add(context.interpolate(v))
+            }
         }
-        val builder = httpUrl.newBuilder()
-        for (name in httpUrl.queryParameterNames) {
-            if (name.lowercase() in sensitiveKeys) {
+        val bearerToken = config.optString("bearerToken", "")
+        if (bearerToken.isNotBlank()) secrets.add(context.interpolate(bearerToken))
+        val basicPassword = config.optString("basicPassword", "")
+        if (basicPassword.isNotBlank()) secrets.add(context.interpolate(basicPassword))
+
+        for (i in 0 until request.headers.size) {
+            val name = request.headers.name(i)
+            val value = request.headers.value(i)
+            if (ExecutionLogFormatter.isSensitiveHeader(name) && value.isNotBlank()) {
+                secrets.add(value)
+                secrets.add(value.removePrefix("Bearer ").removePrefix("Basic ").removePrefix("Token ").trim())
+            }
+        }
+        for (name in parsedHttpUrl.queryParameterNames) {
+            if (isSensitiveUrlParam(name)) {
+                parsedHttpUrl.queryParameterValues(name).filterNotNull().forEach { secrets.add(it) }
+            }
+        }
+        return secrets.filter { it.length >= 4 }.distinct()
+    }
+
+    private fun isSensitiveUrlParam(name: String): Boolean {
+        val lower = name.lowercase()
+        return lower in SENSITIVE_URL_PARAM_KEYS ||
+            lower.endsWith("token") ||
+            lower.endsWith("secret") ||
+            lower.endsWith("password") ||
+            lower.endsWith("apikey") ||
+            lower.endsWith("api_key")
+    }
+
+    private fun redactSensitiveUrlParams(rawUrl: String): String {
+        val preRedacted = ExecutionLogFormatter.redactUrl(rawUrl)
+        val httpUrl = preRedacted.toHttpUrlOrNull()
+        val sensitiveNames = httpUrl?.queryParameterNames?.filter { isSensitiveUrlParam(it) }.orEmpty()
+        return if (httpUrl == null || sensitiveNames.isEmpty()) {
+            preRedacted
+        } else {
+            val builder = httpUrl.newBuilder()
+            for (name in sensitiveNames) {
                 builder.removeAllQueryParameters(name)
                 builder.addQueryParameter(name, "***")
             }
+            builder.build().toString()
         }
-        return builder.build().toString()
     }
 
     private fun applyCredentialToRequest(
@@ -343,6 +419,32 @@ class HttpActionExecutor(
         if (token.isNotBlank()) {
             builder.addHeader("Authorization", "Bearer $token")
         }
+    }
+
+    private companion object {
+        val SENSITIVE_URL_PARAM_KEYS =
+            setOf(
+                "token",
+                "apptoken",
+                "app_token",
+                "bottoken",
+                "bot_token",
+                "access_token",
+                "refresh_token",
+                "apikey",
+                "api_key",
+                "secret",
+                "client_secret",
+                "password",
+                "passwd",
+                "pwd",
+                "pass",
+                "auth",
+                "key",
+                "signature",
+                "sig",
+                "webhook_secret",
+            )
     }
 }
 

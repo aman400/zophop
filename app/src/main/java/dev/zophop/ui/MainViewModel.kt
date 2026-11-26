@@ -58,6 +58,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -410,7 +411,7 @@ class MainViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             val wf = workflowRepository.getWorkflowById(workflowId)
             if (wf != null) {
-                _uiState.value = _uiState.value.copy(selectedWorkflowForLogs = wf)
+                _uiState.update { it.copy(selectedWorkflowForLogs = wf) }
             }
         }
     }
@@ -797,7 +798,7 @@ class MainViewModel(
                 workflowRepository.saveExecutionLog(initialLog)
 
                 val context = getApplication<Application>()
-                val evaluator = PreconditionEvaluator(context)
+                val evaluator = PreconditionEvaluator(context, credentialRepository = credentialRepository)
                 val engine = WorkflowEngine(evaluator, credentialRepository)
 
                 val triggerNode =

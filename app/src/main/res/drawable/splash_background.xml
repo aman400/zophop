@@ -39,6 +39,23 @@
         </shape>
     </item>
 
+    <!-- Subtle themed background sprites (top & bottom corners) -->
+    <item
+        android:width="180dp"
+        android:height="180dp"
+        android:top="48dp"
+        android:left="12dp"
+        android:gravity="top|start"
+        android:drawable="@drawable/ic_splash_bg_sprites" />
+
+    <item
+        android:width="180dp"
+        android:height="180dp"
+        android:bottom="48dp"
+        android:right="12dp"
+        android:gravity="bottom|end"
+        android:drawable="@drawable/ic_splash_bg_sprites_bottom" />
+
     <!-- Centered logo -->
     <item
         android:width="192dp"

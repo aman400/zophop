@@ -318,18 +318,103 @@
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html { scroll-behavior: smooth; scroll-padding-top: 86px; }
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 86px;
+  background-color: var(--bg);
+  transition: background-color 0.2s ease;
+}
 
 body {
   font-family: var(--font-sans);
-  background-color: var(--bg);
+  background-color: transparent;
   background-image: var(--bg-aura);
   background-attachment: fixed;
   color: var(--text);
   line-height: 1.65;
   font-size: 15px;
   overflow-x: hidden;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  position: relative;
+  transition: color 0.2s ease;
+}
+
+/* ---------------- Subtle Background Canvas & Sprites ---------------- */
+.bg-sprites {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+  user-select: none;
+}
+
+.bg-sprites::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(color-mix(in srgb, var(--primary) 24%, transparent) 1px, transparent 1px);
+  background-size: 28px 28px;
+  opacity: 0.24;
+  -webkit-mask-image: radial-gradient(ellipse 85% 75% at 50% 35%, rgba(0, 0, 0, 0.9) 20%, transparent 100%);
+  mask-image: radial-gradient(ellipse 85% 75% at 50% 35%, rgba(0, 0, 0, 0.9) 20%, transparent 100%);
+}
+
+[data-theme="light"] .bg-sprites::before {
+  opacity: 0.32;
+}
+
+.bg-sprite {
+  position: absolute;
+  color: var(--primary);
+  opacity: 0.065;
+  will-change: transform;
+  animation: spriteDriftA 22s ease-in-out infinite alternate;
+}
+
+.bg-sprite--accent {
+  color: var(--secondary);
+  opacity: 0.055;
+  animation-name: spriteDriftB;
+  animation-duration: 26s;
+}
+
+[data-theme="light"] .bg-sprite {
+  opacity: 0.085;
+}
+
+[data-theme="light"] .bg-sprite--accent {
+  opacity: 0.075;
+}
+
+.bg-sprite svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.bg-sprite--bolt    { top: 11%; left: 3%;   width: clamp(82px, 8vw, 124px);  animation-delay: -2s; }
+.bg-sprite--sms     { top: 12%; right: 3.5%; width: clamp(74px, 7vw, 108px);  animation-delay: -7s; }
+.bg-sprite--cron    { top: 27%; left: 10%;  width: clamp(56px, 5vw, 78px);   animation-delay: -11s; }
+.bg-sprite--graph   { top: 44%; left: 1.8%; width: clamp(92px, 9vw, 134px);  animation-delay: -4s; }
+.bg-sprite--webhook { top: 47%; right: 2.2%; width: clamp(84px, 8vw, 118px);  animation-delay: -13s; }
+.bg-sprite--pulse   { bottom: 28%; right: 9.5%; width: clamp(60px, 5.5vw, 86px); animation-delay: -5s; }
+.bg-sprite--vault   { bottom: 11%; left: 4%; width: clamp(72px, 6.8vw, 98px); animation-delay: -9s; }
+.bg-sprite--plugin  { bottom: 12%; right: 4%; width: clamp(78px, 7.2vw, 108px); animation-delay: -16s; }
+
+@keyframes spriteDriftA {
+  0%   { transform: translate3d(0, 0, 0) rotate(-3deg); }
+  50%  { transform: translate3d(8px, -12px, 0) rotate(2deg); }
+  100% { transform: translate3d(-6px, 10px, 0) rotate(-1deg); }
+}
+
+@keyframes spriteDriftB {
+  0%   { transform: translate3d(0, 0, 0) rotate(3deg); }
+  50%  { transform: translate3d(-10px, 10px, 0) rotate(-2deg); }
+  100% { transform: translate3d(7px, -9px, 0) rotate(2deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bg-sprite { animation: none; }
 }
 
 a { color: var(--primary); }
@@ -1361,4 +1446,7 @@ tr:last-child td { border-bottom: none; }
   .palette-btn-label { display: none; }
   .grid-2, .grid-3 { grid-template-columns: 1fr; }
   .doc-section, .doc-hero { padding: 20px; }
+  .bg-sprite--cron, .bg-sprite--pulse { display: none; }
+  .bg-sprite { opacity: 0.045; }
+  [data-theme="light"] .bg-sprite { opacity: 0.06; }
 }

@@ -57,6 +57,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -73,6 +74,7 @@ import dev.zophop.core.ui.components.HeaderInputEditor
 import dev.zophop.core.ui.components.InfoTooltipField
 import dev.zophop.core.ui.components.QueryParamsInputEditor
 import dev.zophop.core.ui.components.SearchableDropdownSelector
+import dev.zophop.core.ui.components.ZopHopSpriteBackdrop
 import dev.zophop.data.PreconditionEntity
 import dev.zophop.data.toDomain
 import dev.zophop.domain.model.Credential
@@ -256,140 +258,143 @@ fun NodeConfigBottomSheet(
         onDismiss()
     }
 
-    Scaffold(
-        topBar = {
-            NodeConfigTopBar(
-                isHttpActionNode = isHttpActionNode,
-                onDismiss = onDismiss,
-                onOpenCurlImport = { showCurlImportDialog = true },
-            )
-        },
-        bottomBar = {
-            NodeConfigBottomBar(
-                onDismiss = onDismiss,
-                onSaveClick = {
-                    keyboardController?.hide()
-                    focusManager.clearFocus()
-                    val (validationError, finalConfigJson) =
-                        buildAndValidateNodeConfig(
-                            nodeType = node.type,
-                            name = name,
-                            configStateMap = configStateMap,
-                            credentialId = credentialId,
-                            pluginManifest = pluginManifest,
-                            unifiedRegistry = unifiedRegistry,
-                        )
-                    if (validationError != null) {
-                        errorMessage = validationError
-                        return@NodeConfigBottomBar
-                    }
-                    errorMessage = null
-
-                    val attachedPreconditions =
-                        if (canShowPreconditionsGuard) {
-                            vaultPreconditions
-                                .filter { attachedVaultPrecIds.contains(it.id) && it.isEnabled }
-                                .map { it.toDomain() }
-                        } else {
-                            emptyList()
-                        }
-
-                    val updatedNode =
-                        node.copy(
-                            name = name,
-                            isEnabled = !isMissingPerm && isEnabled,
-                            configJson = finalConfigJson,
-                            preconditions = attachedPreconditions,
-                        )
-                    onSave(updatedNode)
-                },
-            )
-        },
-    ) { padding ->
-        // Scrollable Content
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(horizontal = 20.dp)
-                    .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Spacer(modifier = Modifier.height(4.dp))
-            errorMessage?.let { err ->
-                NodeConfigErrorBanner(
-                    errorMessage = err,
-                    onDismiss = { errorMessage = null },
+    ZopHopSpriteBackdrop(seedKey = "node_config_${node.type}_${node.id}") {
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                NodeConfigTopBar(
+                    isHttpActionNode = isHttpActionNode,
+                    onDismiss = onDismiss,
+                    onOpenCurlImport = { showCurlImportDialog = true },
                 )
-            }
-
-            InfoTooltipField(
-                value = name,
-                onValueChange = { name = it },
-                label = "Node Name",
-                tooltipText = "Unique name identifying this step in the workflow pipeline.",
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-            )
-
-            // Permission Warning Banner
-            permissionSummary?.let { summary ->
-                NodeConfigPermissionBanner(
-                    permissionSummary = summary,
-                    onRequestPermission = requestPermissionAction,
-                )
-            }
-
-            if (isHttpActionNode) {
-                HttpCurlImportBanner(
-                    onOpenImportDialog = { showCurlImportDialog = true },
-                )
-            }
-
-            // Credential attachment selector for Actions
-            if (isCredentialSupported(node.type, pluginManifest)) {
-                SubtleSectionDivider()
-                NodeConfigCredentialSelector(
-                    credentials = credentials,
-                    credentialId = credentialId,
-                    onCredentialSelected = { selectedCred ->
-                        credentialId = selectedCred?.id.orEmpty()
-                        configStateMap =
-                            WorkflowUiHelper.applyCredentialDefaultsToConfig(
+            },
+            bottomBar = {
+                NodeConfigBottomBar(
+                    onDismiss = onDismiss,
+                    onSaveClick = {
+                        keyboardController?.hide()
+                        focusManager.clearFocus()
+                        val (validationError, finalConfigJson) =
+                            buildAndValidateNodeConfig(
                                 nodeType = node.type,
+                                name = name,
+                                configStateMap = configStateMap,
+                                credentialId = credentialId,
                                 pluginManifest = pluginManifest,
-                                currentConfig = configStateMap,
-                                credential = selectedCred,
+                                unifiedRegistry = unifiedRegistry,
                             )
+                        if (validationError != null) {
+                            errorMessage = validationError
+                            return@NodeConfigBottomBar
+                        }
+                        errorMessage = null
+
+                        val attachedPreconditions =
+                            if (canShowPreconditionsGuard) {
+                                vaultPreconditions
+                                    .filter { attachedVaultPrecIds.contains(it.id) && it.isEnabled }
+                                    .map { it.toDomain() }
+                            } else {
+                                emptyList()
+                            }
+
+                        val updatedNode =
+                            node.copy(
+                                name = name,
+                                isEnabled = !isMissingPerm && isEnabled,
+                                configJson = finalConfigJson,
+                                preconditions = attachedPreconditions,
+                            )
+                        onSave(updatedNode)
                     },
-                    onCreateNewClick = { showCreateCredSheet = true },
                 )
-            }
+            },
+        ) { padding ->
+            // Scrollable Content
+            Column(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .padding(horizontal = 20.dp)
+                        .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Spacer(modifier = Modifier.height(4.dp))
+                errorMessage?.let { err ->
+                    NodeConfigErrorBanner(
+                        errorMessage = err,
+                        onDismiss = { errorMessage = null },
+                    )
+                }
 
-            // Dynamic Manifest-Driven Config Fields
-            val selectedCred = credentials.find { it.id == credentialId }
-            NodeConfigDynamicSchemaSections(
-                pluginManifest = pluginManifest,
-                configStateMap = configStateMap,
-                availableVariables = availableVariables,
-                selectedCredential = selectedCred,
-                onFieldChange = { key, newValue ->
-                    configStateMap = configStateMap + (key to newValue)
-                },
-            )
-
-            if (canShowPreconditionsGuard) {
-                SubtleSectionDivider()
-                NodeConfigPreconditionsSection(
-                    attachedVaultPrecIds = attachedVaultPrecIds,
-                    vaultPreconditions = vaultPreconditions,
-                    onAttachedIdsChange = { attachedVaultPrecIds = it },
-                    onRequestCreatePrecondition = onRequestCreatePrecondition,
+                InfoTooltipField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = "Node Name",
+                    tooltipText = "Unique name identifying this step in the workflow pipeline.",
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
                 )
-            }
 
-            Spacer(modifier = Modifier.height(16.dp))
+                // Permission Warning Banner
+                permissionSummary?.let { summary ->
+                    NodeConfigPermissionBanner(
+                        permissionSummary = summary,
+                        onRequestPermission = requestPermissionAction,
+                    )
+                }
+
+                if (isHttpActionNode) {
+                    HttpCurlImportBanner(
+                        onOpenImportDialog = { showCurlImportDialog = true },
+                    )
+                }
+
+                // Credential attachment selector for Actions
+                if (isCredentialSupported(node.type, pluginManifest)) {
+                    SubtleSectionDivider()
+                    NodeConfigCredentialSelector(
+                        credentials = credentials,
+                        credentialId = credentialId,
+                        onCredentialSelected = { selectedCred ->
+                            credentialId = selectedCred?.id.orEmpty()
+                            configStateMap =
+                                WorkflowUiHelper.applyCredentialDefaultsToConfig(
+                                    nodeType = node.type,
+                                    pluginManifest = pluginManifest,
+                                    currentConfig = configStateMap,
+                                    credential = selectedCred,
+                                )
+                        },
+                        onCreateNewClick = { showCreateCredSheet = true },
+                    )
+                }
+
+                // Dynamic Manifest-Driven Config Fields
+                val selectedCred = credentials.find { it.id == credentialId }
+                NodeConfigDynamicSchemaSections(
+                    pluginManifest = pluginManifest,
+                    configStateMap = configStateMap,
+                    availableVariables = availableVariables,
+                    selectedCredential = selectedCred,
+                    onFieldChange = { key, newValue ->
+                        configStateMap = configStateMap + (key to newValue)
+                    },
+                )
+
+                if (canShowPreconditionsGuard) {
+                    SubtleSectionDivider()
+                    NodeConfigPreconditionsSection(
+                        attachedVaultPrecIds = attachedVaultPrecIds,
+                        vaultPreconditions = vaultPreconditions,
+                        onAttachedIdsChange = { attachedVaultPrecIds = it },
+                        onRequestCreatePrecondition = onRequestCreatePrecondition,
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+            }
         }
     }
 

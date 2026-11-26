@@ -4,7 +4,10 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.zophop.domain.model.optBoolean
 import dev.zophop.domain.model.optString
 import dev.zophop.domain.model.parseJsonObjectSafe
+import kotlinx.coroutines.test.runTest
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -63,7 +66,7 @@ class NtfyNodePluginServiceTest {
 
         // It must NOT crash with OkHttp "Unexpected char" header exception
         val reason = json.optString("errorReason", "")
-        org.junit.Assert.assertFalse(
+        assertFalse(
             "Must not throw OkHttp header Unexpected char exception for emoji headers: $reason",
             reason.contains("Unexpected char", ignoreCase = true),
         )
@@ -88,9 +91,44 @@ class NtfyNodePluginServiceTest {
         val json = parseJsonObjectSafe(resultJson)
 
         val reason = json.optString("errorReason", "")
-        org.junit.Assert.assertFalse(
+        assertFalse(
             "Must strip CR/LF before header construction: $reason",
             reason.contains("Unexpected char", ignoreCase = true),
         )
+        assertFalse(
+            "Error reason must redact token: $reason",
+            reason.contains("tok_abc"),
+        )
     }
+
+    @Test
+    fun testNtfyActionExecutor_redactsTokenFromIoExceptionAndErrorResponse() =
+        runTest {
+            val client =
+                okhttp3.OkHttpClient
+                    .Builder()
+                    .addInterceptor { chain ->
+                        okhttp3.Response
+                            .Builder()
+                            .request(chain.request())
+                            .protocol(okhttp3.Protocol.HTTP_1_1)
+                            .code(403)
+                            .message("Forbidden")
+                            .body("Denied for token tk_secret_ntfy_777".toResponseBody())
+                            .build()
+                    }.build()
+
+            val executor = NtfyActionExecutor(okHttpClient = client)
+            val node =
+                dev.zophop.domain.model.WorkflowNode(
+                    id = "n1",
+                    name = "ntfy",
+                    type = "dev.zophop.plugin.ntfy.NTFY_ACTION",
+                    configJson = """{"serverUrl":"https://ntfy.sh","topic":"alerts","token":"tk_secret_ntfy_777","template":"hi"}""",
+                )
+            val result = executor.execute(node, dev.zophop.plugin.api.ExecutionContext(), null)
+            assertTrue(result is dev.zophop.plugin.api.NodeExecutionResult.Failed)
+            val reason = (result as dev.zophop.plugin.api.NodeExecutionResult.Failed).reason
+            assertFalse("Failed log must redact token", reason.contains("tk_secret_ntfy_777"))
+        }
 }

@@ -24,6 +24,7 @@ import androidx.fragment.app.FragmentActivity
 import dev.zophop.core.ui.AppThemeMode
 import dev.zophop.core.ui.AppThemePalette
 import dev.zophop.core.ui.resolveDarkTheme
+import dev.zophop.service.SmsForwarderService
 
 class MainActivity : FragmentActivity() {
     private val viewModel: MainViewModel by viewModels()
@@ -96,6 +97,13 @@ class MainActivity : FragmentActivity() {
                     )
                 }
             }
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (viewModel.uiState.value.isEnabled) {
+            SmsForwarderService.startService(this)
         }
     }
 

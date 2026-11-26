@@ -48,10 +48,25 @@
 -keep class dev.zophop.plugin.api.** { *; }
 
 # ------------------------------------------------------------------------------
-# Data Models and Entities
+# Data Models, Domain Serialization, and Entities
 # ------------------------------------------------------------------------------
-# Keep Room entities and data models stored in DB / JSON
+# Keep Room entities, domain models, execution steps, and backup models used in DB / JSON
 -keep class dev.zophop.data.** { *; }
+-keep class dev.zophop.domain.model.** { *; }
+-keep class dev.zophop.domain.engine.NodeExecutionStep { *; }
+-keep class dev.zophop.domain.engine.NodeExecutionStep$** { *; }
+-keep class dev.zophop.domain.engine.NodeStepState { *; }
+-keep class dev.zophop.feature.backup.** { *; }
+
+# Keep AndroidX / kotlinx.serialization generated serializers
+-keepattributes *Annotation*, InnerClasses
+-dontnote kotlinx.serialization.AnnotationsKt
+-keepclassmembers class kotlinx.serialization.json.** {
+    *** Companion;
+}
+-keepclasseswithmembers class kotlinx.serialization.json.** {
+    kotlinx.serialization.KSerializer serializer(...);
+}
 
 # ------------------------------------------------------------------------------
 # Third-Party Library Suppressions

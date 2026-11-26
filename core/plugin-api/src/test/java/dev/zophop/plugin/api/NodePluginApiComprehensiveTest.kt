@@ -267,4 +267,35 @@ class NodePluginApiComprehensiveTest {
         assertTrue(allVars.containsKey("key_$jobCount"))
         assertNotNull(context.get("shared_counter"))
     }
+
+    @Test
+    fun testExecutionLogFormatter_redactsUrlsTokensHeadersAndExplicitSecrets() {
+        val rawUrl = "https://alice:s3cr3t@api.telegram.org/bot123456:ABC-XYZ_token/sendMessage?access_token=tok_val&mode=1"
+        val safeUrl = ExecutionLogFormatter.redactUrl(rawUrl)
+        assertFalse(safeUrl.contains("s3cr3t"))
+        assertFalse(safeUrl.contains("123456:ABC-XYZ_token"))
+        assertFalse(safeUrl.contains("tok_val"))
+        assertTrue(safeUrl.contains("mode=1"))
+
+        val rawLog =
+            """
+            Authorization: Bearer my_jwt_token_value
+            X-Gotify-Key: gotify_key_value
+            Set-Cookie: session=cookie_secret_val
+            Error reaching $rawUrl with explicit=secret+with spaces
+            """.trimIndent()
+        val redacted =
+            ExecutionLogFormatter.redactSecrets(
+                rawLog,
+                listOf("secret+with spaces", "my_jwt_token_value"),
+            )
+        assertFalse(redacted.contains("my_jwt_token_value"))
+        assertFalse(redacted.contains("gotify_key_value"))
+        assertFalse(redacted.contains("cookie_secret_val"))
+        assertFalse(redacted.contains("s3cr3t"))
+        assertFalse(redacted.contains("123456:ABC-XYZ_token"))
+        assertFalse(redacted.contains("tok_val"))
+        assertFalse(redacted.contains("secret+with spaces"))
+        assertFalse(redacted.contains("secret%2Bwith+spaces"))
+    }
 }

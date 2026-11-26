@@ -34,11 +34,7 @@ data class WorkflowEntity(
     companion object {
         fun fromDomain(workflow: Workflow): WorkflowEntity {
             val encryptedNodes =
-                workflow.nodes.map { node ->
-                    node.copy(
-                        configJson = DatabaseEncryption.encryptNodeConfig(node.configJson),
-                    )
-                }
+                workflow.nodes.map { node -> node.withEncryptedSecrets() }
 
             val graph =
                 WorkflowGraph(
@@ -64,11 +60,7 @@ data class WorkflowEntity(
             try {
                 val graph = AppJson.decodeFromString<WorkflowGraph>(graphJson)
                 val decryptedNodes =
-                    graph.nodes.map { node ->
-                        node.copy(
-                            configJson = DatabaseEncryption.decryptNodeConfig(node.configJson),
-                        )
-                    }
+                    graph.nodes.map { node -> node.withDecryptedSecrets() }
                 Pair(decryptedNodes, graph.connections)
             } catch (_: Exception) {
                 parseLegacyGraph(graphJson)
@@ -192,6 +184,10 @@ private fun parsePrecondition(pObj: JsonObject): Precondition {
                 id = pId,
                 isEnabled = isPEnabled,
                 icon = pIcon,
+                targetUrl = pObj.optString("targetUrl", ""),
+                method = pObj.optString("method", "GET"),
+                headers = DatabaseEncryption.decrypt(pObj.optString("headers", "")),
+                expectedStatus = pObj.optInt("expectedStatus", 200),
                 onFailureAction = pFailureAction,
                 maxRetries = pMaxRetries,
                 retryIntervalSeconds = pRetryInterval,
@@ -325,3 +321,33 @@ private fun parseLegacyChainedPipeline(
         }
     }
 }
+
+internal fun WorkflowNode.withEncryptedSecrets(): WorkflowNode =
+    copy(
+        configJson = DatabaseEncryption.encryptNodeConfig(configJson),
+        preconditions = preconditions.map { it.withEncryptedSecrets() },
+    )
+
+internal fun WorkflowNode.withDecryptedSecrets(): WorkflowNode =
+    copy(
+        configJson = DatabaseEncryption.decryptNodeConfig(configJson),
+        preconditions = preconditions.map { it.withDecryptedSecrets() },
+    )
+
+internal fun Precondition.withEncryptedSecrets(): Precondition =
+    when (this) {
+        is Precondition.HealthCheck ->
+            copy(headers = if (headers.isNotBlank()) DatabaseEncryption.encrypt(headers) else headers)
+        is Precondition.ChainCheck ->
+            copy(nodes = nodes.map { it.withEncryptedSecrets() })
+        else -> this
+    }
+
+internal fun Precondition.withDecryptedSecrets(): Precondition =
+    when (this) {
+        is Precondition.HealthCheck ->
+            copy(headers = DatabaseEncryption.decrypt(headers))
+        is Precondition.ChainCheck ->
+            copy(nodes = nodes.map { it.withDecryptedSecrets() })
+        else -> this
+    }

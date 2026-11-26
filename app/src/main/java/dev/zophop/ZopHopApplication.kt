@@ -1,22 +1,22 @@
 package dev.zophop
 
 import android.app.Application
-import dev.zophop.data.EncryptedSettingsRepository
 import dev.zophop.domain.engine.plugin.BuiltInPluginRegistry
-import dev.zophop.service.SmsForwarderService
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 class ZopHopApplication : Application() {
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     override fun onCreate() {
         super.onCreate()
 
-        // Discover and register all bundled plugins dynamically via bridge
-        BuiltInPluginRegistry.discoverBundledModules()
-
-        val settingsRepo = EncryptedSettingsRepository(this)
-        val settings = settingsRepo.getSettings()
-
-        if (settings.isEnabled) {
-            SmsForwarderService.startService(this)
+        // Warm bundled plugin registry off the main thread to avoid startup ANR/disk stalls.
+        // Foreground service startup is handled when entering foreground (MainActivity / toggle).
+        appScope.launch {
+            BuiltInPluginRegistry.discoverBundledModules()
         }
     }
 }

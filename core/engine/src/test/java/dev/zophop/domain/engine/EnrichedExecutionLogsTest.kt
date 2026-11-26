@@ -200,4 +200,73 @@ class EnrichedExecutionLogsTest {
             assertTrue(triggerStep.logMessage.contains("--- Preconditions Passed"))
             assertTrue(triggerStep.logMessage.contains("Active Internet connection verified"))
         }
+
+    @Test
+    fun preconditionEvaluator_healthCheckRedactsUrlSecretsAndHeaderTokens() =
+        runTest {
+            val failingClient =
+                OkHttpClient
+                    .Builder()
+                    .addInterceptor {
+                        throw IOException("Failed to reach https://api.example.com/health?token=hc_secret_123 with Bearer hdr_secret_456")
+                    }.build()
+            val evaluator = PreconditionEvaluator(context = null, okHttpClient = failingClient)
+            val hc =
+                Precondition.HealthCheck(
+                    id = "hc_redact",
+                    targetUrl = "https://api.example.com/health?token=hc_secret_123",
+                    headers = "Authorization: Bearer hdr_secret_456",
+                )
+
+            val result = evaluator.evaluate(hc)
+            assertTrue(result is PreconditionResult.Failed)
+            val failed = result as PreconditionResult.Failed
+            assertFalse("Healthcheck failure reason must not leak URL token", failed.reason.contains("hc_secret_123"))
+            assertFalse("Healthcheck failure reason must not leak header token", failed.reason.contains("hdr_secret_456"))
+            val step = failed.steps.single()
+            assertFalse("Healthcheck step nodeName must not leak URL token", step.nodeName.contains("hc_secret_123"))
+            assertFalse("Healthcheck step logMessage must not leak URL token", step.logMessage.contains("hc_secret_123"))
+        }
+
+    @Test
+    fun httpActionExecutor_redactsBodyAndExceptionSecrets() =
+        runTest {
+            val client =
+                OkHttpClient
+                    .Builder()
+                    .addInterceptor { chain ->
+                        Response
+                            .Builder()
+                            .request(chain.request())
+                            .protocol(Protocol.HTTP_1_1)
+                            .code(400)
+                            .message("Bad Request")
+                            .body("""{"echo":"raw_bearer_body_secret","url":"https://user:pass@api.example.com/bot123:ABC/send"}""".toResponseBody("application/json".toMediaType()))
+                            .build()
+                    }.build()
+            val executor = HttpActionExecutor(client)
+            val node =
+                WorkflowNode(
+                    id = "http_body_leak",
+                    name = "Webhook",
+                    type = NodeType.HTTP_ACTION,
+                    configJson =
+                        """
+                        {
+                            "url": "https://api.example.com/events",
+                            "method": "POST",
+                            "authType": "BEARER",
+                            "bearerToken": "raw_bearer_body_secret",
+                            "bodyType": "JSON",
+                            "bodyTemplate": "{\"token\":\"raw_bearer_body_secret\"}"
+                        }
+                        """.trimIndent(),
+                )
+            val result = executor.execute(node, ExecutionContext(), null)
+            assertTrue(result is NodeExecutionResult.Failed)
+            val reason = (result as NodeExecutionResult.Failed).reason
+            assertFalse("Secret echoed in body/template must be redacted", reason.contains("raw_bearer_body_secret"))
+            assertFalse("Userinfo password must be redacted", reason.contains("user:pass"))
+            assertFalse("Telegram bot token path must be redacted", reason.contains("bot123:ABC"))
+        }
 }

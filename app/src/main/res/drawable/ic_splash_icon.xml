@@ -7,6 +7,47 @@
     android:viewportWidth="288"
     android:viewportHeight="288">
 
+    <!-- Subtle halo ring & workflow node micro-sprites inside the 192dp safe zone -->
+    <path
+        android:pathData="M144,64 A80,80 0 1,1 143.9,64"
+        android:strokeColor="#1A10B981"
+        android:strokeWidth="1.5" />
+
+    <path
+        android:pathData="M86,104 C98,94 114,88 128,88"
+        android:strokeColor="#2210B981"
+        android:strokeWidth="2"
+        android:strokeLineCap="round" />
+    <path
+        android:fillColor="#2610B981"
+        android:pathData="M82,104 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0" />
+
+    <path
+        android:pathData="M202,184 C190,194 174,200 160,200"
+        android:strokeColor="#22F59E0B"
+        android:strokeWidth="2"
+        android:strokeLineCap="round" />
+    <path
+        android:fillColor="#26F59E0B"
+        android:pathData="M198,184 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0" />
+
+    <!-- Mini webhook braces micro-sprite (left) -->
+    <path
+        android:pathData="M84,152 c-4,0 -4,3 -4,6 v4 c0,3 -2,4 -4,4 c2,0 4,1 4,4 v4 c0,3 0,6 4,6"
+        android:strokeColor="#2410B981"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- Mini SMS bubble micro-sprite (right) -->
+    <path
+        android:pathData="M188,104 h20 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-9 l-5,4 v-4 h-6 a4,4 0 0 1 -4,-4 v-10 a4,4 0 0 1 4,-4 z"
+        android:strokeColor="#24F59E0B"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- Bolt path -->
     <path
         android:pathData="M172.06,80.52 L124.22,146.76 L166.54,146.76 L115.94,207.48"
         android:strokeWidth="21.2"

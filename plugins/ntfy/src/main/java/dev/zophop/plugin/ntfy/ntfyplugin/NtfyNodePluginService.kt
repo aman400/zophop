@@ -2,12 +2,16 @@ package dev.zophop.plugin.ntfy.ntfyplugin
 
 import android.app.Service
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Binder
 import android.os.IBinder
+import android.os.Process
 import android.util.Base64
 import dev.zophop.domain.model.optString
 import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ConfigFieldSpec
 import dev.zophop.plugin.api.CredentialSpec
+import dev.zophop.plugin.api.ExecutionLogFormatter
 import dev.zophop.plugin.api.HttpCredentialAdapter
 import dev.zophop.plugin.api.INodePluginService
 import dev.zophop.plugin.api.NodeCategory
@@ -129,6 +133,9 @@ class NtfyNodePluginService : Service() {
                 configJson: String,
                 inputContextJson: String,
             ): String {
+                if (!isTrustedCaller()) {
+                    return fail("Unauthorized caller")
+                }
                 val params = parseNtfyServiceParams(configJson, inputContextJson)
                 if (params.serverUrl.isBlank()) {
                     return fail("ntfy serverUrl is empty")
@@ -138,6 +145,8 @@ class NtfyNodePluginService : Service() {
 
             private fun dispatchNtfyRequest(params: NtfyServiceParams): String {
                 val targetUrl = "${params.serverUrl}/${params.topic}"
+                val cleanToken = sanitizeControlChars(params.token)
+                val explicitSecrets = listOfNotNull(cleanToken.takeIf { it.isNotBlank() }, params.token.takeIf { it.isNotBlank() }).distinct()
 
                 return try {
                     val requestBuilder =
@@ -147,9 +156,9 @@ class NtfyNodePluginService : Service() {
                             .post(params.payload.toRequestBody("text/plain; charset=utf-8".toMediaType()))
 
                     if (params.title.isNotBlank()) requestBuilder.addHeader("Title", toSafeHeaderValue(params.title))
-                    if (params.priority.isNotBlank()) requestBuilder.addHeader("Priority", params.priority)
+                    if (params.priority.isNotBlank()) requestBuilder.addHeader("Priority", sanitizeControlChars(params.priority))
                     if (params.tags.isNotBlank()) requestBuilder.addHeader("Tags", toSafeHeaderValue(params.tags))
-                    if (params.token.isNotBlank()) requestBuilder.addHeader("Authorization", "Bearer ${params.token}")
+                    if (cleanToken.isNotBlank()) requestBuilder.addHeader("Authorization", "Bearer $cleanToken")
 
                     val response = okHttpClient.newCall(requestBuilder.build()).execute()
                     response.use { resp ->
@@ -157,22 +166,30 @@ class NtfyNodePluginService : Service() {
                         if (resp.isSuccessful) {
                             success("Delivered to ntfy topic '${params.topic}'")
                         } else {
-                            fail("ntfy request failed: HTTP ${resp.code} - $respBody")
+                            val safeBody = ExecutionLogFormatter.redactSecrets(respBody, explicitSecrets)
+                            fail("ntfy request failed: HTTP ${resp.code} - $safeBody")
                         }
                     }
                 } catch (e: IOException) {
-                    fail("ntfy dispatch failed: ${e.message}")
+                    val safeMsg = ExecutionLogFormatter.redactSecrets(e.message.orEmpty(), explicitSecrets)
+                    fail("ntfy dispatch failed: $safeMsg")
                 } catch (e: IllegalArgumentException) {
-                    fail("ntfy dispatch failed: ${e.message}")
+                    val safeMsg = ExecutionLogFormatter.redactSecrets(e.message.orEmpty(), explicitSecrets)
+                    fail("ntfy dispatch failed: $safeMsg")
                 }
             }
 
-            private fun toSafeHeaderValue(value: String): String =
-                if (value.any { it.code !in 32..126 }) {
-                    "=?utf-8?B?" + Base64.encodeToString(value.toByteArray(Charsets.UTF_8), Base64.NO_WRAP) + "?="
+            private fun sanitizeControlChars(value: String): String =
+                value.replace(Regex("[\\r\\n\\u0000]"), "").trim()
+
+            private fun toSafeHeaderValue(value: String): String {
+                val cleaned = sanitizeControlChars(value)
+                return if (cleaned.any { it.code !in 32..126 }) {
+                    "=?utf-8?B?" + Base64.encodeToString(cleaned.toByteArray(Charsets.UTF_8), Base64.NO_WRAP) + "?="
                 } else {
-                    value
+                    cleaned
                 }
+            }
 
             private fun success(msg: String) =
                 buildJsonObject {
@@ -187,6 +204,13 @@ class NtfyNodePluginService : Service() {
                     put("errorReason", reason)
                 }.toString()
         }
+
+    private fun isTrustedCaller(): Boolean {
+        val callingUid = Binder.getCallingUid()
+        val myUid = Process.myUid()
+        if (callingUid == myUid) return true
+        return packageManager.checkSignatures(myUid, callingUid) == PackageManager.SIGNATURE_MATCH
+    }
 
     override fun onBind(intent: Intent?): IBinder = binder
 }

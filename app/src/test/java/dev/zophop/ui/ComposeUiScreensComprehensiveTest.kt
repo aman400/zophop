@@ -1,6 +1,11 @@
 package dev.zophop.ui
 
 import android.app.Application
+import android.content.ComponentName
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.ActivityInfo
+import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
@@ -14,11 +19,36 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 
 class TestApp :
     Application(),
     Configuration.Provider {
+    override fun onCreate() {
+        super.onCreate()
+        val componentName = ComponentName(packageName, ComponentActivity::class.java.name)
+        val hasComponentActivity =
+            runCatching { packageManager.getActivityInfo(componentName, 0) }.isSuccess
+        if (!hasComponentActivity) {
+            val activityInfo =
+                ActivityInfo().apply {
+                    packageName = this@TestApp.packageName
+                    name = ComponentActivity::class.java.name
+                    exported = true
+                }
+            Shadows.shadowOf(packageManager).apply {
+                addOrUpdateActivity(activityInfo)
+                addIntentFilterForActivity(
+                    componentName,
+                    IntentFilter(Intent.ACTION_MAIN).apply {
+                        addCategory(Intent.CATEGORY_LAUNCHER)
+                    },
+                )
+            }
+        }
+    }
+
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder().build()
 }

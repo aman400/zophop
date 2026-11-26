@@ -13,6 +13,7 @@ import dev.zophop.domain.model.AppJson
 import dev.zophop.domain.model.Workflow
 import dev.zophop.domain.model.WorkflowNode
 import dev.zophop.plugin.api.ExecutionContext
+import dev.zophop.plugin.api.ExecutionLogFormatter
 import dev.zophop.plugin.api.NodeExecutionResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -239,10 +240,11 @@ open class WorkflowEngine(
             return
         }
 
-        val cleanReason = statusText.lineSequence().firstOrNull()?.trim() ?: "Execution failed"
+        val sanitizedStatus = ExecutionLogFormatter.redactSecrets(statusText)
+        val cleanReason = sanitizedStatus.lineSequence().firstOrNull()?.trim() ?: "Execution failed"
         val content = when {
             cleanReason.startsWith("⏳ Queued") || cleanReason.startsWith("❌ Failed") -> cleanReason
-            statusText.contains("queued", ignoreCase = true) -> "⏳ Queued: $cleanReason"
+            sanitizedStatus.contains("queued", ignoreCase = true) -> "⏳ Queued: $cleanReason"
             else -> "❌ Failed: $cleanReason"
         }
 
@@ -286,7 +288,7 @@ open class WorkflowEngine(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val cleanContent = statusText.lineSequence().firstOrNull()?.trim() ?: "Running..."
+        val cleanContent = ExecutionLogFormatter.redactSecrets(statusText).lineSequence().firstOrNull()?.trim() ?: "Running..."
 
         val notification = NotificationCompat.Builder(ctx, channelId)
             .setSmallIcon(getNotificationIcon())
@@ -575,7 +577,7 @@ open class WorkflowEngine(
 
         if (precResult is PreconditionResult.Failed) {
             val duration = (System.currentTimeMillis() - nodeStartTime).coerceAtLeast(0L)
-            val failReason = precResult.reason
+            val failReason = ExecutionLogFormatter.redactSecrets(precResult.reason)
             val isActiveQueue = precResult.shouldQueue && !precResult.isQueueTimeout
             val logPrefix = if (isActiveQueue) "⏸️ Precondition Queued" else "⏳ Precondition Failed"
             logs.add("$logPrefix for node '${currentNode.name}': $failReason")
@@ -745,19 +747,20 @@ open class WorkflowEngine(
                 ignoredResult
             }
             is NodeExecutionResult.Failed -> {
-                logs.add("❌ Node '${currentNode.name}' failed: ${result.reason}")
+                val safeReason = ExecutionLogFormatter.redactSecrets(result.reason)
+                logs.add("❌ Node '${currentNode.name}' failed: $safeReason")
                 val fullFailLog =
                     if (!preconditionNote.isNullOrBlank()) {
-                        "${result.reason}\n$preconditionNote"
+                        "$safeReason\n$preconditionNote"
                     } else {
-                        result.reason
+                        safeReason
                     }
                 updateStep(
                     workflow = workflow,
                     steps = steps,
                     nodeId = currentNode.id,
                     newState = NodeStepState.FAILED,
-                    error = result.reason,
+                    error = safeReason,
                     message = fullFailLog,
                     durationMs = duration,
                     onStepUpdate = onStepUpdate,
@@ -768,14 +771,14 @@ open class WorkflowEngine(
                     context,
                     notifId,
                     workflow.name,
-                    "Failed at step '${currentNode.name}': ${result.reason}",
+                    "Failed at step '${currentNode.name}': $safeReason",
                     isFinished = true,
                     isSuccess = false,
                 )
                 val failResult = WorkflowExecutionResult.Failed(
                     workflowId = workflow.id,
                     nodeId = currentNode.id,
-                    reason = result.reason,
+                    reason = safeReason,
                     logs = logs,
                     steps = steps.toList(),
                 )
@@ -783,12 +786,13 @@ open class WorkflowEngine(
                 failResult
             }
             is NodeExecutionResult.Success -> {
-                logs.add("✅ Node '${currentNode.name}': ${result.logMessage}")
+                val safeLogMsg = ExecutionLogFormatter.redactSecrets(result.logMessage)
+                logs.add("✅ Node '${currentNode.name}': $safeLogMsg")
                 val fullSuccessLog =
                     if (!preconditionNote.isNullOrBlank()) {
-                        "${result.logMessage}\n$preconditionNote"
+                        "$safeLogMsg\n$preconditionNote"
                     } else {
-                        result.logMessage
+                        safeLogMsg
                     }
                 updateStep(
                     workflow = workflow,

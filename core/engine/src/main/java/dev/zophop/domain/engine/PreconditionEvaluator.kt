@@ -15,12 +15,14 @@ import dev.zophop.domain.model.calculateRetryDelaySeconds
 import dev.zophop.domain.model.optString
 import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.plugin.api.ExecutionContext
+import dev.zophop.plugin.api.ExecutionLogFormatter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -479,15 +481,16 @@ open class PreconditionEvaluator(
                     val res = checkHealth(precondition)
                     val isOk = res is PreconditionResult.Passed
                     val failReason = (res as? PreconditionResult.Failed)?.reason
+                    val safeUrl = ExecutionLogFormatter.redactUrl(precondition.targetUrl)
                     val step =
                         NodeExecutionStep(
                             nodeId = "health_check",
-                            nodeName = "🩺 HTTP Healthcheck (${precondition.method} ${precondition.targetUrl})",
+                            nodeName = "🩺 HTTP Healthcheck (${precondition.method} $safeUrl)",
                             nodeType = CoreEngineNodesModule.HTTP_ACTION,
                             state = if (isOk) NodeStepState.SUCCESS else NodeStepState.FAILED,
                             logMessage =
                                 if (isOk) {
-                                    "HTTP ${precondition.method} -> ${precondition.targetUrl} returned expected status ${precondition.expectedStatus}"
+                                    "HTTP ${precondition.method} -> $safeUrl returned expected status ${precondition.expectedStatus}"
                                 } else {
                                     (
                                         failReason
@@ -882,42 +885,81 @@ open class PreconditionEvaluator(
 
     private suspend fun checkHealth(check: Precondition.HealthCheck): PreconditionResult =
         withContext(Dispatchers.IO) {
-            if (check.targetUrl.isBlank()) {
-                return@withContext PreconditionResult.Failed("Healthcheck URL is empty")
-            }
-            try {
-                val requestBuilder = Request.Builder().url(check.targetUrl.trim())
-
-                when (check.method.uppercase()) {
-                    "HEAD" -> requestBuilder.head()
-                    "POST" -> requestBuilder.post(ByteArray(0).toRequestBody(null))
-                    else -> requestBuilder.get()
-                }
-
-                if (check.headers.isNotBlank()) {
-                    HttpHeaderUtils.parseHeaders(check.headers).forEach { (k, v) ->
-                        val safeVal = HttpHeaderUtils.sanitizeHeaderValue(v)
-                        if (HttpHeaderUtils.isValidHeaderName(k)) {
-                            requestBuilder.addHeader(k, safeVal)
-                        }
-                    }
-                }
-
-                val request = requestBuilder.build()
-                okHttpClient.newCall(request).await().use { response ->
-                    val code = response.code
-                    if (code == check.expectedStatus || (check.expectedStatus == 200 && response.isSuccessful)) {
-                        PreconditionResult.Passed()
-                    } else {
-                        PreconditionResult.Failed("Healthcheck HTTP $code (expected ${check.expectedStatus})")
-                    }
-                }
-            } catch (e: java.io.IOException) {
-                PreconditionResult.Failed("Healthcheck unreachable: ${e.message}")
-            } catch (e: IllegalArgumentException) {
-                PreconditionResult.Failed("Healthcheck unreachable: ${e.message}")
+            val trimmedUrl = check.targetUrl.trim()
+            val parsedUrl = trimmedUrl.toHttpUrlOrNull()
+            when {
+                trimmedUrl.isBlank() -> PreconditionResult.Failed("Healthcheck URL is empty")
+                parsedUrl == null -> PreconditionResult.Failed("Invalid healthcheck URL")
+                parsedUrl.username.isNotEmpty() || parsedUrl.password.isNotEmpty() ->
+                    PreconditionResult.Failed("Invalid healthcheck URL: embedded credentials are not allowed")
+                else -> executeHealthCheckRequest(parsedUrl, check)
             }
         }
+
+    private suspend fun executeHealthCheckRequest(
+        parsedUrl: okhttp3.HttpUrl,
+        check: Precondition.HealthCheck,
+    ): PreconditionResult {
+        val explicitSecrets = collectHealthcheckSecrets(parsedUrl, check.headers)
+        return try {
+            val request = buildHealthCheckRequest(parsedUrl, check)
+            okHttpClient.newCall(request).await().use { response ->
+                val code = response.code
+                if (code == check.expectedStatus || (check.expectedStatus == 200 && response.isSuccessful)) {
+                    PreconditionResult.Passed()
+                } else {
+                    PreconditionResult.Failed("Healthcheck HTTP $code (expected ${check.expectedStatus})")
+                }
+            }
+        } catch (e: java.io.IOException) {
+            val safeMsg = ExecutionLogFormatter.redactSecrets(e.message.orEmpty(), explicitSecrets)
+            PreconditionResult.Failed("Healthcheck unreachable: $safeMsg")
+        } catch (e: IllegalArgumentException) {
+            val safeMsg = ExecutionLogFormatter.redactSecrets(e.message.orEmpty(), explicitSecrets)
+            PreconditionResult.Failed("Healthcheck unreachable: $safeMsg")
+        }
+    }
+
+    private fun buildHealthCheckRequest(
+        parsedUrl: okhttp3.HttpUrl,
+        check: Precondition.HealthCheck,
+    ): Request {
+        val requestBuilder = Request.Builder().url(parsedUrl)
+        when (check.method.uppercase()) {
+            "HEAD" -> requestBuilder.head()
+            "POST" -> requestBuilder.post(ByteArray(0).toRequestBody(null))
+            else -> requestBuilder.get()
+        }
+        if (check.headers.isNotBlank()) {
+            HttpHeaderUtils.parseHeaders(check.headers).forEach { (k, v) ->
+                val safeVal = HttpHeaderUtils.sanitizeHeaderValue(v)
+                if (HttpHeaderUtils.isValidHeaderName(k)) {
+                    requestBuilder.addHeader(k, safeVal)
+                }
+            }
+        }
+        return requestBuilder.build()
+    }
+
+    private fun collectHealthcheckSecrets(
+        parsedUrl: okhttp3.HttpUrl,
+        headers: String,
+    ): List<String> {
+        val secrets = mutableListOf<String>()
+        for (name in parsedUrl.queryParameterNames) {
+            parsedUrl.queryParameterValues(name).filterNotNull().forEach { v ->
+                if (v.length >= 4) secrets.add(v)
+            }
+        }
+        if (headers.isNotBlank()) {
+            HttpHeaderUtils.parseHeaders(headers).forEach { (k, v) ->
+                if (ExecutionLogFormatter.isSensitiveHeader(k) && v.isNotBlank()) {
+                    secrets.add(v)
+                }
+            }
+        }
+        return secrets
+    }
 
     private fun checkSim(check: Precondition.SimCheck): PreconditionResult {
         val ctx = context ?: return PreconditionResult.Passed()

@@ -22,6 +22,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 
@@ -38,20 +39,27 @@ class ZopHopNotificationListenerService : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         val data = extractNotificationData(sbn) ?: return
         serviceScope.launch {
-            processNotificationWorkflows(data)
+            val enabled = EncryptedSettingsRepository(applicationContext).getSettings().globalWorkflowsEnabled
+            if (enabled) {
+                processNotificationWorkflows(data)
+            }
         }
+    }
+
+    override fun onDestroy() {
+        serviceScope.cancel()
+        super.onDestroy()
     }
 
     private fun extractNotificationData(sbn: StatusBarNotification?): NotificationData? {
         if (sbn == null || (sbn.packageName == packageName)) return null
-        val enabled = EncryptedSettingsRepository(applicationContext).getSettings().globalWorkflowsEnabled
-        val extras = if (enabled) sbn.notification?.extras else null
-        val rawTitle = extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString()
-            ?: extras?.getCharSequence(Notification.EXTRA_TITLE_BIG)?.toString()
-        val text = extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString()
-            ?: extras?.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
+        val extras = sbn.notification?.extras ?: return null
+        val rawTitle = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
+            ?: extras.getCharSequence(Notification.EXTRA_TITLE_BIG)?.toString()
+        val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()
+            ?: extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
 
-        return if (extras == null || text.isNullOrBlank()) {
+        return if (text.isNullOrBlank()) {
             null
         } else {
             val sender = if (!rawTitle.isNullOrBlank()) rawTitle else sbn.packageName
@@ -73,7 +81,7 @@ class ZopHopNotificationListenerService : NotificationListenerService() {
         }
         if (notifWorkflows.isEmpty()) return
 
-        val evaluator = PreconditionEvaluator(applicationContext)
+        val evaluator = PreconditionEvaluator(applicationContext, credentialRepository = credentialRepository)
         val engine = WorkflowEngine(evaluator, credentialRepository)
 
         val showWorkflowNotifications = EncryptedSettingsRepository(applicationContext).getSettings().showWorkflowNotifications

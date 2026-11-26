@@ -9,6 +9,7 @@ import dev.zophop.plugin.api.ExecutionContext
 import dev.zophop.plugin.api.ExecutionLogFormatter
 import dev.zophop.plugin.api.NodeExecutionResult
 import dev.zophop.plugin.api.NodeExecutor
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -37,7 +38,14 @@ class NtfyActionExecutor(
 
     private fun sendNtfyMessage(params: NtfyParams): NodeExecutionResult {
         val targetUrl = "${params.serverUrl}/${params.topic}"
-        val authMode = if (params.token.isNotBlank()) "Bearer ***" else "None"
+        val parsedUrl = targetUrl.toHttpUrlOrNull()
+        if (parsedUrl != null && (parsedUrl.username.isNotEmpty() || parsedUrl.password.isNotEmpty())) {
+            return NodeExecutionResult.Failed("Invalid ntfy URL: embedded credentials are not allowed")
+        }
+        val cleanToken = sanitizeControlChars(params.token)
+        val explicitSecrets = listOfNotNull(cleanToken.takeIf { it.isNotBlank() }, params.token.takeIf { it.isNotBlank() }).distinct()
+        val safeTargetUrl = ExecutionLogFormatter.redactUrl(targetUrl)
+        val authMode = if (cleanToken.isNotBlank()) "Bearer ***" else "None"
 
         return try {
             val requestBuilder =
@@ -49,34 +57,39 @@ class NtfyActionExecutor(
             if (params.title.isNotBlank()) requestBuilder.addHeader("Title", toSafeHeaderValue(params.title))
             if (params.priority.isNotBlank()) requestBuilder.addHeader("Priority", sanitizeControlChars(params.priority))
             if (params.tags.isNotBlank()) requestBuilder.addHeader("Tags", toSafeHeaderValue(params.tags))
-            if (params.token.isNotBlank()) requestBuilder.addHeader("Authorization", "Bearer ${sanitizeControlChars(params.token)}")
+            if (cleanToken.isNotBlank()) requestBuilder.addHeader("Authorization", "Bearer $cleanToken")
 
             val response = okHttpClient.newCall(requestBuilder.build()).execute()
-            response.use { resp -> buildNtfyResponseResult(resp, targetUrl, authMode, params) }
+            response.use { resp -> buildNtfyResponseResult(resp, safeTargetUrl, explicitSecrets, authMode, params) }
         } catch (e: IOException) {
-            NodeExecutionResult.Failed("ntfy dispatch to $targetUrl failed: ${e.message}")
+            val msg = ExecutionLogFormatter.redactSecrets(e.message.orEmpty(), explicitSecrets)
+            NodeExecutionResult.Failed("ntfy dispatch to $safeTargetUrl failed: $msg")
         } catch (e: IllegalArgumentException) {
-            NodeExecutionResult.Failed("ntfy dispatch to $targetUrl failed: ${e.message}")
+            val msg = ExecutionLogFormatter.redactSecrets(e.message.orEmpty(), explicitSecrets)
+            NodeExecutionResult.Failed("ntfy dispatch to $safeTargetUrl failed: $msg")
         }
     }
 
     private fun buildNtfyResponseResult(
         resp: okhttp3.Response,
-        targetUrl: String,
+        safeTargetUrl: String,
+        explicitSecrets: List<String>,
         authMode: String,
         params: NtfyParams,
     ): NodeExecutionResult {
         val respBody = resp.body?.string() ?: ""
+        val safeResp = ExecutionLogFormatter.redactSecrets(respBody, explicitSecrets)
+        val safePayload = ExecutionLogFormatter.redactSecrets(params.payload, explicitSecrets)
         val details =
-            "URL: $targetUrl\nTopic: ${params.topic}\nTitle: ${params.title}\n" +
+            "URL: $safeTargetUrl\nTopic: ${params.topic}\nTitle: ${params.title}\n" +
                 "Priority: ${params.priority}\nTags: ${params.tags}\nAuth: $authMode\nStatus: ${resp.code} ${resp.message}"
         return if (resp.isSuccessful) {
             val sections = mutableListOf(
                 "ntfy Request Details" to details,
-                "Body" to ExecutionLogFormatter.previewText(params.payload, 1000),
+                "Body" to ExecutionLogFormatter.previewText(safePayload, 1000),
             )
-            if (respBody.isNotBlank()) {
-                sections.add("Response Body" to ExecutionLogFormatter.previewText(respBody, 1000))
+            if (safeResp.isNotBlank()) {
+                sections.add("Response Body" to ExecutionLogFormatter.previewText(safeResp, 1000))
             }
             val detailedLog =
                 ExecutionLogFormatter.buildStructuredLog(
@@ -91,7 +104,7 @@ class NtfyActionExecutor(
                     sections =
                         listOfNotNull(
                             "ntfy Request Details" to details,
-                            respBody.takeIf { it.isNotBlank() }?.let { "Response Body" to ExecutionLogFormatter.previewText(it, 1000) },
+                            safeResp.takeIf { it.isNotBlank() }?.let { "Response Body" to ExecutionLogFormatter.previewText(it, 1000) },
                         ),
                 )
             NodeExecutionResult.Failed(failedLog)

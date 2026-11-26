@@ -43,6 +43,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -52,6 +53,7 @@ import dev.zophop.core.ui.ZopHopTheme
 import dev.zophop.core.ui.components.IconPickerModalBottomSheet
 import dev.zophop.core.ui.components.IconSelectorBadge
 import dev.zophop.core.ui.components.InfoTooltipField
+import dev.zophop.core.ui.components.ZopHopSpriteBackdrop
 import dev.zophop.data.PreconditionEntity
 import dev.zophop.domain.engine.NodeExecutionStep
 import dev.zophop.domain.engine.WorkflowExecutionResult
@@ -188,119 +190,122 @@ fun WorkflowEditorScreen(
                     )
                 }
                 else -> {
-                    Scaffold(
-                        topBar = {
-                            WorkflowEditorTopBar(
-                                nodesCount = nodes.size,
-                                connectionsCount = connections.size,
-                                hasUnsavedChanges = hasUnsavedChanges,
-                                onBack = handleBack,
-                                onSaveClick = { showSaveConfirmDialog = true },
-                            )
-                        },
-                    ) { innerPadding ->
-                        Box(
-                            modifier =
-                                Modifier
-                                    .fillMaxSize()
-                                    .padding(innerPadding),
-                        ) {
-                            LazyColumn(
+                    ZopHopSpriteBackdrop(seedKey = "workflow_editor_${workflow.id}") {
+                        Scaffold(
+                            containerColor = Color.Transparent,
+                            topBar = {
+                                WorkflowEditorTopBar(
+                                    nodesCount = nodes.size,
+                                    connectionsCount = connections.size,
+                                    hasUnsavedChanges = hasUnsavedChanges,
+                                    onBack = handleBack,
+                                    onSaveClick = { showSaveConfirmDialog = true },
+                                )
+                            },
+                        ) { innerPadding ->
+                            Box(
                                 modifier =
                                     Modifier
                                         .fillMaxSize()
-                                        .padding(horizontal = 16.dp),
-                                verticalArrangement = Arrangement.spacedBy(14.dp),
+                                        .padding(innerPadding),
                             ) {
-                                item { Spacer(modifier = Modifier.height(12.dp)) }
+                                LazyColumn(
+                                    modifier =
+                                        Modifier
+                                            .fillMaxSize()
+                                            .padding(horizontal = 16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                                ) {
+                                    item { Spacer(modifier = Modifier.height(12.dp)) }
 
-                                item {
-                                    WorkflowPipelineBuilderHeader()
-                                }
+                                    item {
+                                        WorkflowPipelineBuilderHeader()
+                                    }
 
-                                item {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        IconSelectorBadge(
-                                            selectedIcon = icon,
-                                            onClick = { showIconPicker = true },
-                                        )
-                                        InfoTooltipField(
-                                            value = name,
-                                            onValueChange = { name = it },
-                                            label = "Workflow Name",
-                                            tooltipText = "Descriptive name for this automated workflow pipeline.",
-                                            modifier = Modifier.weight(1f),
-                                            singleLine = true,
+                                    item {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            IconSelectorBadge(
+                                                selectedIcon = icon,
+                                                onClick = { showIconPicker = true },
+                                            )
+                                            InfoTooltipField(
+                                                value = name,
+                                                onValueChange = { name = it },
+                                                label = "Workflow Name",
+                                                tooltipText = "Descriptive name for this automated workflow pipeline.",
+                                                modifier = Modifier.weight(1f),
+                                                singleLine = true,
+                                            )
+                                        }
+                                    }
+
+                                    itemsIndexed(nodes, key = { _, node -> node.id }) { index, node ->
+                                        val isFirst = index == 0
+                                        val isUnsaved = unsavedNodeIds.contains(node.id)
+
+                                        WorkflowNodeCardItem(
+                                            node = node,
+                                            isFirst = isFirst,
+                                            index = index,
+                                            totalNodes = nodes.size,
+                                            isUnsaved = isUnsaved,
+                                            hasNotificationListenerPermission = hasNotificationListenerPermission,
+                                            hasPostNotificationsPermission = hasPostNotificationsPermission,
+                                            hasSmsPermission = hasSmsPermission,
+                                            onToggleNode = { enabled ->
+                                                nodes = nodes.map { if (it.id == node.id) it.copy(isEnabled = enabled) else it }
+                                            },
+                                            onEditNode = { editingNode = node },
+                                            onDeleteNode = { pendingDeleteNode = node },
+                                            onMoveUp = {
+                                                if (index > 1) {
+                                                    val (newNodes, newConns) = reorderWorkflowNodes(nodes, connections, index, index - 1)
+                                                    nodes = newNodes
+                                                    connections = newConns
+                                                }
+                                            },
+                                            onMoveDown = {
+                                                if (index < nodes.size - 1) {
+                                                    val (newNodes, newConns) = reorderWorkflowNodes(nodes, connections, index, index + 1)
+                                                    nodes = newNodes
+                                                    connections = newConns
+                                                }
+                                            },
                                         )
                                     }
+
+                                    item { Spacer(modifier = Modifier.height(96.dp)) }
                                 }
 
-                                itemsIndexed(nodes, key = { _, node -> node.id }) { index, node ->
-                                    val isFirst = index == 0
-                                    val isUnsaved = unsavedNodeIds.contains(node.id)
-
-                                    WorkflowNodeCardItem(
-                                        node = node,
-                                        isFirst = isFirst,
-                                        index = index,
-                                        totalNodes = nodes.size,
-                                        isUnsaved = isUnsaved,
-                                        hasNotificationListenerPermission = hasNotificationListenerPermission,
-                                        hasPostNotificationsPermission = hasPostNotificationsPermission,
-                                        hasSmsPermission = hasSmsPermission,
-                                        onToggleNode = { enabled ->
-                                            nodes = nodes.map { if (it.id == node.id) it.copy(isEnabled = enabled) else it }
-                                        },
-                                        onEditNode = { editingNode = node },
-                                        onDeleteNode = { pendingDeleteNode = node },
-                                        onMoveUp = {
-                                            if (index > 1) {
-                                                val (newNodes, newConns) = reorderWorkflowNodes(nodes, connections, index, index - 1)
-                                                nodes = newNodes
-                                                connections = newConns
-                                            }
-                                        },
-                                        onMoveDown = {
-                                            if (index < nodes.size - 1) {
-                                                val (newNodes, newConns) = reorderWorkflowNodes(nodes, connections, index, index + 1)
-                                                nodes = newNodes
-                                                connections = newConns
-                                            }
-                                        },
-                                    )
-                                }
-
-                                item { Spacer(modifier = Modifier.height(96.dp)) }
+                                WorkflowEditorFabs(
+                                    onTestRun = {
+                                        isTesting = true
+                                        showTestStepperSheet = true
+                                        testSteps = emptyList()
+                                        val testWorkflow =
+                                            workflow.copy(
+                                                name = name,
+                                                description = description,
+                                                isEnabled = isEnabled,
+                                                icon = icon,
+                                                nodes = nodes,
+                                                connections = connections,
+                                            )
+                                        onTestRunWorkflowWithProgress?.invoke(
+                                            testWorkflow,
+                                            { steps -> testSteps = steps },
+                                            { _ -> isTesting = false },
+                                        ) ?: run {
+                                            onTestRunWorkflow(testWorkflow) { _ -> isTesting = false }
+                                        }
+                                    },
+                                    onAddStep = { showAddNodeSheet = true },
+                                )
                             }
-
-                            WorkflowEditorFabs(
-                                onTestRun = {
-                                    isTesting = true
-                                    showTestStepperSheet = true
-                                    testSteps = emptyList()
-                                    val testWorkflow =
-                                        workflow.copy(
-                                            name = name,
-                                            description = description,
-                                            isEnabled = isEnabled,
-                                            icon = icon,
-                                            nodes = nodes,
-                                            connections = connections,
-                                        )
-                                    onTestRunWorkflowWithProgress?.invoke(
-                                        testWorkflow,
-                                        { steps -> testSteps = steps },
-                                        { _ -> isTesting = false },
-                                    ) ?: run {
-                                        onTestRunWorkflow(testWorkflow) { _ -> isTesting = false }
-                                    }
-                                },
-                                onAddStep = { showAddNodeSheet = true },
-                            )
                         }
                     }
                 }

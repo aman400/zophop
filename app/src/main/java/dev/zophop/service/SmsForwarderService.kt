@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import dev.zophop.R
 import dev.zophop.network.ConnectivityMonitor
@@ -36,16 +37,26 @@ class SmsForwarderService : Service() {
         val text = intent?.getStringExtra(EXTRA_TEXT) ?: "Monitoring incoming SMS and forwarding OTPs"
         val notification = createNotification(title, text)
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+            START_STICKY
+        } catch (e: IllegalStateException) {
+            Log.w(TAG, "Unable to promote SmsForwarderService to foreground: ${e.message}")
+            stopSelf(startId)
+            START_NOT_STICKY
+        } catch (e: SecurityException) {
+            Log.w(TAG, "SecurityException starting foreground SmsForwarderService: ${e.message}")
+            stopSelf(startId)
+            START_NOT_STICKY
         }
-        return START_STICKY
     }
 
     override fun onDestroy() {
@@ -97,14 +108,24 @@ class SmsForwarderService : Service() {
     }
 
     companion object {
+        private const val TAG = "SmsForwarderService"
         const val CHANNEL_ID = "zophop_forwarder_channel"
         const val NOTIFICATION_ID = 1001
         private const val EXTRA_TITLE = "extra_notification_title"
         private const val EXTRA_TEXT = "extra_notification_text"
 
-        fun startService(context: Context) {
+        fun startService(context: Context): Boolean {
             val intent = Intent(context, SmsForwarderService::class.java)
-            context.startForegroundService(intent)
+            return try {
+                context.startForegroundService(intent)
+                true
+            } catch (e: IllegalStateException) {
+                Log.w(TAG, "Deferred foreground service start (background restriction): ${e.message}")
+                false
+            } catch (e: SecurityException) {
+                Log.w(TAG, "Deferred foreground service start (security restriction): ${e.message}")
+                false
+            }
         }
 
         fun updateNotificationStatus(
@@ -139,7 +160,10 @@ class SmsForwarderService : Service() {
                     .setOngoing(true)
                     .build()
 
-            manager.notify(NOTIFICATION_ID, notification)
+            try {
+                manager.notify(NOTIFICATION_ID, notification)
+            } catch (_: SecurityException) {
+            }
         }
 
         fun resetToDefaultStatus(context: Context) {

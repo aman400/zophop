@@ -8,6 +8,8 @@ import android.util.Log
 import dev.zophop.worker.ForwardingManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 private const val TAG = "ConnectivityMonitor"
@@ -15,6 +17,7 @@ private const val TAG = "ConnectivityMonitor"
 class ConnectivityMonitor(
     private val context: Context,
 ) {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val connectivityManager =
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
 
@@ -33,7 +36,7 @@ class ConnectivityMonitor(
         }
 
     private fun triggerFlush() {
-        CoroutineScope(Dispatchers.IO).launch {
+        scope.launch {
             try {
                 ForwardingManager.getInstance(context).processPendingQueue()
                 dev.zophop.worker.WorkflowQueueManager.processQueuedWorkflows(context)
@@ -54,6 +57,7 @@ class ConnectivityMonitor(
     }
 
     fun unregister() {
+        scope.cancel()
         try {
             connectivityManager?.unregisterNetworkCallback(networkCallback)
         } catch (e: IllegalArgumentException) {

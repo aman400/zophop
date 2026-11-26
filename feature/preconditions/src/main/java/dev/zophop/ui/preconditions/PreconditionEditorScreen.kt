@@ -47,6 +47,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
@@ -56,6 +57,7 @@ import dev.zophop.core.ui.components.CancelExecutionConfirmDialog
 import dev.zophop.core.ui.components.IconPickerModalBottomSheet
 import dev.zophop.core.ui.components.IconSelectorBadge
 import dev.zophop.core.ui.components.InfoTooltipField
+import dev.zophop.core.ui.components.ZopHopSpriteBackdrop
 import dev.zophop.data.PreconditionEntity
 import dev.zophop.data.toDomain
 import dev.zophop.domain.engine.NodeExecutionStep
@@ -239,117 +241,120 @@ fun PreconditionEditorScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            PreconditionEditorTopBar(
-                isEditing = precondition != null,
-                isTesting = isTestingSheet,
-                hasUnsavedChanges = hasUnsavedChanges,
-                onCloseClick = {
-                    handleDismissRequest(
-                        isTesting = isTestingSheet,
-                        hasUnsavedChanges = hasUnsavedChanges,
-                        onShowDiscard = { showDiscardDialog = true },
-                        onDismiss = onDismiss,
-                    )
-                },
-                onSaveClick = {
-                    keyboardController?.hide()
-                    focusManager.clearFocus()
-                    val error = validatePreconditionSave(name, chainNodes.isNotEmpty())
-                    errorMessage = error
-                    if (error == null) {
-                        showSaveConfirmDialog = true
-                    }
-                },
-            )
-        },
-        floatingActionButton = {
-            PreconditionEditorFabs(
-                isTesting = isTestingSheet,
-                onTestClick = {
-                    keyboardController?.hide()
-                    focusManager.clearFocus()
-                    handleTestClick(
-                        isTestingSheet = isTestingSheet,
-                        hasNodes = chainNodes.isNotEmpty(),
-                        onShowSheet = { showTestStepperSheet = true },
-                        onError = { errorMessage = it },
-                        onStartTest = {
-                            val runToken = activeTestToken + 1L
-                            activeTestToken = runToken
-                            isTestingSheet = true
-                            showTestStepperSheet = true
-                            sheetTestResult = null
-                            sheetTestSteps = emptyList()
-                            startPreconditionTest(
-                                preconditionId = testingPreconditionId,
-                                name = name,
-                                isEnabled = isEnabled,
-                                pipelineJson = pipelineJson,
-                                onFailureAction = onFailureAction,
-                                maxRetries = maxRetries,
-                                retryIntervalSeconds = retryIntervalSeconds,
-                                retryStrategy = retryStrategy,
-                                queueTimeoutMinutes = queueTimeoutMinutes,
-                                onTestPreconditionWithProgress = onTestPreconditionWithProgress,
-                                onStepsUpdate = { steps ->
-                                    if (activeTestToken == runToken && isTestingSheet) {
-                                        sheetTestSteps = steps
-                                    }
-                                },
-                                onResult = { res ->
-                                    if (activeTestToken == runToken) {
-                                        isTestingSheet = false
-                                        sheetTestResult = res
-                                        val resSteps =
-                                            when (res) {
-                                                is PreconditionResult.Passed -> res.steps
-                                                is PreconditionResult.Failed -> res.steps
-                                            }
-                                        if (resSteps.isNotEmpty()) {
-                                            sheetTestSteps = resSteps
+    ZopHopSpriteBackdrop(seedKey = "precondition_editor_${precondition?.id ?: "new"}") {
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                PreconditionEditorTopBar(
+                    isEditing = precondition != null,
+                    isTesting = isTestingSheet,
+                    hasUnsavedChanges = hasUnsavedChanges,
+                    onCloseClick = {
+                        handleDismissRequest(
+                            isTesting = isTestingSheet,
+                            hasUnsavedChanges = hasUnsavedChanges,
+                            onShowDiscard = { showDiscardDialog = true },
+                            onDismiss = onDismiss,
+                        )
+                    },
+                    onSaveClick = {
+                        keyboardController?.hide()
+                        focusManager.clearFocus()
+                        val error = validatePreconditionSave(name, chainNodes.isNotEmpty())
+                        errorMessage = error
+                        if (error == null) {
+                            showSaveConfirmDialog = true
+                        }
+                    },
+                )
+            },
+            floatingActionButton = {
+                PreconditionEditorFabs(
+                    isTesting = isTestingSheet,
+                    onTestClick = {
+                        keyboardController?.hide()
+                        focusManager.clearFocus()
+                        handleTestClick(
+                            isTestingSheet = isTestingSheet,
+                            hasNodes = chainNodes.isNotEmpty(),
+                            onShowSheet = { showTestStepperSheet = true },
+                            onError = { errorMessage = it },
+                            onStartTest = {
+                                val runToken = activeTestToken + 1L
+                                activeTestToken = runToken
+                                isTestingSheet = true
+                                showTestStepperSheet = true
+                                sheetTestResult = null
+                                sheetTestSteps = emptyList()
+                                startPreconditionTest(
+                                    preconditionId = testingPreconditionId,
+                                    name = name,
+                                    isEnabled = isEnabled,
+                                    pipelineJson = pipelineJson,
+                                    onFailureAction = onFailureAction,
+                                    maxRetries = maxRetries,
+                                    retryIntervalSeconds = retryIntervalSeconds,
+                                    retryStrategy = retryStrategy,
+                                    queueTimeoutMinutes = queueTimeoutMinutes,
+                                    onTestPreconditionWithProgress = onTestPreconditionWithProgress,
+                                    onStepsUpdate = { steps ->
+                                        if (activeTestToken == runToken && isTestingSheet) {
+                                            sheetTestSteps = steps
                                         }
-                                    }
-                                },
-                            )
-                        },
-                    )
-                },
-                onAddStepClick = { showAddNodeDialog = true },
+                                    },
+                                    onResult = { res ->
+                                        if (activeTestToken == runToken) {
+                                            isTestingSheet = false
+                                            sheetTestResult = res
+                                            val resSteps =
+                                                when (res) {
+                                                    is PreconditionResult.Passed -> res.steps
+                                                    is PreconditionResult.Failed -> res.steps
+                                                }
+                                            if (resSteps.isNotEmpty()) {
+                                                sheetTestSteps = resSteps
+                                            }
+                                        }
+                                    },
+                                )
+                            },
+                        )
+                    },
+                    onAddStepClick = { showAddNodeDialog = true },
+                )
+            },
+            floatingActionButtonPosition = FabPosition.Center,
+        ) { innerPadding ->
+            PreconditionEditorBody(
+                innerPadding = innerPadding,
+                isTesting = isTestingSheet,
+                onCancelTest = { showCancelConfirmDialog = true },
+                errorMessage = errorMessage,
+                onDismissError = { errorMessage = null },
+                name = name,
+                onNameChange = { name = it },
+                icon = icon,
+                onSelectIconClick = { showIconPicker = true },
+                isEnabled = isEnabled,
+                onEnabledChange = { isEnabled = it },
+                onFailureAction = onFailureAction,
+                onFailureActionChanged = { onFailureAction = it },
+                maxRetries = maxRetries,
+                onMaxRetriesChanged = { maxRetries = it },
+                retryIntervalSeconds = retryIntervalSeconds,
+                onRetryIntervalSecondsChanged = { retryIntervalSeconds = it },
+                retryStrategy = retryStrategy,
+                onRetryStrategyChanged = { retryStrategy = it },
+                queueTimeoutMinutes = queueTimeoutMinutes,
+                onQueueTimeoutMinutesChanged = { queueTimeoutMinutes = it },
+                chainNodes = chainNodes,
+                onAddStep = { showAddNodeDialog = true },
+                onEditStep = { node -> editingChainNode = node },
+                onDeleteStep = { node -> nodePendingDeletion = node },
+                onMoveUp = { index -> reorderStep(index, -1) },
+                onMoveDown = { index -> reorderStep(index, 1) },
             )
-        },
-        floatingActionButtonPosition = FabPosition.Center,
-    ) { innerPadding ->
-        PreconditionEditorBody(
-            innerPadding = innerPadding,
-            isTesting = isTestingSheet,
-            onCancelTest = { showCancelConfirmDialog = true },
-            errorMessage = errorMessage,
-            onDismissError = { errorMessage = null },
-            name = name,
-            onNameChange = { name = it },
-            icon = icon,
-            onSelectIconClick = { showIconPicker = true },
-            isEnabled = isEnabled,
-            onEnabledChange = { isEnabled = it },
-            onFailureAction = onFailureAction,
-            onFailureActionChanged = { onFailureAction = it },
-            maxRetries = maxRetries,
-            onMaxRetriesChanged = { maxRetries = it },
-            retryIntervalSeconds = retryIntervalSeconds,
-            onRetryIntervalSecondsChanged = { retryIntervalSeconds = it },
-            retryStrategy = retryStrategy,
-            onRetryStrategyChanged = { retryStrategy = it },
-            queueTimeoutMinutes = queueTimeoutMinutes,
-            onQueueTimeoutMinutesChanged = { queueTimeoutMinutes = it },
-            chainNodes = chainNodes,
-            onAddStep = { showAddNodeDialog = true },
-            onEditStep = { node -> editingChainNode = node },
-            onDeleteStep = { node -> nodePendingDeletion = node },
-            onMoveUp = { index -> reorderStep(index, -1) },
-            onMoveDown = { index -> reorderStep(index, 1) },
-        )
+        }
     }
 
     PreconditionEditorDialogHost(

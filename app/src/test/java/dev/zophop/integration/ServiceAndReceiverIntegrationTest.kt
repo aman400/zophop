@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.junit.After
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -121,13 +122,23 @@ class ServiceAndReceiverIntegrationTest {
 
         receiver.onReceive(context, intent)
 
-        // Give background coroutine in goAsync a moment to run
+        // Give background coroutine in goAsync a moment to run and finish
         kotlinx.coroutines.runBlocking {
-            kotlinx.coroutines.delay(1000.milliseconds)
-            val logs = db.workflowDao().getLogsForWorkflowFlow("wf_sms_e2e").first()
-            assertTrue("Logs should be recorded for the executed SMS workflow", logs.isNotEmpty())
-            val lastLog = logs.first()
-            assertTrue("Workflow execution status: ${lastLog.status}, reason: ${lastLog.errorReason}, logs: ${lastLog.logs}", lastLog.status == "SUCCESS")
+            val deadline = System.currentTimeMillis() + 10_000L
+            var lastLog: dev.zophop.data.WorkflowExecutionLogEntity? = null
+            while (System.currentTimeMillis() < deadline) {
+                val logs = db.workflowDao().getLogsForWorkflowFlow("wf_sms_e2e").first()
+                if (logs.isNotEmpty() && logs.first().status != "RUNNING") {
+                    lastLog = logs.first()
+                    break
+                }
+                kotlinx.coroutines.delay(50.milliseconds)
+            }
+            assertTrue("Logs should be recorded for the executed SMS workflow", lastLog != null)
+            assertTrue(
+                "Workflow execution status: ${lastLog?.status}, reason: ${lastLog?.errorReason}, logs: ${lastLog?.logs}",
+                lastLog?.status == "SUCCESS",
+            )
         }
     }
 
@@ -136,5 +147,27 @@ class ServiceAndReceiverIntegrationTest {
         val service = dev.zophop.service.ZopHopNotificationListenerService()
         // Calling onNotificationPosted with null should not throw
         service.onNotificationPosted(null)
+        service.onDestroy()
+    }
+
+    @Test
+    fun testSmsForwarderServiceStartReturnsFalseOnBackgroundStartRestriction() {
+        val restrictedContext =
+            object : android.content.ContextWrapper(context) {
+                override fun startForegroundService(service: Intent?): android.content.ComponentName? =
+                    error("startForegroundService not allowed from background")
+            }
+        val started = dev.zophop.service.SmsForwarderService.startService(restrictedContext)
+        assertFalse("startService must handle background FGS restriction gracefully", started)
+    }
+
+    @Test
+    fun testBootReceiverHandlesBootCompletedSafelyWithoutThrowing() {
+        val repo = dev.zophop.data.EncryptedSettingsRepository(context)
+        repo.saveSettings(dev.zophop.data.AppSettings(isEnabled = false, globalWorkflowsEnabled = true))
+
+        val receiver = dev.zophop.receiver.BootReceiver()
+        val intent = Intent(Intent.ACTION_BOOT_COMPLETED)
+        receiver.onReceive(context, intent)
     }
 }
