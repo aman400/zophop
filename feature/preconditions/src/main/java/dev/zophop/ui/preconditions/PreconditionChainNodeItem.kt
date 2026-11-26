@@ -1,5 +1,6 @@
 package dev.zophop.ui.preconditions
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -42,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.zophop.domain.model.WorkflowNode
@@ -60,6 +63,7 @@ fun PreconditionChainNodeItem(
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     modifier: Modifier = Modifier,
+    isMissingPlugin: Boolean = false,
 ) {
     val dismissState = rememberSwipeToDismissBoxState()
     val currentOnEdit by rememberUpdatedState(onEdit)
@@ -130,161 +134,201 @@ fun PreconditionChainNodeItem(
                     .fillMaxWidth()
                     .clickable(enabled = !isTesting, onClick = onEdit),
             shape = RoundedCornerShape(16.dp),
+            border =
+                if (isMissingPlugin) {
+                    BorderStroke(1.5.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.75f))
+                } else {
+                    CardDefaults.outlinedCardBorder()
+                },
             colors =
                 CardDefaults.outlinedCardColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                 ),
             elevation = CardDefaults.outlinedCardElevation(defaultElevation = 2.dp),
         ) {
-            Row(
+            Column(
                 modifier =
                     Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 14.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.weight(1f),
                 ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
-                        modifier = Modifier.size(32.dp),
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.weight(1f),
                     ) {
-                        Box(contentAlignment = Alignment.Center) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+                            modifier = Modifier.size(32.dp),
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = WorkflowUiHelper.getNodeIcon(node.type),
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
+
+                        Column {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Text(
+                                    text = "${index + 1}. ${node.name}",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                if (isRootNode) {
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = MaterialTheme.colorScheme.primaryContainer,
+                                        modifier = Modifier.padding(start = 2.dp),
+                                    ) {
+                                        Text(
+                                            text = "ROOT",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                        )
+                                    }
+                                }
+                            }
+                            Text(
+                                text = WorkflowUiHelper.getNodeTitle(node.type),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 11.sp,
+                            )
+                        }
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconButton(
+                            onClick = onEdit,
+                            enabled = !isTesting,
+                            modifier = Modifier.size(32.dp),
+                        ) {
                             Icon(
-                                imageVector = WorkflowUiHelper.getNodeIcon(node.type),
-                                contentDescription = null,
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Edit Step",
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(18.dp),
                             )
                         }
-                    }
 
-                    Column {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Text(
-                                text = "${index + 1}. ${node.name}",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                            )
-                            if (isRootNode) {
-                                Surface(
-                                    shape = RoundedCornerShape(4.dp),
-                                    color = MaterialTheme.colorScheme.primaryContainer,
-                                    modifier = Modifier.padding(start = 2.dp),
-                                ) {
-                                    Text(
-                                        text = "ROOT",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                                    )
-                                }
-                            }
-                        }
-                        Text(
-                            text = WorkflowUiHelper.getNodeTitle(node.type),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 11.sp,
-                        )
-                    }
-                }
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    IconButton(
-                        onClick = onEdit,
-                        enabled = !isTesting,
-                        modifier = Modifier.size(32.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = "Edit Step",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    }
-
-                    var showMenu by remember { mutableStateOf(false) }
-                    Box {
-                        IconButton(
-                            onClick = { showMenu = true },
-                            enabled = !isTesting,
-                            modifier = Modifier.size(28.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.MoreVert,
-                                contentDescription = "Options",
-                                modifier = Modifier.size(18.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = showMenu,
-                            onDismissRequest = { showMenu = false },
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Edit Step") },
-                                onClick = {
-                                    showMenu = false
-                                    onEdit()
-                                },
+                        var showMenu by remember { mutableStateOf(false) }
+                        Box {
+                            IconButton(
+                                onClick = { showMenu = true },
                                 enabled = !isTesting,
-                                leadingIcon = {
-                                    Icon(
-                                        Icons.Default.Edit,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                    )
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Move Up") },
-                                onClick = {
-                                    showMenu = false
-                                    onMoveUp()
-                                },
-                                enabled = !isTesting && index > 0,
-                                leadingIcon = { Icon(Icons.Default.KeyboardArrowUp, contentDescription = null) },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Move Down") },
-                                onClick = {
-                                    showMenu = false
-                                    onMoveDown()
-                                },
-                                enabled = !isTesting && !isLast,
-                                leadingIcon = { Icon(Icons.Default.KeyboardArrowDown, contentDescription = null) },
-                            )
-                            if (!isRootNode) {
+                                modifier = Modifier.size(28.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = "Options",
+                                    modifier = Modifier.size(18.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = showMenu,
+                                onDismissRequest = { showMenu = false },
+                            ) {
                                 DropdownMenuItem(
-                                    text = { Text("Delete Step") },
+                                    text = { Text("Edit Step") },
                                     onClick = {
                                         showMenu = false
-                                        onDelete()
+                                        onEdit()
                                     },
                                     enabled = !isTesting,
                                     leadingIcon = {
                                         Icon(
-                                            Icons.Default.Delete,
+                                            Icons.Default.Edit,
                                             contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.error,
+                                            tint = MaterialTheme.colorScheme.primary,
                                         )
                                     },
                                 )
+                                DropdownMenuItem(
+                                    text = { Text("Move Up") },
+                                    onClick = {
+                                        showMenu = false
+                                        onMoveUp()
+                                    },
+                                    enabled = !isTesting && index > 0,
+                                    leadingIcon = { Icon(Icons.Default.KeyboardArrowUp, contentDescription = null) },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Move Down") },
+                                    onClick = {
+                                        showMenu = false
+                                        onMoveDown()
+                                    },
+                                    enabled = !isTesting && !isLast,
+                                    leadingIcon = { Icon(Icons.Default.KeyboardArrowDown, contentDescription = null) },
+                                )
+                                if (!isRootNode) {
+                                    DropdownMenuItem(
+                                        text = { Text("Delete Step") },
+                                        onClick = {
+                                            showMenu = false
+                                            onDelete()
+                                        },
+                                        enabled = !isTesting,
+                                        leadingIcon = {
+                                            Icon(
+                                                Icons.Default.Delete,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.error,
+                                            )
+                                        },
+                                    )
+                                }
                             }
+                        }
+                    }
+                }
+
+                if (isMissingPlugin) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.65f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.tertiary,
+                                modifier = Modifier.size(15.dp),
+                            )
+                            Text(
+                                text = "Plugin not installed (${node.type.substringAfterLast(".")})",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
                     }
                 }

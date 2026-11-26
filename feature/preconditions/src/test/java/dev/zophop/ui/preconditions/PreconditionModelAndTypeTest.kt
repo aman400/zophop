@@ -246,4 +246,60 @@ class PreconditionModelAndTypeTest {
         org.junit.Assert.assertFalse(initialAllowedTypeIds.contains("JSON_PARSER"))
         org.junit.Assert.assertFalse(initialAllowedTypeIds.contains("REGEX_PARSER"))
     }
+
+    @Test
+    fun testCountMissingExternalPluginsForPreconditions() {
+        val builtInPrecondition =
+            PreconditionEntity(
+                id = "p_builtin",
+                name = "Internet Guard",
+                type = PreconditionType.INTERNET_CHECK.name,
+            )
+        assertEquals(0, countMissingExternalPlugins(builtInPrecondition, emptySet()))
+
+        val chainJson =
+            AppJson.encodeToString(
+                WorkflowGraph(
+                    nodes =
+                        listOf(
+                            WorkflowNode("n1", "Internet", "INTERNET_CHECK"),
+                            WorkflowNode("n2", "Telegram", "dev.zophop.plugin.telegram.TELEGRAM_ACTION"),
+                            WorkflowNode("n3", "SMTP", "dev.zophop.plugin.smtp.SMTP_ACTION"),
+                            WorkflowNode("n4", "Telegram 2", "dev.zophop.plugin.telegram.TELEGRAM_ACTION"),
+                        ),
+                    connections = emptyList(),
+                ),
+            )
+        val externalChainPrecondition =
+            PreconditionEntity(
+                id = "p_chain_ext",
+                name = "External Chain Guard",
+                type = PreconditionType.CHAINED_CHECK.name,
+                pipelineJson = chainJson,
+            )
+
+        // Returns 0 while plugin discovery has not completed yet (null)
+        assertEquals(0, countMissingExternalPlugins(externalChainPrecondition, null))
+        // Counts distinct missing external plugin node types (Telegram + SMTP = 2)
+        assertEquals(2, countMissingExternalPlugins(externalChainPrecondition, emptySet()))
+        // Partially installed reduces missing count
+        assertEquals(
+            1,
+            countMissingExternalPlugins(
+                externalChainPrecondition,
+                setOf("dev.zophop.plugin.telegram.TELEGRAM_ACTION"),
+            ),
+        )
+        // All installed clears missing count
+        assertEquals(
+            0,
+            countMissingExternalPlugins(
+                externalChainPrecondition,
+                setOf(
+                    "dev.zophop.plugin.telegram.TELEGRAM_ACTION",
+                    "dev.zophop.plugin.smtp.SMTP_ACTION",
+                ),
+            ),
+        )
+    }
 }

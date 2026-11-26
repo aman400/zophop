@@ -12,20 +12,21 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import dagger.hilt.android.AndroidEntryPoint
 import dev.zophop.R
 import dev.zophop.network.ConnectivityMonitor
 import dev.zophop.ui.MainActivity
+import javax.inject.Inject
 
+@AndroidEntryPoint
 class SmsForwarderService : Service() {
-    private var connectivityMonitor: ConnectivityMonitor? = null
+    @Inject
+    lateinit var connectivityMonitor: ConnectivityMonitor
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        connectivityMonitor =
-            ConnectivityMonitor(applicationContext).apply {
-                register()
-            }
+        connectivityMonitor.register()
     }
 
     override fun onStartCommand(
@@ -60,8 +61,7 @@ class SmsForwarderService : Service() {
     }
 
     override fun onDestroy() {
-        connectivityMonitor?.unregister()
-        connectivityMonitor = null
+        connectivityMonitor.unregister()
         super.onDestroy()
     }
 

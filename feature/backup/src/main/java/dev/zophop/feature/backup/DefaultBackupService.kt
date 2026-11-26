@@ -6,6 +6,7 @@ import dev.zophop.domain.model.Workflow
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import javax.inject.Inject
 
 /**
  * Default implementation of [BackupService] backed by [BackupBridge] and [BackupSerializer].
@@ -14,6 +15,8 @@ class DefaultBackupService(
     private val bridge: BackupBridge,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : BackupService {
+    @Inject
+    constructor(bridge: BackupBridge) : this(bridge = bridge, dispatcher = Dispatchers.IO)
 
     override suspend fun getAvailableCounts(): BackupCounts = withContext(dispatcher) {
         BackupCounts(
@@ -138,5 +141,10 @@ class DefaultBackupService(
             importedPreconditionsCount = resolved.preconditions.size,
             message = "Import completed successfully",
         )
+    }
+
+    override suspend fun findMissingNodeTypes(data: ParsedBackupData): Set<String> = withContext(dispatcher) {
+        val nodeTypes = BackupDependencyResolver.findAllNodeTypes(data.workflows, data.preconditions)
+        if (nodeTypes.isEmpty()) emptySet() else bridge.getMissingNodeTypes(nodeTypes)
     }
 }

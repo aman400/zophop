@@ -132,11 +132,20 @@ fun WorkflowNodeCardItem(
         }
     var pluginManifest by remember { mutableStateOf<dev.zophop.plugin.api.NodePluginManifest?>(null) }
     var pluginInfo by remember { mutableStateOf<dev.zophop.domain.engine.plugin.ExternalPluginServiceInfo?>(null) }
+    var availableExternalTypeIds by remember { mutableStateOf<Set<String>?>(null) }
+    var hasResolvedManifest by remember { mutableStateOf(false) }
 
-    LaunchedEffect(node.type) {
+    LaunchedEffect(node.type, permissionCheckTrigger) {
         pluginManifest = unifiedRegistry.getManifestByTypeId(node.type)
         val plugins = externalPluginRegistry.discoverPlugins()
-        pluginInfo = plugins.find { it.manifest.typeId == node.type }
+        availableExternalTypeIds = plugins.map { it.manifest.typeId }.toSet()
+        pluginInfo =
+            plugins.find {
+                it.manifest.typeId.equals(node.type, ignoreCase = true) ||
+                    it.manifest.typeId.endsWith(".${node.type}", ignoreCase = true) ||
+                    node.type.endsWith(".${it.manifest.typeId}", ignoreCase = true)
+            }
+        hasResolvedManifest = true
     }
 
     val multiplePermissionsLauncher =
@@ -289,10 +298,20 @@ fun WorkflowNodeCardItem(
                     )
                 }
 
+                val isMissingPlugin =
+                    hasResolvedManifest &&
+                        pluginManifest == null &&
+                        dev.zophop.domain.engine.plugin.BuiltInPluginRegistry
+                            .getBuiltInManifestByTypeId(node.type) == null
+                if (isMissingPlugin) {
+                    WorkflowNodeMissingPluginBanner(nodeType = node.type)
+                }
+
                 // Preconditions badges (do not show on conditional nodes to prevent circular dependencies)
                 if (!isConditional && node.preconditions.isNotEmpty()) {
                     WorkflowNodePreconditionsBadges(
                         preconditions = node.preconditions,
+                        availableExternalTypeIds = availableExternalTypeIds,
                     )
                 }
             }
@@ -442,16 +461,53 @@ private fun WorkflowNodePermissionBanner(
     }
 }
 
+@Composable
+private fun WorkflowNodeMissingPluginBanner(nodeType: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.6f),
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Warning,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.tertiary,
+                modifier = Modifier.size(15.dp),
+            )
+            Text(
+                text = "Plugin not installed (${nodeType.substringAfterLast(".")})",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun WorkflowNodePreconditionsBadges(
     preconditions: List<Precondition>,
+    availableExternalTypeIds: Set<String>? = null,
 ) {
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         preconditions.forEach { prec ->
+            val hasMissingPlugin =
+                prec is Precondition.ChainCheck &&
+                    hasChainMissingExternalPlugin(prec.nodes, availableExternalTypeIds)
             val defaultIcon =
                 when (prec) {
                     is Precondition.InternetCheck -> "🌐"
@@ -479,10 +535,26 @@ private fun WorkflowNodePreconditionsBadges(
                         rawName.removePrefix("⛓️").removePrefix("🔒").removePrefix("🛡️").trim()
                     }
                 }
-            val badgeText = "$effectiveIcon $badgeLabel" + if (!prec.isEnabled) " (Disabled)" else ""
+            val badgeText =
+                "$effectiveIcon $badgeLabel" +
+                    (if (!prec.isEnabled) " (Disabled)" else "") +
+                    (if (hasMissingPlugin) " • Missing Plugin" else "")
+
+            val badgeBg =
+                when {
+                    hasMissingPlugin -> MaterialTheme.colorScheme.tertiaryContainer
+                    prec.isEnabled -> MaterialTheme.colorScheme.secondaryContainer
+                    else -> MaterialTheme.colorScheme.surfaceVariant
+                }
+            val badgeFg =
+                when {
+                    hasMissingPlugin -> MaterialTheme.colorScheme.onTertiaryContainer
+                    prec.isEnabled -> MaterialTheme.colorScheme.onSecondaryContainer
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                }
 
             Surface(
-                color = if (prec.isEnabled) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                color = badgeBg,
                 shape = RoundedCornerShape(4.dp),
             ) {
                 Text(
@@ -490,15 +562,26 @@ private fun WorkflowNodePreconditionsBadges(
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                     style = MaterialTheme.typography.labelSmall,
                     fontSize = 9.sp,
-                    color =
-                        if (prec.isEnabled) {
-                            MaterialTheme.colorScheme.onSecondaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                        },
+                    fontWeight = if (hasMissingPlugin) FontWeight.Bold else FontWeight.Normal,
+                    color = badgeFg,
                 )
             }
         }
+    }
+}
+
+private fun hasChainMissingExternalPlugin(
+    nodes: List<WorkflowNode>,
+    availableExternalTypeIds: Set<String>?,
+): Boolean {
+    if (availableExternalTypeIds == null) return false
+    return nodes.any { child ->
+        dev.zophop.domain.engine.plugin.ExternalPluginRegistry
+            .isNodeTypeMissingExternalPlugin(child.type, availableExternalTypeIds) ||
+            child.preconditions.any { nested ->
+                nested is Precondition.ChainCheck &&
+                    hasChainMissingExternalPlugin(nested.nodes, availableExternalTypeIds)
+            }
     }
 }
 

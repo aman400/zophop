@@ -371,4 +371,92 @@ class WorkflowValidationAndUiTest {
         assertTrue(WorkflowUiHelper.isConditionalNode("com.custom.plugin.EVAL", logicManifest))
         assertFalse(WorkflowUiHelper.isConditionalNode("com.custom.plugin.WEBHOOK", customManifestWithCredentials))
     }
+
+    @Test
+    fun testCountMissingExternalPluginsDetectsUninstalledPluginNodesAndChainChecks() {
+        val builtInOnlyWorkflow =
+            Workflow(
+                id = "wf_builtin",
+                name = "Built-in Only",
+                nodes =
+                    listOf(
+                        WorkflowNode("t1", "SMS", NodeType.SMS_TRIGGER),
+                        WorkflowNode("a1", "HTTP", NodeType.HTTP_ACTION),
+                    ),
+            )
+        assertEquals(0, countMissingExternalPlugins(builtInOnlyWorkflow, emptySet()))
+
+        val telegramWorkflow =
+            Workflow(
+                id = "wf_telegram",
+                name = "Telegram Alert",
+                nodes =
+                    listOf(
+                        WorkflowNode("t1", "SMS", NodeType.SMS_TRIGGER),
+                        WorkflowNode("a1", "Telegram", "dev.zophop.plugin.telegram.TELEGRAM_ACTION"),
+                    ),
+            )
+        // Returns 0 while plugin discovery has not completed yet (null)
+        assertEquals(0, countMissingExternalPlugins(telegramWorkflow, null))
+        // Detects missing external plugin once discovery completes
+        assertEquals(1, countMissingExternalPlugins(telegramWorkflow, emptySet()))
+        // Cleared once matching external plugin is installed
+        assertEquals(
+            0,
+            countMissingExternalPlugins(
+                telegramWorkflow,
+                setOf("dev.zophop.plugin.telegram.TELEGRAM_ACTION"),
+            ),
+        )
+
+        // Short typeId matches discovered FQN
+        val shortTypeWorkflow =
+            Workflow(
+                id = "wf_short",
+                name = "Short Telegram",
+                nodes = listOf(WorkflowNode("a1", "Telegram", "TELEGRAM_ACTION")),
+            )
+        assertEquals(
+            0,
+            countMissingExternalPlugins(
+                shortTypeWorkflow,
+                setOf("dev.zophop.plugin.telegram.TELEGRAM_ACTION"),
+            ),
+        )
+
+        // Detects missing external plugins inside Precondition.ChainCheck as well as duplicate references
+        val chainWorkflow =
+            Workflow(
+                id = "wf_chain",
+                name = "Chained External",
+                nodes =
+                    listOf(
+                        WorkflowNode(
+                            id = "a1",
+                            name = "SMTP",
+                            type = "dev.zophop.plugin.smtp.SMTP_ACTION",
+                            preconditions =
+                                listOf(
+                                    dev.zophop.domain.model.Precondition.ChainCheck(
+                                        id = "c1",
+                                        name = "Check",
+                                        nodes =
+                                            listOf(
+                                                WorkflowNode("cn1", "Telegram", "dev.zophop.plugin.telegram.TELEGRAM_ACTION"),
+                                                WorkflowNode("cn2", "SMTP 2", "dev.zophop.plugin.smtp.SMTP_ACTION"),
+                                            ),
+                                    ),
+                                ),
+                        ),
+                    ),
+            )
+        assertEquals(2, countMissingExternalPlugins(chainWorkflow, emptySet()))
+        assertEquals(
+            1,
+            countMissingExternalPlugins(
+                chainWorkflow,
+                setOf("dev.zophop.plugin.smtp.SMTP_ACTION"),
+            ),
+        )
+    }
 }

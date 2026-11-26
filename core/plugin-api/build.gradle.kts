@@ -7,7 +7,7 @@ plugins {
 val isJitPack =
     providers.environmentVariable("JITPACK").orNull == "true" ||
         providers.gradleProperty("jitpack").orNull == "true"
-val defaultAppVersion = providers.gradleProperty("ZOPHOP_VERSION").orElse("3.0.0")
+val defaultAppVersion = providers.gradleProperty("ZOPHOP_VERSION").orElse("1.0.0")
 
 val sdkVersion =
     if (isJitPack) {
@@ -68,6 +68,13 @@ android {
 kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+}
+
+tasks.withType<Zip>().configureEach {
+    when (name) {
+        "bundleReleaseAar" -> archiveFileName.set("zophop-plugin-api-v$sdkVersion.aar")
+        "bundleDebugAar" -> archiveFileName.set("zophop-plugin-api-Debug-v$sdkVersion.aar")
     }
 }
 

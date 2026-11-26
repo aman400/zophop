@@ -1,4 +1,4 @@
-# ZopHop — Complete User & Architecture Manual (v3.0.0)
+# ZopHop — Complete User & Architecture Manual
 
 ZopHop is an open-source, on-device Android automation and forwarding engine. It captures incoming SMS messages, app notifications, incoming calls, or scheduled cron events; validates environmental preconditions (VPN, Internet, SIM, GPS, Battery, or multi-step HTTP health probes); runs visual multi-node workflow graphs; and securely forwards alerts to **ntfy**, **Gotify**, **Telegram**, **SMS**, **System Notifications**, and custom **HTTP Webhook** APIs.
 
@@ -52,7 +52,7 @@ ZopHop is an open-source, on-device Android automation and forwarding engine. It
         ▼                   ▼               ▼               ▼                   ▼
  ┌──────────────┐   ┌──────────────┐ ┌─────────────┐ ┌─────────────┐    ┌──────────────┐
  │ ntfy / Gotify│   │HTTP Webhook  │ │Local Notify │ │Outgoing SMS │    │External APKs │
- │  (Vault Auth)│   │(cURL Import) │ │& Call Action│ │  & Location │    │(Telegram/etc)│
+ │  (Vault Auth)│   │(cURL Import) │ │& Call Action│ │  & Location │    │(Telegram/SMTP)│
  └──────────────┘   └──────────────┘ └─────────────┘ └─────────────┘    └──────────────┘
 ```
 
@@ -69,7 +69,8 @@ ZopHop is an open-source, on-device Android automation and forwarding engine. It
 | `:feature:preconditions` | Reusable Vault Preconditions list, Chained Pipeline editor, inline testing & cancellation. |
 | `:feature:backup` | Portable JSON backup export/import, dependency resolution, and PBKDF2/AES password encryption. |
 | `:plugins:*` | Built-in SPI plugin modules (`sms`, `notification`, `ntfy`, `gotify`, `call`, `gps`). |
-| `:external:telegram` | Standalone external plugin APK (`ZopHop-Telegram-Plugin-v1.0.apk`) communicating over AIDL IPC. |
+| `:external:telegram` | Standalone external plugin APK (`ZopHop-Telegram-Plugin-v3.1.0.apk`) communicating over AIDL IPC. |
+| `:external:smtp` | Standalone external plugin APK (`ZopHop-SMTP-Plugin-v3.1.0.apk`) for STARTTLS/SMTPS/Plain email delivery over AIDL IPC. |
 
 ---
 
@@ -158,7 +159,8 @@ Each workflow card displays:
 | **Send SMS Action** | `dev.zophop.plugin.sms.SEND_SMS_ACTION` | Sends an outbound SMS via device SIM using recipient & body templates. | Requires `SEND_SMS` |
 | **Get Current Location** | `dev.zophop.plugin.gps.GET_LOCATION_ACTION` | Fetches GPS/Network/Passive coordinates and Google Maps URL. | `latitude`, `longitude`, `accuracy`, `maps_url` |
 | **Disconnect / Answer Call** | `dev.zophop.plugin.call.DISCONNECT_CALL_ACTION` / `ANSWER_CALL_ACTION` | Rejects or answers incoming calls paired with `CALL_TRIGGER` (Android 9.0+). | `call_status` |
-| **Telegram Notification** *(External APK)* | `dev.zophop.plugin.telegram.TELEGRAM_ACTION` | Sends formatted messages to Telegram chats/channels via `@BotFather` token (`TELEGRAM_AUTH`). | Install `ZopHop-Telegram-Plugin-v1.0.apk` |
+| **Telegram Notification** *(External APK)* | `dev.zophop.plugin.telegram.TELEGRAM_ACTION` | Sends formatted messages to Telegram chats/channels via `@BotFather` token (`TELEGRAM_AUTH`). | Install `ZopHop-Telegram-Plugin-v3.1.0.apk` |
+| **Send Email (SMTP)** *(External APK)* | `dev.zophop.plugin.smtp.SMTP_ACTION` | Sends plain-text or HTML emails via STARTTLS, SMTPS, or Plain SMTP (`SMTP_AUTH`). | Install `ZopHop-SMTP-Plugin-v3.1.0.apk` |
 
 ---
 
@@ -254,7 +256,7 @@ Every precondition defines what happens when a check does not pass:
 | `HEADER_SET` | `headers` (multiline `Key: Value`) | Custom API keys, Cloudflare Access headers |
 | `NTFY_AUTH` | `serverUrl`, `topic`, `token` | ntfy Push Action & HTTP Webhook adapter |
 | `GOTIFY_AUTH` | `serverUrl`, `appToken` | Gotify Push Action & HTTP Webhook adapter (`X-Gotify-Key`) |
-| Plugin Specs (e.g. `TELEGRAM_AUTH`) | Defined dynamically by plugins | Discovered automatically via `CredentialSpecRegistry` |
+| Plugin Specs (e.g. `TELEGRAM_AUTH`, `SMTP_AUTH`) | Defined dynamically by plugins | Discovered automatically via `CredentialSpecRegistry` |
 
 - **Hardware Encryption**: Stored via AES-256 GCM `EncryptedSharedPreferences` backed by Android KeyStore `MasterKey`.
 - **Biometric / Device Lock Protection**: Enabling **Lock Credentials with Device Lock** requires Fingerprint, Face Unlock, or Device PIN/Pattern (`BiometricAuthHelper`) before revealing secret values or toggling security settings.
@@ -308,7 +310,7 @@ Switch between **System**, **Light**, and **Dark** modes and pick from 6 curated
 ## 9. First-Time Setup & Self-Hosted Server Guides
 
 ### Step 1: Install Signed APKs
-1. Download `ZopHop-v3.0.0.apk` (and optionally `ZopHop-Telegram-Plugin-v1.0.apk`) from [GitHub Releases](https://github.com/aman400/zophop/releases).
+1. Download `ZopHop-v3.1.0.apk` (and optionally `ZopHop-Telegram-Plugin-v3.1.0.apk` / `ZopHop-SMTP-Plugin-v3.1.0.apk`) from [GitHub Releases](https://github.com/aman400/zophop/releases).
 2. Install on Android 8.0 (API 26) or higher.
    - If Google Play Protect prompts on sideloaded builds, tap **More details** → **Install anyway**.
 
@@ -411,6 +413,6 @@ To prevent aggressive OEM task killers from delaying background receivers:
 
 ## 14. Building Custom Plugins (Plugin SDK)
 
-ZopHop distributes `com.github.aman400.zophop:plugin-api:v3.0.0` and `com.github.aman400.zophop:core-model:v3.0.0` publicly via JitPack (and as standalone `.aar` files on GitHub Releases) so anyone can create custom Trigger, Parser, Logic, or Action nodes as standalone Android APKs.
+ZopHop distributes `com.github.aman400.zophop:plugin-api:v3.1.0` and `com.github.aman400.zophop:core-model:v3.1.0` publicly via JitPack (and as standalone `.aar` files on GitHub Releases) so anyone can create custom Trigger, Parser, Logic, or Action nodes as standalone Android APKs.
 
 For full interactive documentation of all bridges (`INodePluginService.aidl`, `NodePluginModule`, `NodeExecutor`, `HttpCredentialAdapter`, `ExecutionContext`, `ExecutionLogFormatter`), models (`NodePluginManifest`, `ConfigFieldSpec`, `CredentialSpec`), caller verification, and a **complete step-by-step Slack Notification Plugin example**, open **[docs/plugins.html](docs/plugins.html)** ([Online HTML Docs](https://aman400.github.io/zophop/plugins.html)).

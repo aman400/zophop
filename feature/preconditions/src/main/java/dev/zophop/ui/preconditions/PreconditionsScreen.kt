@@ -27,23 +27,33 @@ import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.zophop.data.PreconditionEntity
 import dev.zophop.data.getStepCount
 import dev.zophop.data.hasNodeType
+import dev.zophop.data.toDomain
 import dev.zophop.domain.engine.NodeExecutionStep
 import dev.zophop.domain.engine.PreconditionResult
+import dev.zophop.domain.engine.plugin.ExternalPluginRegistry
 import dev.zophop.domain.model.AppJson
 import dev.zophop.domain.model.Credential
+import dev.zophop.domain.model.Precondition
 import dev.zophop.domain.model.PreconditionType
 import dev.zophop.domain.model.Workflow
 import dev.zophop.domain.model.WorkflowGraph
@@ -80,6 +90,27 @@ fun PreconditionsScreen(
     var pendingTogglePrecondition by remember { mutableStateOf<Pair<PreconditionEntity, Boolean>?>(null) }
     var showCreateTypeSheet by remember { mutableStateOf(false) }
     var selectedCategoryFilter by remember { mutableStateOf(PreconditionCategoryFilter.ALL) }
+
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var pluginRefreshTick by remember { mutableIntStateOf(0) }
+    DisposableEffect(lifecycleOwner) {
+        val observer =
+            LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) {
+                    pluginRefreshTick++
+                }
+            }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+    var availableExternalTypeIds by remember { mutableStateOf<Set<String>?>(null) }
+    LaunchedEffect(pluginRefreshTick) {
+        val plugins = ExternalPluginRegistry(context).discoverPlugins()
+        availableExternalTypeIds = plugins.map { it.manifest.typeId }.toSet()
+    }
 
     val activeCount = preconditions.count { it.isEnabled }
 
@@ -223,9 +254,15 @@ fun PreconditionsScreen(
                             }
                         }
 
+                    val missingPluginCount =
+                        remember(prec, availableExternalTypeIds) {
+                            countMissingExternalPlugins(prec, availableExternalTypeIds)
+                        }
+
                     PreconditionCardItem(
                         precondition = prec,
                         linkedWorkflowCount = linkedWorkflows.size,
+                        missingPluginCount = missingPluginCount,
                         onTestPreconditionWithProgress = onTestPreconditionWithProgress,
                         onCancelTestPrecondition = onCancelTestPrecondition,
                         onToggle = { enabled ->
@@ -415,5 +452,28 @@ fun PreconditionsScreen(
                 },
             )
         }
+    }
+}
+
+private fun collectPreconditionNodeTypes(nodes: List<WorkflowNode>): Set<String> =
+    buildSet {
+        nodes.forEach { node ->
+            if (node.type.isNotBlank()) add(node.type)
+            node.preconditions.forEach { nested ->
+                if (nested is Precondition.ChainCheck) {
+                    addAll(collectPreconditionNodeTypes(nested.nodes))
+                }
+            }
+        }
+    }
+
+internal fun countMissingExternalPlugins(
+    precondition: PreconditionEntity,
+    availableExternalTypeIds: Set<String>?,
+): Int {
+    if (availableExternalTypeIds == null) return 0
+    val domain = precondition.toDomain() as? Precondition.ChainCheck ?: return 0
+    return collectPreconditionNodeTypes(domain.nodes).count { type ->
+        ExternalPluginRegistry.isNodeTypeMissingExternalPlugin(type, availableExternalTypeIds)
     }
 }

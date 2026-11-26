@@ -25,7 +25,7 @@ open class NodeExecutorFactory(
         val externalExecutor = getCustomExecutorByTypeId(type)
         if (externalExecutor != null) return externalExecutor
 
-        throw IllegalArgumentException("Unknown node type: $type")
+        throw IllegalArgumentException("Unknown node type '$type' (required plugin is not installed or is disabled)")
     }
 
     open fun getCustomExecutorByTypeId(typeId: String): NodeExecutor? {

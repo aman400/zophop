@@ -9,12 +9,14 @@ import android.os.Build
 import android.provider.Settings
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Rule
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.DataObject
 import androidx.compose.material.icons.filled.DeviceHub
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Http
 import androidx.compose.material.icons.filled.LocalHospital
@@ -242,6 +244,8 @@ object WorkflowUiHelper {
             "ic_node_notification_trigger", "ic_node_send_notification" -> Icons.Default.Notifications
             "ic_node_ntfy" -> Icons.Default.DeviceHub
             "ic_node_gotify" -> Icons.Default.NotificationImportant
+            "ic_node_telegram" -> Icons.AutoMirrored.Filled.Send
+            "ic_node_smtp", "ic_node_email" -> Icons.Default.Email
             else -> null
         }
 

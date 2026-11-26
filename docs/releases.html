@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ZopHop Release Guide — APKs, Telegram Plugin &amp; JitPack SDK</title>
-  <meta name="description" content="Build signed ZopHop release APKs, Telegram external plugin APKs, Plugin SDK AARs, and distribute public SDK artifacts via JitPack and GitHub Releases.">
+  <title>ZopHop Release Guide — APKs, Telegram &amp; SMTP Plugins &amp; JitPack SDK</title>
+  <meta name="description" content="Build signed ZopHop release APKs, Telegram &amp; SMTP external plugin APKs, Plugin SDK AARs, and distribute public SDK artifacts via JitPack and GitHub Releases.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="icon" type="image/svg+xml" href="assets/app-icon.svg">
   <link rel="stylesheet" href="styles.css">
-  <script>const APP_VERSION = "3.0.0";</script>
+  <script src="version.js" defer></script>
   <script src="docs.js" defer></script>
 </head>
 <body>
@@ -20,7 +20,7 @@
       <a href="index.html" class="logo">
         <img src="assets/app-icon.svg" alt="ZopHop Logo" class="logo-img">
         <span class="logo-title">ZopHop</span>
-        <span class="logo-ver app-version-v">v3.0.0</span>
+        <span class="logo-ver app-version-v">v1.0.0</span>
       </a>
 
       <nav class="nav-pages" aria-label="Documentation Pages">
@@ -63,11 +63,12 @@
             <table>
               <thead><tr><th>Artifact</th><th>Output File / Coordinate</th><th>Purpose</th></tr></thead>
               <tbody>
-                <tr><td><strong>Main App APK</strong></td><td><code class="app-apk-name">ZopHop-v3.0.0.apk</code></td><td>Primary Android automation host app (<code>dev.zophop</code>)</td></tr>
-                <tr><td><strong>Telegram Plugin APK</strong></td><td><code>ZopHop-Telegram-Plugin-v1.0.apk</code></td><td>Official external AIDL plugin for Telegram Bot notifications</td></tr>
-                <tr><td><strong>Plugin API AAR</strong></td><td><code>zophop-plugin-api-v3.0.0.aar</code></td><td>AIDL contracts, manifests, adapters &amp; log formatters</td></tr>
-                <tr><td><strong>Core Model AAR</strong></td><td><code>zophop-core-model-v3.0.0.aar</code></td><td>Domain models &amp; safe JSON helpers</td></tr>
-                <tr><td><strong>JitPack (Public, No Token)</strong></td><td><code>com.github.aman400.zophop:plugin-api:v3.0.0</code> &amp; <code>core-model</code></td><td>Zero-auth public Maven consumption via <code>https://jitpack.io</code></td></tr>
+                <tr><td><strong>Main App APK</strong></td><td><code class="app-apk-name">ZopHop-v1.0.0.apk</code></td><td>Primary Android automation host app (<code>dev.zophop</code>)</td></tr>
+                <tr><td><strong>Telegram Plugin APK</strong></td><td><code class="app-telegram-apk-name">ZopHop-Telegram-Plugin-v1.0.0.apk</code></td><td>Official external AIDL plugin for Telegram Bot notifications</td></tr>
+                <tr><td><strong>SMTP Email Plugin APK</strong></td><td><code class="app-smtp-apk-name">ZopHop-SMTP-Plugin-v1.0.0.apk</code></td><td>Official external AIDL plugin for STARTTLS/SMTPS/Plain email delivery</td></tr>
+                <tr><td><strong>Plugin API AAR</strong></td><td><code class="app-plugin-api-aar">zophop-plugin-api-v1.0.0.aar</code></td><td>AIDL contracts, manifests, adapters &amp; log formatters</td></tr>
+                <tr><td><strong>Core Model AAR</strong></td><td><code class="app-core-model-aar">zophop-core-model-v1.0.0.aar</code></td><td>Domain models &amp; safe JSON helpers</td></tr>
+                <tr><td><strong>JitPack (Public, No Token)</strong></td><td><code>com.github.aman400.zophop:plugin-api:<span class="app-version-v">v1.0.0</span></code> &amp; <code>core-model</code></td><td>Zero-auth public Maven consumption via <code>https://jitpack.io</code></td></tr>
               </tbody>
             </table>
           </div>
@@ -90,16 +91,17 @@ KEY_PASSWORD=your_password \
 ./gradlew assembleRelease :core:plugin-api:assembleRelease :core:model:assembleRelease</div>
 
           <p>Generated outputs:</p>
-          <div class="code-box"><span class="code-label">Build Outputs</span>app/build/outputs/apk/release/ZopHop-v3.0.0.apk
-external/telegram/build/outputs/apk/release/ZopHop-Telegram-Plugin-v1.0.apk
-core/plugin-api/build/outputs/aar/plugin-api-release.aar
-core/model/build/outputs/aar/model-release.aar</div>
+          <div class="code-box"><span class="code-label">Build Outputs</span>app/build/outputs/apk/release/<span class="app-apk-name">ZopHop-v1.0.0.apk</span>
+external/telegram/build/outputs/apk/release/<span class="app-telegram-apk-name">ZopHop-Telegram-Plugin-v1.0.0.apk</span>
+external/smtp/build/outputs/apk/release/<span class="app-smtp-apk-name">ZopHop-SMTP-Plugin-v1.0.0.apk</span>
+core/plugin-api/build/outputs/aar/<span class="app-plugin-api-aar">zophop-plugin-api-v1.0.0.aar</span>
+core/model/build/outputs/aar/<span class="app-core-model-aar">zophop-core-model-v1.0.0.aar</span></div>
         </section>
 
         <section class="doc-section" id="github-actions">
           <h2>2. Automated GitHub Release &amp; JitPack Distribution</h2>
           <h3>Step A: Optional Signing Secrets</h3>
-          <p>To sign both <code>ZopHop-v3.0.0.apk</code> and <code>ZopHop-Telegram-Plugin-v1.0.apk</code> with your production keystore, Base64-encode <code>release.keystore</code> and add these Repository Secrets under <strong>Settings → Secrets and variables → Actions</strong>:</p>
+          <p>To sign <code class="app-apk-name">ZopHop-v1.0.0.apk</code>, <code class="app-telegram-apk-name">ZopHop-Telegram-Plugin-v1.0.0.apk</code>, and <code class="app-smtp-apk-name">ZopHop-SMTP-Plugin-v1.0.0.apk</code> with your production keystore, Base64-encode <code>release.keystore</code> and add these Repository Secrets under <strong>Settings → Secrets and variables → Actions</strong>:</p>
           <div class="code-box"><span class="code-label">Shell</span>base64 -i release.keystore -o keystore_base64.txt</div>
           <ul>
             <li><code>KEYSTORE_BASE64</code> — Contents of <code>keystore_base64.txt</code></li>
@@ -114,10 +116,11 @@ core/model/build/outputs/aar/model-release.aar</div>
 
           <h3>Step B: Sync Docs &amp; Push Release Tag</h3>
           <div class="code-box"><span class="code-label">Git Tag</span>./gradlew syncVersion
-VERSION="3.0.0"
+VERSION=$(grep -E '^ZOPHOP_VERSION=' gradle.properties | head -n 1 | cut -d'=' -f2- | tr -d '[:space:]')
+VERSION="${VERSION:-1.0.0}"
 
-git tag -a v$VERSION -m "ZopHop v$VERSION Release"
-git push origin v$VERSION</div>
+git tag -a "v$VERSION" -m "ZopHop v$VERSION Release"
+git push origin "v$VERSION"</div>
           <p>GitHub Actions automatically runs <code>./gradlew test --stacktrace</code>, builds &amp; signs all APKs/AARs, and attaches them to a GitHub Release. JitPack then builds and serves <code>com.github.aman400.zophop:plugin-api</code> and <code>com.github.aman400.zophop:core-model</code> publicly from the release tag.</p>
         </section>
 
@@ -128,7 +131,7 @@ git push origin v$VERSION</div>
   :core:model:publishReleasePublicationToMavenLocal \
   :core:plugin-api:publishReleasePublicationToMavenLocal \
   --stacktrace</div>
-          <p>External plugin authors can depend publicly without any authentication token (<code>implementation("com.github.aman400.zophop:plugin-api:v3.0.0")</code>) or use offline <code>.aar</code> assets from GitHub Releases — see the <a href="plugins.html"><strong>Plugin SDK Guide</strong></a>.</p>
+          <p>External plugin authors can depend publicly without any authentication token (<code>implementation("com.github.aman400.zophop:plugin-api:<span class="app-version-v">v1.0.0</span>")</code>) or use offline <code>.aar</code> assets from GitHub Releases — see the <a href="plugins.html"><strong>Plugin SDK Guide</strong></a>.</p>
         </section>
       </main>
     </div>
@@ -137,7 +140,7 @@ git push origin v$VERSION</div>
   <footer class="site-footer">
     <div class="container footer-content">
       <div>
-        <p><strong>ZopHop Automation Engine <span class="app-version-v">v3.0.0</span></strong> — Android 8.0+ (API 26–37)</p>
+        <p><strong>ZopHop Automation Engine <span class="app-version-v">v1.0.0</span></strong> — Android 8.0+ (API 26–37)</p>
         <p style="margin-top: 4px;">Open-source software released under the MIT License.</p>
       </div>
       <div class="footer-links">

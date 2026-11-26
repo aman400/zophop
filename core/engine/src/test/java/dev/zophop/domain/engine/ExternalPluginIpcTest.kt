@@ -280,4 +280,165 @@ class ExternalPluginIpcTest {
                 capturedInputs[1].contains("super_secret_plugin_tok_999"),
             )
         }
+
+    @Test
+    fun testExternalPluginExecutorFailsImmediatelyWithNotInstalledWhenPackageUninstalled() =
+        runTest {
+            val fakeCtx =
+                object : android.content.ContextWrapper(null) {
+                    override fun bindService(
+                        service: android.content.Intent,
+                        conn: android.content.ServiceConnection,
+                        flags: Int,
+                    ): Boolean = false
+                }
+            val manifest =
+                NodePluginManifest(
+                    typeId = "dev.zophop.plugin.telegram.TELEGRAM_ACTION",
+                    displayName = "Telegram Action",
+                    description = "Send Telegram message",
+                    category = NodeCategory.ACTION,
+                )
+            val info =
+                ExternalPluginServiceInfo(
+                    packageName = "dev.zophop.plugin.telegram",
+                    serviceClassName = "dev.zophop.plugin.telegram.TelegramNodePluginService",
+                    manifest = manifest,
+                    apiVersion = 1,
+                )
+            val executor =
+                ExternalPluginExecutor(info).apply {
+                    packageInstalledChecker = { _, _ -> false }
+                }
+            val node = WorkflowNode("n1", "Telegram", manifest.typeId)
+
+            val result = executor.execute(node, ExecutionContext(), fakeCtx)
+
+            assertTrue(result is NodeExecutionResult.Failed)
+            val reason = (result as NodeExecutionResult.Failed).reason
+            assertTrue("Expected 'is not installed' in reason: $reason", reason.contains("is not installed"))
+            assertTrue(reason.contains("Telegram Action"))
+            assertTrue(reason.contains("dev.zophop.plugin.telegram"))
+            assertFalse("Uninstalled plugin must not wait for 15s timeout", reason.contains("Timeout"))
+        }
+
+    @Test
+    fun testExternalPluginExecutorFailsWithConnectionErrorWhenInstalledButBindFails() =
+        runTest {
+            val fakeCtx =
+                object : android.content.ContextWrapper(null) {
+                    override fun bindService(
+                        service: android.content.Intent,
+                        conn: android.content.ServiceConnection,
+                        flags: Int,
+                    ): Boolean = false
+                }
+            val manifest =
+                NodePluginManifest(
+                    typeId = "dev.zophop.plugin.smtp.SMTP_ACTION",
+                    displayName = "SMTP Email",
+                    description = "Send email",
+                    category = NodeCategory.ACTION,
+                )
+            val info =
+                ExternalPluginServiceInfo(
+                    packageName = "dev.zophop.plugin.smtp",
+                    serviceClassName = "dev.zophop.plugin.smtp.SmtpNodePluginService",
+                    manifest = manifest,
+                    apiVersion = 1,
+                )
+            val executor =
+                ExternalPluginExecutor(info).apply {
+                    packageInstalledChecker = { _, _ -> true }
+                }
+            val node = WorkflowNode("n1", "Email", manifest.typeId)
+
+            val result = executor.execute(node, ExecutionContext(), fakeCtx)
+
+            assertTrue(result is NodeExecutionResult.Failed)
+            val reason = (result as NodeExecutionResult.Failed).reason
+            assertTrue(reason.contains("Failed to connect or receive response"))
+            assertFalse(reason.contains("is not installed"))
+            assertFalse(reason.contains("Timeout"))
+        }
+
+    @Test
+    fun testNodeExecutorFactoryReportsMissingOrDisabledPluginForUnknownExternalType() {
+        val factory = NodeExecutorFactory(pluginRegistry = ExternalPluginRegistry(context = null))
+        val error =
+            try {
+                factory.getExecutor("dev.zophop.plugin.telegram.TELEGRAM_ACTION")
+                null
+            } catch (e: IllegalArgumentException) {
+                e
+            }
+
+        assertNotNull("Expected IllegalArgumentException for missing external plugin", error)
+        val message = error!!.message.orEmpty()
+        assertTrue(message.contains("Unknown node type"))
+        assertTrue(message.contains("required plugin is not installed or is disabled"))
+    }
+
+    @Test
+    fun testCredentialSpecRegistryIsCredentialTypeMissingPlugin() {
+        // Null means discovery not completed yet -> never flag as missing
+        assertFalse(
+            dev.zophop.domain.engine.plugin.CredentialSpecRegistry.isCredentialTypeMissingPlugin(
+                "SMTP_AUTH",
+                null,
+            ),
+        )
+        // Built-in credential types are never missing even with empty discovered set
+        assertFalse(
+            dev.zophop.domain.engine.plugin.CredentialSpecRegistry.isCredentialTypeMissingPlugin(
+                "BEARER_TOKEN",
+                emptySet(),
+            ),
+        )
+        assertFalse(
+            dev.zophop.domain.engine.plugin.CredentialSpecRegistry.isCredentialTypeMissingPlugin(
+                "BASIC_AUTH",
+                emptySet(),
+            ),
+        )
+        // External credential types are missing when not present in available set, and resolved once installed
+        assertTrue(
+            dev.zophop.domain.engine.plugin.CredentialSpecRegistry.isCredentialTypeMissingPlugin(
+                "SMTP_AUTH",
+                setOf("BEARER_TOKEN", "TELEGRAM_AUTH"),
+            ),
+        )
+        assertFalse(
+            dev.zophop.domain.engine.plugin.CredentialSpecRegistry.isCredentialTypeMissingPlugin(
+                "smtp_auth",
+                setOf("BEARER_TOKEN", "SMTP_AUTH"),
+            ),
+        )
+    }
+
+    @Test
+    fun testPreconditionEvaluatorFailsGracefullyForMissingExternalPluginInChainCheck() =
+        runTest {
+            val evaluator = PreconditionEvaluator(context = null)
+            val chain =
+                dev.zophop.domain.model.Precondition.ChainCheck(
+                    id = "chain_missing_plugin",
+                    name = "Missing Plugin Chain",
+                    nodes =
+                        listOf(
+                            WorkflowNode(
+                                id = "n1",
+                                name = "Telegram Alert",
+                                type = "dev.zophop.plugin.telegram.TELEGRAM_ACTION",
+                            ),
+                        ),
+                )
+
+            val result = evaluator.evaluate(chain)
+
+            assertTrue(result is PreconditionResult.Failed)
+            val reason = (result as PreconditionResult.Failed).reason
+            assertTrue("Expected missing plugin error in reason: $reason", reason.contains("Unknown node type"))
+            assertTrue(reason.contains("required plugin is not installed or is disabled"))
+        }
 }
