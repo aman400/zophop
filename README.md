@@ -1,6 +1,6 @@
 # ZopHop — Visual Workflow, OTP Forwarding & Android Automation Engine
 
-[![Version](https://img.shields.io/badge/Version-v3.1.0-10b981?style=flat-square)](https://github.com/aman400/zophop/releases)
+[![Version](https://img.shields.io/badge/Version-v3.1.1-10b981?style=flat-square)](https://github.com/aman400/zophop/releases)
 [![Android](https://img.shields.io/badge/Android-8.0%2B%20(API%2026--37)-34d399?style=flat-square)](https://developer.android.com)
 [![Tech](https://img.shields.io/badge/Kotlin-Jetpack%20Compose%20M3-f59e0b?style=flat-square)](https://kotlinlang.org)
 [![License](https://img.shields.io/badge/License-MIT-64748b?style=flat-square)](LICENSE)
@@ -29,7 +29,7 @@ It is engineered for personal automation, home-lab owners, and self-hosters oper
 
 ---
 
-## Key Features (v3.1.0)
+## Key Features (v3.1.1)
 
 ### 1. Visual Workflow Engine & 20+ Built-In Nodes
 - **4 Trigger Types**: SMS Message (`*sender*`, keyword regex), App Notification (package name + title/body match), Manual Trigger, and Cron Schedule (6 presets + custom 5-field cron).
@@ -56,7 +56,7 @@ It is engineered for personal automation, home-lab owners, and self-hosters oper
 - **Selective & Password-Encrypted Backups**: Export/import workflows, preconditions, and vault credentials using PBKDF2-HMAC-SHA256 + AES-256-GCM `.zophop` archives.
 
 ### 5. External Plugin Ecosystem (AIDL IPC)
-- Install external Android plugin APKs (such as the official **`ZopHop-Telegram-Plugin-v3.1.0.apk`** and **`ZopHop-SMTP-Plugin-v3.1.0.apk`**) or build your own plugin APK using `com.github.aman400.zophop:plugin-api:v3.1.0` (served publicly via JitPack and attached as `.aar` release assets).
+- Install external Android plugin APKs (such as the official **`ZopHop-Telegram-Plugin-v3.1.1.apk`** and **`ZopHop-SMTP-Plugin-v3.1.1.apk`**) or build your own plugin APK using `com.github.aman400.zophop:plugin-api:v3.1.1` (served publicly via JitPack and attached as `.aar` release assets).
 - Plugins automatically appear inside ZopHop's Node Catalog and Settings → Plugins with package-signature security checks and automatic Vault credential injection.
 
 ---
@@ -83,19 +83,19 @@ It is engineered for personal automation, home-lab owners, and self-hosters oper
 ./gradlew :core:plugin-api:assembleRelease :core:model:assembleRelease
 ```
 Generated outputs:
-- Main app: `app/build/outputs/apk/release/ZopHop-v3.1.0.apk`
-- Telegram plugin: `external/telegram/build/outputs/apk/release/ZopHop-Telegram-Plugin-v3.1.0.apk`
-- SMTP Email plugin: `external/smtp/build/outputs/apk/release/ZopHop-SMTP-Plugin-v3.1.0.apk`
-- SDK AARs: `core/plugin-api/build/outputs/aar/zophop-plugin-api-v3.1.0.aar`, `core/model/build/outputs/aar/zophop-core-model-v3.1.0.aar`
+- Main app: `app/build/outputs/apk/release/ZopHop-v3.1.1.apk`
+- Telegram plugin: `external/telegram/build/outputs/apk/release/ZopHop-Telegram-Plugin-v3.1.1.apk`
+- SMTP Email plugin: `external/smtp/build/outputs/apk/release/ZopHop-SMTP-Plugin-v3.1.1.apk`
+- SDK AARs: `core/plugin-api/build/outputs/aar/zophop-plugin-api-v3.1.1.aar`, `core/model/build/outputs/aar/zophop-core-model-v3.1.1.aar`
 
 ### 2. Install via ADB or Sideload
 ```bash
 # Install main app and auto-grant permissions
-adb install -r -g app/build/outputs/apk/release/ZopHop-v3.1.0.apk
+adb install -r -g app/build/outputs/apk/release/ZopHop-v3.1.1.apk
 
 # Optional: Install official external plugins (Telegram Bot & SMTP Email)
-adb install -r external/telegram/build/outputs/apk/release/ZopHop-Telegram-Plugin-v3.1.0.apk
-adb install -r external/smtp/build/outputs/apk/release/ZopHop-SMTP-Plugin-v3.1.0.apk
+adb install -r external/telegram/build/outputs/apk/release/ZopHop-Telegram-Plugin-v3.1.1.apk
+adb install -r external/smtp/build/outputs/apk/release/ZopHop-SMTP-Plugin-v3.1.1.apk
 ```
 
 > **Bypassing Google Play Protect prompts on sideloaded builds**:

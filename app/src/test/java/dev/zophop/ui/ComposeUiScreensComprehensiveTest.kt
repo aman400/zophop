@@ -6,6 +6,9 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ActivityInfo
 import androidx.activity.ComponentActivity
+import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertIsNotFocused
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
@@ -13,7 +16,10 @@ import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.work.Configuration
+import dev.zophop.domain.model.NodeType
+import dev.zophop.domain.model.WorkflowNode
 import dev.zophop.ui.credentials.CredentialsScreen
+import dev.zophop.ui.workflows.NodeConfigBottomSheet
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -167,5 +173,38 @@ class ComposeUiScreensComprehensiveTest {
         }
 
         composeTestRule.onAllNodesWithText("Workflows")[0].assertExists()
+    }
+
+    @Test
+    fun testNodeConfigEditorFieldsAreNotAllFocusedInitially() {
+        val node =
+            WorkflowNode(
+                id = "n1",
+                name = "Webhook Step",
+                type = NodeType.HTTP_ACTION,
+                configJson = """{"url":"https://example.com/hook","bodyTemplate":"OTP: ${'$'}{code}"}""",
+            )
+
+        composeTestRule.setContent {
+            NodeConfigBottomSheet(
+                node = node,
+                availableVariables = listOf("sender", "code"),
+                onDismiss = {},
+                onSave = {},
+            )
+        }
+
+        val textFields = composeTestRule.onAllNodes(hasSetTextAction())
+        val count = textFields.fetchSemanticsNodes().size
+        assertTrue("Expected multiple editable fields in node config", count >= 2)
+        for (i in 0 until count) {
+            textFields[i].assertIsNotFocused()
+        }
+
+        textFields[0].performClick()
+        textFields[0].assertIsFocused()
+        for (i in 1 until count) {
+            textFields[i].assertIsNotFocused()
+        }
     }
 }
