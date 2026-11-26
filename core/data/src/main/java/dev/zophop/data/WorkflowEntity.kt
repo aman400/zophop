@@ -2,15 +2,23 @@ package dev.zophop.data
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
-import dev.zophop.domain.model.NodeType
+import dev.zophop.domain.model.AppJson
 import dev.zophop.domain.model.Precondition
 import dev.zophop.domain.model.PreconditionType
 import dev.zophop.domain.model.Workflow
 import dev.zophop.domain.model.WorkflowConnection
+import dev.zophop.domain.model.WorkflowGraph
 import dev.zophop.domain.model.WorkflowNode
-import org.json.JSONArray
-import org.json.JSONObject
+import dev.zophop.domain.model.optBoolean
+import dev.zophop.domain.model.optInt
+import dev.zophop.domain.model.optJsonArray
+import dev.zophop.domain.model.optJsonObject
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
 
+@Serializable
 @Entity(tableName = "workflows")
 data class WorkflowEntity(
     @PrimaryKey
@@ -18,270 +26,302 @@ data class WorkflowEntity(
     val name: String,
     val description: String = "",
     val isEnabled: Boolean = true,
+    val icon: String = "",
     val graphJson: String = "{}",
-    val updatedAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis(),
 ) {
     companion object {
         fun fromDomain(workflow: Workflow): WorkflowEntity {
-            val json = JSONObject()
-
-            val nodesArr = JSONArray()
-            for (node in workflow.nodes) {
-                val nodeObj = JSONObject().apply {
-                    put("id", node.id)
-                    put("name", node.name)
-                    put("type", node.type.name)
-                    put("isEnabled", node.isEnabled)
-                    put("configJson", node.configJson)
-
-                    val preArr = JSONArray()
-                    for (prec in node.preconditions) {
-                        val pObj = JSONObject().apply {
-                            put("id", prec.id)
-                            put("type", prec.type.name)
-                            put("onFailureAction", prec.onFailureAction)
-                            put("maxRetries", prec.maxRetries)
-                            put("retryIntervalSeconds", prec.retryIntervalSeconds)
-                            put("showNotificationOnFailure", prec.showNotificationOnFailure)
-                            when (prec) {
-                                is Precondition.InternetCheck -> put("isEnabled", prec.isEnabled)
-                                is Precondition.VpnCheck -> put("isEnabled", prec.isEnabled)
-                                is Precondition.HealthCheck -> {
-                                    put("isEnabled", prec.isEnabled)
-                                    put("targetUrl", prec.targetUrl)
-                                    put("method", prec.method)
-                                    put("headers", prec.headers)
-                                    put("expectedStatus", prec.expectedStatus)
-                                }
-                                is Precondition.SimCheck -> {
-                                    put("isEnabled", prec.isEnabled)
-                                    put("requiredCarrier", prec.requiredCarrier)
-                                    put("requiredSlot", prec.requiredSlot)
-                                }
-                                is Precondition.GpsCheck -> {
-                                    put("isEnabled", prec.isEnabled)
-                                    put("requireGpsEnabled", prec.requireGpsEnabled)
-                                }
-                                is Precondition.ChainCheck -> {
-                                    put("isEnabled", prec.isEnabled)
-                                    val pipelineObj = JSONObject().apply {
-                                        val chainNodesArr = JSONArray()
-                                        prec.nodes.forEach { cNode ->
-                                            chainNodesArr.put(JSONObject().apply {
-                                                put("id", cNode.id)
-                                                put("name", cNode.name)
-                                                put("type", cNode.type.name)
-                                                put("isEnabled", cNode.isEnabled)
-                                                put("configJson", cNode.configJson)
-                                            })
-                                        }
-                                        put("nodes", chainNodesArr)
-
-                                        val chainConnArr = JSONArray()
-                                        prec.connections.forEach { cConn ->
-                                            chainConnArr.put(JSONObject().apply {
-                                                put("fromNodeId", cConn.fromNodeId)
-                                                put("toNodeId", cConn.toNodeId)
-                                                put("outputPort", cConn.outputPort)
-                                                put("inputPort", cConn.inputPort)
-                                            })
-                                        }
-                                        put("connections", chainConnArr)
-                                    }
-                                    put("pipelineJson", pipelineObj.toString())
-                                }
-                            }
-                        }
-                        preArr.put(pObj)
-                    }
-                    put("preconditions", preArr)
+            val encryptedNodes =
+                workflow.nodes.map { node ->
+                    node.copy(
+                        configJson = DatabaseEncryption.encryptNodeConfig(node.configJson),
+                    )
                 }
-                nodesArr.put(nodeObj)
-            }
 
-            val connArr = JSONArray()
-            for (conn in workflow.connections) {
-                val connObj = JSONObject().apply {
-                    put("fromNodeId", conn.fromNodeId)
-                    put("toNodeId", conn.toNodeId)
-                    put("outputPort", conn.outputPort)
-                    put("inputPort", conn.inputPort)
-                }
-                connArr.put(connObj)
-            }
-
-            json.put("nodes", nodesArr)
-            json.put("connections", connArr)
+            val graph =
+                WorkflowGraph(
+                    nodes = encryptedNodes,
+                    connections = workflow.connections,
+                )
 
             return WorkflowEntity(
                 id = workflow.id,
                 name = workflow.name,
                 description = workflow.description,
                 isEnabled = workflow.isEnabled,
-                graphJson = json.toString(),
-                updatedAt = System.currentTimeMillis()
+                icon = workflow.icon,
+                graphJson = AppJson.encodeToString(graph),
+                createdAt = workflow.createdAt,
+                updatedAt = workflow.updatedAt,
             )
         }
     }
+
+    fun toDomain(): Workflow {
+        val (nodes, connections) =
+            try {
+                val graph = AppJson.decodeFromString<WorkflowGraph>(graphJson)
+                val decryptedNodes =
+                    graph.nodes.map { node ->
+                        node.copy(
+                            configJson = DatabaseEncryption.decryptNodeConfig(node.configJson),
+                        )
+                    }
+                Pair(decryptedNodes, graph.connections)
+            } catch (_: Exception) {
+                parseLegacyGraph(graphJson)
+            }
+
+        return Workflow(
+            id = id,
+            name = name,
+            description = description,
+            isEnabled = isEnabled,
+            icon = icon,
+            nodes = nodes,
+            connections = connections,
+            createdAt = createdAt,
+            updatedAt = updatedAt,
+        )
+    }
 }
 
-fun WorkflowEntity.toDomain(): Workflow {
+private fun parseLegacyGraph(graphJson: String): Pair<List<WorkflowNode>, List<WorkflowConnection>> {
     val nodesList = mutableListOf<WorkflowNode>()
     val connectionsList = mutableListOf<WorkflowConnection>()
-
-    if (graphJson.isNotBlank()) {
-        try {
-            val json = JSONObject(graphJson)
-
-            val nodesArr = json.optJSONArray("nodes") ?: JSONArray()
-            for (i in 0 until nodesArr.length()) {
-                val nodeObj = nodesArr.getJSONObject(i)
-                val id = nodeObj.getString("id")
-                val name = nodeObj.getString("name")
-                val typeStr = nodeObj.getString("type")
-                val isEnabled = nodeObj.optBoolean("isEnabled", true)
-                val configJson = nodeObj.optString("configJson", "{}")
-
-                val preconditions = mutableListOf<Precondition>()
-                val preArr = nodeObj.optJSONArray("preconditions") ?: JSONArray()
-                for (j in 0 until preArr.length()) {
-                    val pObj = preArr.getJSONObject(j)
-                    val pId = pObj.optString("id", "")
-                    val pTypeStr = pObj.getString("type")
-                    val isPEnabled = pObj.optBoolean("isEnabled", true)
-                    val pFailureAction = pObj.optString("onFailureAction", "FAIL_IMMEDIATELY")
-                    val pMaxRetries = pObj.optInt("maxRetries", 3)
-                    val pRetryInterval = pObj.optInt("retryIntervalSeconds", 30)
-                    val pShowNotif = pObj.optBoolean("showNotificationOnFailure", false)
-
-                    val prec = when (PreconditionType.valueOf(pTypeStr)) {
-                        PreconditionType.INTERNET_CHECK -> Precondition.InternetCheck(
-                            id = pId,
-                            isEnabled = isPEnabled,
-                            onFailureAction = pFailureAction,
-                            maxRetries = pMaxRetries,
-                            retryIntervalSeconds = pRetryInterval,
-                            showNotificationOnFailure = pShowNotif
-                        )
-                        PreconditionType.VPN_CHECK -> Precondition.VpnCheck(
-                            id = pId,
-                            isEnabled = isPEnabled,
-                            onFailureAction = pFailureAction,
-                            maxRetries = pMaxRetries,
-                            retryIntervalSeconds = pRetryInterval,
-                            showNotificationOnFailure = pShowNotif
-                        )
-                        PreconditionType.HEALTH_CHECK -> Precondition.HealthCheck(
-                            id = pId,
-                            isEnabled = isPEnabled,
-                            targetUrl = pObj.optString("targetUrl", ""),
-                            method = pObj.optString("method", "GET"),
-                            headers = pObj.optString("headers", ""),
-                            expectedStatus = pObj.optInt("expectedStatus", 200),
-                            onFailureAction = pFailureAction,
-                            maxRetries = pMaxRetries,
-                            retryIntervalSeconds = pRetryInterval,
-                            showNotificationOnFailure = pShowNotif
-                        )
-                        PreconditionType.SIM_CHECK -> Precondition.SimCheck(
-                            id = pId,
-                            isEnabled = isPEnabled,
-                            requiredCarrier = pObj.optString("requiredCarrier", ""),
-                            requiredSlot = pObj.optInt("requiredSlot", -1),
-                            onFailureAction = pFailureAction,
-                            maxRetries = pMaxRetries,
-                            retryIntervalSeconds = pRetryInterval,
-                            showNotificationOnFailure = pShowNotif
-                        )
-                        PreconditionType.GPS_CHECK -> Precondition.GpsCheck(
-                            id = pId,
-                            isEnabled = isPEnabled,
-                            requireGpsEnabled = pObj.optBoolean("requireGpsEnabled", true),
-                            onFailureAction = pFailureAction,
-                            maxRetries = pMaxRetries,
-                            retryIntervalSeconds = pRetryInterval,
-                            showNotificationOnFailure = pShowNotif
-                        )
-                        PreconditionType.CHAINED_CHECK -> {
-                            val chainNodesList = mutableListOf<WorkflowNode>()
-                            val chainConnectionsList = mutableListOf<WorkflowConnection>()
-                            val pJsonStr = pObj.optString("pipelineJson", "")
-                            if (pJsonStr.isNotBlank()) {
-                                try {
-                                    val pJson = JSONObject(pJsonStr)
-                                    val chainNodesArr = pJson.optJSONArray("nodes") ?: JSONArray()
-                                    for (k in 0 until chainNodesArr.length()) {
-                                        val nObj = chainNodesArr.getJSONObject(k)
-                                        chainNodesList.add(
-                                            WorkflowNode(
-                                                id = nObj.getString("id"),
-                                                name = nObj.getString("name"),
-                                                type = NodeType.valueOf(nObj.getString("type")),
-                                                isEnabled = nObj.optBoolean("isEnabled", true),
-                                                configJson = nObj.optString("configJson", "{}")
-                                            )
-                                        )
-                                    }
-                                    val connArr = pJson.optJSONArray("connections") ?: JSONArray()
-                                    for (k in 0 until connArr.length()) {
-                                        val cObj = connArr.getJSONObject(k)
-                                        chainConnectionsList.add(
-                                            WorkflowConnection(
-                                                fromNodeId = cObj.getString("fromNodeId"),
-                                                toNodeId = cObj.getString("toNodeId"),
-                                                outputPort = cObj.optString("outputPort", "main")
-                                            )
-                                        )
-                                    }
-                                } catch (_: Exception) {}
-                            }
-                            Precondition.ChainCheck(
-                                id = pId,
-                                isEnabled = isPEnabled,
-                                nodes = chainNodesList,
-                                connections = chainConnectionsList,
-                                onFailureAction = pFailureAction,
-                                maxRetries = pMaxRetries,
-                                retryIntervalSeconds = pRetryInterval,
-                                showNotificationOnFailure = pShowNotif
-                            )
-                        }
-                    }
-                    preconditions.add(prec)
-                }
-
-                nodesList.add(
-                    WorkflowNode(
-                        id = id,
-                        name = name,
-                        type = NodeType.valueOf(typeStr),
-                        isEnabled = isEnabled,
-                        configJson = configJson,
-                        preconditions = preconditions
-                    )
-                )
+    try {
+        val json = parseJsonObjectSafe(graphJson)
+        val nodesArr = json.optJsonArray("nodes")
+        if (nodesArr != null) {
+            for (i in 0 until nodesArr.size) {
+                val nodeObj = nodesArr.optJsonObject(i) ?: continue
+                nodesList.add(parseWorkflowNode(nodeObj))
             }
+        }
 
-            val connArr = json.optJSONArray("connections") ?: JSONArray()
-            for (i in 0 until connArr.length()) {
-                val connObj = connArr.getJSONObject(i)
+        val connArr = json.optJsonArray("connections")
+        if (connArr != null) {
+            for (i in 0 until connArr.size) {
+                val connObj = connArr.optJsonObject(i) ?: continue
                 connectionsList.add(
                     WorkflowConnection(
-                        fromNodeId = connObj.getString("fromNodeId"),
-                        toNodeId = connObj.getString("toNodeId"),
-                        outputPort = connObj.optString("outputPort", "main")
-                    )
+                        fromNodeId = connObj.optString("fromNodeId"),
+                        toNodeId = connObj.optString("toNodeId"),
+                        outputPort = connObj.optString("outputPort", "main"),
+                        inputPort = connObj.optString("inputPort", "main"),
+                    ),
                 )
             }
-        } catch (_: Exception) {}
+        }
+    } catch (_: Exception) {
+    }
+    return Pair(nodesList, connectionsList)
+}
+
+private fun parseWorkflowNode(nodeObj: JsonObject): WorkflowNode {
+    val id = nodeObj.optString("id")
+    val name = nodeObj.optString("name")
+    val typeStr = nodeObj.optString("type")
+    val isEnabled = nodeObj.optBoolean("isEnabled", true)
+    val configJson = DatabaseEncryption.decryptNodeConfig(nodeObj.optString("configJson", "{}"))
+
+    val preconditions = mutableListOf<Precondition>()
+    val preArr = nodeObj.optJsonArray("preconditions")
+    if (preArr != null) {
+        for (j in 0 until preArr.size) {
+            val pObj = preArr.optJsonObject(j) ?: continue
+            preconditions.add(parsePrecondition(pObj))
+        }
     }
 
-    return Workflow(
+    return WorkflowNode(
         id = id,
         name = name,
-        description = description,
+        type = typeStr,
         isEnabled = isEnabled,
-        nodes = nodesList,
-        connections = connectionsList
+        configJson = configJson,
+        preconditions = preconditions,
     )
+}
+
+private fun parsePrecondition(pObj: JsonObject): Precondition {
+    val pId = pObj.optString("id", "")
+    val pTypeStr = pObj.optString("type", "")
+    val pIcon = pObj.optString("icon", "")
+    val isPEnabled = pObj.optBoolean("isEnabled", true)
+    val pFailureAction = pObj.optString("onFailureAction", "FAIL_IMMEDIATELY")
+    val pMaxRetries = pObj.optInt("maxRetries", 3)
+    val pRetryInterval = pObj.optInt("retryIntervalSeconds", 30)
+    val pRetryStrategy = pObj.optString("retryStrategy", "FIXED")
+    val pQueueTimeout = pObj.optInt("queueTimeoutMinutes", 10)
+
+    val precType =
+        try {
+            PreconditionType.valueOf(pTypeStr.uppercase().trim())
+        } catch (_: IllegalArgumentException) {
+            PreconditionType.INTERNET_CHECK
+        }
+
+    return when (precType) {
+        PreconditionType.INTERNET_CHECK ->
+            Precondition.InternetCheck(
+                id = pId,
+                isEnabled = isPEnabled,
+                icon = pIcon,
+                onFailureAction = pFailureAction,
+                maxRetries = pMaxRetries,
+                retryIntervalSeconds = pRetryInterval,
+                retryStrategy = pRetryStrategy,
+                queueTimeoutMinutes = pQueueTimeout,
+            )
+        PreconditionType.VPN_CHECK ->
+            Precondition.VpnCheck(
+                id = pId,
+                isEnabled = isPEnabled,
+                icon = pIcon,
+                onFailureAction = pFailureAction,
+                maxRetries = pMaxRetries,
+                retryIntervalSeconds = pRetryInterval,
+                retryStrategy = pRetryStrategy,
+                queueTimeoutMinutes = pQueueTimeout,
+            )
+        PreconditionType.HEALTH_CHECK ->
+            Precondition.HealthCheck(
+                id = pId,
+                isEnabled = isPEnabled,
+                icon = pIcon,
+                onFailureAction = pFailureAction,
+                maxRetries = pMaxRetries,
+                retryIntervalSeconds = pRetryInterval,
+                retryStrategy = pRetryStrategy,
+                queueTimeoutMinutes = pQueueTimeout,
+            )
+        PreconditionType.SIM_CHECK ->
+            Precondition.SimCheck(
+                id = pId,
+                isEnabled = isPEnabled,
+                icon = pIcon,
+                onFailureAction = pFailureAction,
+                maxRetries = pMaxRetries,
+                retryIntervalSeconds = pRetryInterval,
+                retryStrategy = pRetryStrategy,
+                queueTimeoutMinutes = pQueueTimeout,
+            )
+        PreconditionType.GPS_CHECK ->
+            Precondition.GpsCheck(
+                id = pId,
+                isEnabled = isPEnabled,
+                icon = pIcon,
+                onFailureAction = pFailureAction,
+                maxRetries = pMaxRetries,
+                retryIntervalSeconds = pRetryInterval,
+                retryStrategy = pRetryStrategy,
+                queueTimeoutMinutes = pQueueTimeout,
+            )
+        PreconditionType.BATTERY_CHECK ->
+            Precondition.BatteryCheck(
+                id = pId,
+                isEnabled = isPEnabled,
+                icon = pIcon,
+                onFailureAction = pFailureAction,
+                maxRetries = pMaxRetries,
+                retryIntervalSeconds = pRetryInterval,
+                retryStrategy = pRetryStrategy,
+                queueTimeoutMinutes = pQueueTimeout,
+            )
+        PreconditionType.CHAINED_CHECK ->
+            parseChainedPrecondition(
+                pObj = pObj,
+                pId = pId,
+                pIcon = pIcon,
+                isPEnabled = isPEnabled,
+                pFailureAction = pFailureAction,
+                pMaxRetries = pMaxRetries,
+                pRetryInterval = pRetryInterval,
+                pRetryStrategy = pRetryStrategy,
+                pQueueTimeout = pQueueTimeout,
+            )
+    }
+}
+
+private fun parseChainedPrecondition(
+    pObj: JsonObject,
+    pId: String,
+    pName: String = "",
+    pIcon: String = "",
+    isPEnabled: Boolean,
+    pFailureAction: String,
+    pMaxRetries: Int,
+    pRetryInterval: Int,
+    pRetryStrategy: String = "FIXED",
+    pQueueTimeout: Int = 10,
+): Precondition.ChainCheck {
+    val chainNodesList = mutableListOf<WorkflowNode>()
+    val chainConnectionsList = mutableListOf<WorkflowConnection>()
+    val pJsonStr = pObj.optString("pipelineJson", "")
+    if (pJsonStr.isNotBlank()) {
+        try {
+            val graph = AppJson.decodeFromString<WorkflowGraph>(pJsonStr)
+            chainNodesList.addAll(
+                graph.nodes.map { n ->
+                    n.copy(configJson = DatabaseEncryption.decryptNodeConfig(n.configJson))
+                },
+            )
+            chainConnectionsList.addAll(graph.connections)
+        } catch (_: Exception) {
+            parseLegacyChainedPipeline(pJsonStr, chainNodesList, chainConnectionsList)
+        }
+    }
+    return Precondition.ChainCheck(
+        id = pId,
+        name = pName,
+        icon = pIcon,
+        isEnabled = isPEnabled,
+        nodes = chainNodesList,
+        connections = chainConnectionsList,
+        onFailureAction = pFailureAction,
+        maxRetries = pMaxRetries,
+        retryIntervalSeconds = pRetryInterval,
+        retryStrategy = pRetryStrategy,
+        queueTimeoutMinutes = pQueueTimeout,
+    )
+}
+
+private fun parseLegacyChainedPipeline(
+    pJsonStr: String,
+    nodes: MutableList<WorkflowNode>,
+    conns: MutableList<WorkflowConnection>,
+) {
+    val pJson = parseJsonObjectSafe(pJsonStr)
+    val chainNodesArr = pJson.optJsonArray("nodes")
+    if (chainNodesArr != null) {
+        for (k in chainNodesArr.indices) {
+            val nObj = chainNodesArr.optJsonObject(k) ?: continue
+            nodes.add(
+                WorkflowNode(
+                    id = nObj.optString("id"),
+                    name = nObj.optString("name"),
+                    type = nObj.optString("type"),
+                    isEnabled = nObj.optBoolean("isEnabled", true),
+                    configJson = DatabaseEncryption.decryptNodeConfig(nObj.optString("configJson", "{}")),
+                ),
+            )
+        }
+    }
+    val connArr = pJson.optJsonArray("connections")
+    if (connArr != null) {
+        for (k in connArr.indices) {
+            val cObj = connArr.optJsonObject(k) ?: continue
+            conns.add(
+                WorkflowConnection(
+                    fromNodeId = cObj.optString("fromNodeId"),
+                    toNodeId = cObj.optString("toNodeId"),
+                    outputPort = cObj.optString("outputPort", "main"),
+                    inputPort = cObj.optString("inputPort", "main"),
+                ),
+            )
+        }
+    }
 }

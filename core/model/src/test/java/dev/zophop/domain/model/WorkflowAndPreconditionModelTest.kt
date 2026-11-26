@@ -4,32 +4,34 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.util.UUID
 
 class WorkflowAndPreconditionModelTest {
-
     @Test
     fun testWorkflowModelImmutabilityAndCopy() {
-        val node1 = WorkflowNode("n1", "Node 1", NodeType.SMS_TRIGGER)
+        val node1 = WorkflowNode("n1", "Node 1", "SMS_TRIGGER")
         val conn1 = WorkflowConnection("n1", "n2")
 
-        val workflow = Workflow(
-            id = "w_123",
-            name = "Test Workflow",
-            description = "Desc",
-            isEnabled = true,
-            nodes = listOf(node1),
-            connections = listOf(conn1)
-        )
+        val workflow =
+            Workflow(
+                id = "w_123",
+                name = "Test Workflow",
+                description = "Desc",
+                isEnabled = true,
+                icon = "🚀",
+                nodes = listOf(node1),
+                connections = listOf(conn1),
+            )
 
         assertEquals("w_123", workflow.id)
         assertEquals("Test Workflow", workflow.name)
+        assertEquals("🚀", workflow.icon)
         assertTrue(workflow.isEnabled)
         assertEquals(1, workflow.nodes.size)
 
-        val updated = workflow.copy(isEnabled = false, name = "Disabled Workflow")
+        val updated = workflow.copy(isEnabled = false, name = "Disabled Workflow", icon = "⚡")
         assertFalse(updated.isEnabled)
         assertEquals("Disabled Workflow", updated.name)
+        assertEquals("⚡", updated.icon)
         assertEquals(workflow.id, updated.id)
     }
 
@@ -41,35 +43,66 @@ class WorkflowAndPreconditionModelTest {
         assertEquals("FAIL_IMMEDIATELY", internet.onFailureAction)
         assertEquals(3, internet.maxRetries)
         assertEquals(30, internet.retryIntervalSeconds)
-        assertFalse(internet.showNotificationOnFailure)
 
-        val health = Precondition.HealthCheck(
-            targetUrl = "https://example.com/health",
-            onFailureAction = "RETRY",
-            maxRetries = 5,
-            retryIntervalSeconds = 10,
-            showNotificationOnFailure = true
-        )
+        val health =
+            Precondition.HealthCheck(
+                targetUrl = "https://example.com/health",
+                onFailureAction = "RETRY",
+                maxRetries = 5,
+                retryIntervalSeconds = 10,
+            )
         assertEquals(PreconditionType.HEALTH_CHECK, health.type)
         assertEquals("https://example.com/health", health.targetUrl)
         assertEquals("RETRY", health.onFailureAction)
         assertEquals(5, health.maxRetries)
         assertEquals(10, health.retryIntervalSeconds)
-        assertTrue(health.showNotificationOnFailure)
+
+        val battery =
+            Precondition.BatteryCheck(
+                minBatteryPercent = 20,
+                requireCharging = true,
+                icon = "🔋",
+            )
+        assertEquals(PreconditionType.BATTERY_CHECK, battery.type)
+        assertEquals(20, battery.minBatteryPercent)
+        assertEquals("🔋", battery.icon)
+        assertTrue(battery.requireCharging)
+        assertTrue(battery.isEnabled)
+
+        val chained =
+            Precondition.ChainCheck(
+                name = "Security Vault Guard",
+                icon = "🛡️",
+            )
+        assertEquals("Security Vault Guard", chained.name)
+        assertEquals("🛡️", chained.icon)
+        assertEquals(PreconditionType.CHAINED_CHECK, chained.type)
     }
 
     @Test
     fun testCredentialModelDataMap() {
-        val cred = Credential(
-            id = "c_1",
-            name = "Test Token",
-            type = CredentialType.BEARER_TOKEN,
-            dataMap = mapOf("token" to "secret_token_123")
-        )
+        val cred =
+            Credential(
+                id = "c_1",
+                name = "Test Token",
+                type = CredentialType.BEARER_TOKEN,
+                dataMap = mapOf("token" to "secret_token_123"),
+            )
 
         assertEquals("c_1", cred.id)
         assertEquals("Test Token", cred.name)
         assertEquals(CredentialType.BEARER_TOKEN, cred.type)
         assertEquals("secret_token_123", cred.dataMap["token"])
+    }
+
+    @Test
+    fun testWorkflowDefaultId_isEightCharUppercaseAlphanumeric() {
+        val idPattern = Regex("^[A-Z0-9]{8}$")
+        val generatedIds = (1..20).map { Workflow(name = "Workflow $it").id }
+
+        generatedIds.forEach { id ->
+            assertTrue("Expected 8-char uppercase alphanumeric workflow ID, got '$id'", idPattern.matches(id))
+        }
+        assertTrue("Generated workflow IDs should be distinct", generatedIds.toSet().size > 1)
     }
 }

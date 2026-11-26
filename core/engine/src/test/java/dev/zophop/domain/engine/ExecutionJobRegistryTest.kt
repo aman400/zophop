@@ -1,47 +1,70 @@
 package dev.zophop.domain.engine
 
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.time.Duration.Companion.milliseconds
 
 class ExecutionJobRegistryTest {
-
     @Test
-    fun testRegisterAndCancelJob() = runTest {
-        val workflowId = "wf-test-101"
-        val job = launch {
-            delay(10000L)
+    fun testRegisterAndCancelJob() =
+        runTest {
+            val workflowId = "wf-test-101"
+            val job =
+                launch {
+                    delay(10000L)
+                }
+
+            ExecutionJobRegistry.registerJob(workflowId, job)
+            assertTrue(ExecutionJobRegistry.isJobRunning(workflowId))
+
+            val cancelled = ExecutionJobRegistry.cancelJob(workflowId)
+            assertTrue(cancelled)
+            assertFalse(ExecutionJobRegistry.isJobRunning(workflowId))
+            assertTrue(job.isCancelled)
         }
 
-        ExecutionJobRegistry.registerJob(workflowId, job)
-        assertTrue(ExecutionJobRegistry.isJobRunning(workflowId))
+    @Test
+    fun testCancelAllJobs() =
+        runTest {
+            val job1 = launch { delay(10000L) }
+            val job2 = launch { delay(10000L) }
 
-        val cancelled = ExecutionJobRegistry.cancelJob(workflowId)
-        assertTrue(cancelled)
-        assertFalse(ExecutionJobRegistry.isJobRunning(workflowId))
-        assertTrue(job.isCancelled)
-    }
+            ExecutionJobRegistry.registerJob("wf-1", job1)
+            ExecutionJobRegistry.registerJob("wf-2", job2)
+
+            assertTrue(ExecutionJobRegistry.isJobRunning("wf-1"))
+            assertTrue(ExecutionJobRegistry.isJobRunning("wf-2"))
+
+            ExecutionJobRegistry.cancelAllJobs()
+
+            assertFalse(ExecutionJobRegistry.isJobRunning("wf-1"))
+            assertFalse(ExecutionJobRegistry.isJobRunning("wf-2"))
+            assertTrue(job1.isCancelled)
+            assertTrue(job2.isCancelled)
+        }
 
     @Test
-    fun testCancelAllJobs() = runTest {
-        val job1 = launch { delay(10000L) }
-        val job2 = launch { delay(10000L) }
+    fun testMultipleJobsForSameWorkflow_completingFirstDoesNotEvictActiveSecond() =
+        runTest {
+            val workflowId = "wf-concurrent"
+            val job1 = launch { delay(50L.milliseconds) }
+            val job2 = launch { delay(10000L.milliseconds) }
 
-        ExecutionJobRegistry.registerJob("wf-1", job1)
-        ExecutionJobRegistry.registerJob("wf-2", job2)
+            ExecutionJobRegistry.registerJob(workflowId, job1)
+            ExecutionJobRegistry.registerJob(workflowId, job2)
+            assertTrue(ExecutionJobRegistry.isJobRunning(workflowId))
 
-        assertTrue(ExecutionJobRegistry.isJobRunning("wf-1"))
-        assertTrue(ExecutionJobRegistry.isJobRunning("wf-2"))
+            job1.join()
+            // job2 is still active so workflow must still be tracked as running
+            assertTrue(ExecutionJobRegistry.isJobRunning(workflowId))
 
-        ExecutionJobRegistry.cancelAllJobs()
-
-        assertFalse(ExecutionJobRegistry.isJobRunning("wf-1"))
-        assertFalse(ExecutionJobRegistry.isJobRunning("wf-2"))
-        assertTrue(job1.isCancelled)
-        assertTrue(job2.isCancelled)
-    }
+            val cancelled = ExecutionJobRegistry.cancelJob(workflowId)
+            assertTrue(cancelled)
+            assertTrue(job2.isCancelled)
+            assertFalse(ExecutionJobRegistry.isJobRunning(workflowId))
+        }
 }

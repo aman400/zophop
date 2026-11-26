@@ -9,7 +9,6 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface MessageDao {
-
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMessage(message: MessageEntity)
 
@@ -21,6 +20,9 @@ interface MessageDao {
 
     @Query("SELECT * FROM queued_messages WHERE status IN ('QUEUED', 'FAILED') ORDER BY receivedAt ASC")
     suspend fun getPendingMessages(): List<MessageEntity>
+
+    @Query("SELECT * FROM queued_messages WHERE status = 'QUEUED' ORDER BY receivedAt ASC")
+    fun getQueuedMessagesFlow(): Flow<List<MessageEntity>>
 
     @Query("SELECT * FROM queued_messages ORDER BY receivedAt DESC LIMIT :limit")
     fun getRecentEventsFlow(limit: Int = 20): Flow<List<MessageEntity>>

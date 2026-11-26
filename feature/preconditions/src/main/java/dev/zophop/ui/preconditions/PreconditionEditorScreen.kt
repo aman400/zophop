@@ -1,16 +1,10 @@
 package dev.zophop.ui.preconditions
 
-import android.content.Intent
-import android.net.Uri
-import android.os.Build
-import android.provider.Settings
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,25 +16,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.ui.platform.LocalContext
-import androidx.core.content.ContextCompat
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.DragHandle
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FabPosition
 import androidx.compose.material3.Icon
@@ -49,811 +35,547 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.zIndex
+import dev.zophop.core.ui.components.CancelExecutionConfirmDialog
+import dev.zophop.core.ui.components.IconPickerModalBottomSheet
+import dev.zophop.core.ui.components.IconSelectorBadge
 import dev.zophop.core.ui.components.InfoTooltipField
-import dev.zophop.core.ui.components.NoSwipeBottomSheet
-import dev.zophop.core.ui.components.SearchableDropdownSelector
 import dev.zophop.data.PreconditionEntity
 import dev.zophop.data.toDomain
 import dev.zophop.domain.engine.NodeExecutionStep
+import dev.zophop.domain.engine.NodeStepState
 import dev.zophop.domain.engine.PreconditionResult
+import dev.zophop.domain.engine.markStepsAsCancelled
+import dev.zophop.domain.model.AppJson
 import dev.zophop.domain.model.Credential
 import dev.zophop.domain.model.NodeType
 import dev.zophop.domain.model.Precondition
 import dev.zophop.domain.model.PreconditionType
 import dev.zophop.domain.model.Workflow
 import dev.zophop.domain.model.WorkflowConnection
+import dev.zophop.domain.model.WorkflowGraph
 import dev.zophop.domain.model.WorkflowNode
+import dev.zophop.domain.model.parseJsonObjectSafe
 import dev.zophop.ui.workflows.NodeConfigBottomSheet
 import dev.zophop.ui.workflows.WorkflowUiHelper
-import org.json.JSONArray
-import org.json.JSONObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.util.UUID
 
 /**
- * Editor screen for creating or modifying a Precondition Entity.
+ * Modernized editor screen for creating or modifying a Precondition Entity as a Chained Pipeline.
+ * All preconditions are treated as chained pipelines, supporting single-node or multi-node pipelines.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PreconditionEditorScreen(
     precondition: PreconditionEntity?,
     credentials: List<Credential> = emptyList(),
     workflows: List<Workflow> = emptyList(),
     onTestPreconditionWithProgress: ((PreconditionEntity, (List<NodeExecutionStep>) -> Unit, (PreconditionResult) -> Unit) -> Unit)? = null,
+    onCancelTestPrecondition: ((String) -> Unit)? = null,
     onDismiss: () -> Unit,
-    onSave: (PreconditionEntity) -> Unit
+    onSave: (PreconditionEntity) -> Unit,
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
-    val localContext = LocalContext.current
 
-    var showNotificationPermissionRationaleDialog by remember { mutableStateOf(false) }
-
-    val linkedWorkflows = remember(workflows, precondition) {
-        if (precondition == null) emptyList()
-        else workflows.filter { wf ->
-            wf.nodes.any { node -> node.preconditions.any { p -> p.id == precondition.id } }
+    val linkedWorkflows =
+        remember(workflows, precondition?.id) {
+            findLinkedWorkflows(workflows, precondition?.id)
         }
-    }
 
-    var name by remember { mutableStateOf(precondition?.name ?: "") }
-    var selectedType by remember { mutableStateOf(precondition?.type ?: PreconditionType.INTERNET_CHECK.name) }
-    var isEnabled by remember { mutableStateOf(precondition?.isEnabled ?: (precondition?.type != PreconditionType.CHAINED_CHECK.name)) }
+    var name by remember { mutableStateOf(precondition?.name ?: "Precondition Guard") }
+    var icon by remember { mutableStateOf(precondition?.icon ?: "") }
+    var showIconPicker by remember { mutableStateOf(false) }
+    var isEnabled by remember { mutableStateOf(precondition?.isEnabled ?: true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showDiscardDialog by remember { mutableStateOf(false) }
     var showSaveConfirmDialog by remember { mutableStateOf(false) }
-
-    // Healthcheck HTTP fields
-    var targetUrl by remember { mutableStateOf(precondition?.targetUrl ?: "https://example.com/health") }
-    var method by remember { mutableStateOf(precondition?.method ?: "GET") }
-    var headers by remember { mutableStateOf(precondition?.headers ?: "") }
-    var expectedStatus by remember { mutableStateOf((precondition?.expectedStatus ?: 200).toString()) }
-
-    // SIM fields
-    var requiredCarrier by remember { mutableStateOf(precondition?.requiredCarrier ?: "") }
-    var credentialId by remember { mutableStateOf(precondition?.credentialId ?: "") }
 
     // Failure policy fields
     var onFailureAction by remember { mutableStateOf(precondition?.onFailureAction ?: "FAIL_IMMEDIATELY") }
     var maxRetries by remember { mutableStateOf((precondition?.maxRetries ?: 3).toString()) }
     var retryIntervalSeconds by remember { mutableStateOf((precondition?.retryIntervalSeconds ?: 30).toString()) }
-    var showNotificationOnFailure by remember { mutableStateOf(precondition?.showNotificationOnFailure ?: false) }
+    var retryStrategy by remember { mutableStateOf(precondition?.retryStrategy ?: "FIXED") }
+    var queueTimeoutMinutes by remember { mutableStateOf((precondition?.queueTimeoutMinutes ?: 10).toString()) }
+
+    // Initial chain nodes & connections conversion (seamless legacy migration to chained pipeline)
+    val initialNodesAndConns =
+        remember(precondition) {
+            convertLegacyToNodesAndConns(precondition)
+        }
+
+    var chainNodes by remember { mutableStateOf(initialNodesAndConns.first) }
+    var chainConnections by remember { mutableStateOf(initialNodesAndConns.second) }
+
+    var editingChainNode by remember { mutableStateOf<WorkflowNode?>(null) }
+    var showAddNodeDialog by remember { mutableStateOf(false) }
+    var nodePendingDeletion by remember { mutableStateOf<WorkflowNode?>(null) }
 
     LaunchedEffect(precondition) {
-        if (precondition != null) {
-            name = precondition.name
-            selectedType = precondition.type
-            isEnabled = precondition.isEnabled
-            targetUrl = precondition.targetUrl
-            method = precondition.method
-            headers = precondition.headers
-            expectedStatus = precondition.expectedStatus.toString()
-            requiredCarrier = precondition.requiredCarrier
-            credentialId = precondition.credentialId
-            onFailureAction = precondition.onFailureAction
-            maxRetries = precondition.maxRetries.toString()
-            retryIntervalSeconds = precondition.retryIntervalSeconds.toString()
-            showNotificationOnFailure = precondition.showNotificationOnFailure
-        }
+        syncPreconditionState(
+            precondition = precondition,
+            hasNodes = chainNodes.isNotEmpty(),
+            onPreconditionPresent = {
+                name = it.name
+                icon = it.icon
+                isEnabled = it.isEnabled
+                onFailureAction = it.onFailureAction
+                maxRetries = it.maxRetries.toString()
+                retryIntervalSeconds = it.retryIntervalSeconds.toString()
+                retryStrategy = it.retryStrategy
+                queueTimeoutMinutes = it.queueTimeoutMinutes.toString()
+            },
+            onShowAddNode = { showAddNodeDialog = true },
+        )
     }
 
     // Testing state & bottom sheet
+    val testingPreconditionId = remember(precondition?.id) { precondition?.id ?: UUID.randomUUID().toString() }
     var isTestingSheet by remember { mutableStateOf(false) }
     var sheetTestResult by remember { mutableStateOf<PreconditionResult?>(null) }
     var sheetTestSteps by remember { mutableStateOf<List<NodeExecutionStep>>(emptyList()) }
     var showTestStepperSheet by remember { mutableStateOf(false) }
+    var showCancelConfirmDialog by remember { mutableStateOf(false) }
+    var activeTestToken by remember { mutableStateOf(0L) }
 
-    var chainNodes by remember {
-        mutableStateOf(
-            (precondition?.toDomain() as? Precondition.ChainCheck)?.nodes ?: emptyList()
-        )
-    }
-    var chainConnections by remember {
-        mutableStateOf(
-            (precondition?.toDomain() as? Precondition.ChainCheck)?.connections ?: emptyList()
-        )
-    }
-    var editingChainNode by remember { mutableStateOf<WorkflowNode?>(null) }
-    var showAddNodeDialog by remember { mutableStateOf(false) }
-
-    var draggedChainIndex by remember { mutableStateOf<Int?>(null) }
-    var dragChainOffsetY by remember { mutableFloatStateOf(0f) }
-
-    val pipelineJson = remember(chainNodes, chainConnections) {
-        JSONObject().apply {
-            val nodesArr = JSONArray()
-            chainNodes.forEach { node ->
-                nodesArr.put(JSONObject().apply {
-                    put("id", node.id)
-                    put("name", node.name)
-                    put("type", node.type.name)
-                    put("isEnabled", node.isEnabled)
-                    put("configJson", node.configJson)
-                })
-            }
-            put("nodes", nodesArr)
-
-            val connArr = JSONArray()
-            chainConnections.forEach { conn ->
-                connArr.put(JSONObject().apply {
-                    put("fromNodeId", conn.fromNodeId)
-                    put("toNodeId", conn.toNodeId)
-                    put("outputPort", conn.outputPort)
-                })
-            }
-            put("connections", connArr)
-        }.toString()
-    }
-
-    val hasUnsavedChanges = remember(
-        precondition,
-        name,
-        selectedType,
-        isEnabled,
-        targetUrl,
-        method,
-        headers,
-        expectedStatus,
-        requiredCarrier,
-        credentialId,
-        pipelineJson,
-        onFailureAction,
-        maxRetries,
-        retryIntervalSeconds,
-        showNotificationOnFailure
-    ) {
-        if (precondition == null) {
-            name.isNotBlank() ||
-            selectedType != PreconditionType.INTERNET_CHECK.name ||
-            !isEnabled ||
-            onFailureAction != "FAIL_IMMEDIATELY" ||
-            maxRetries != "3" ||
-            retryIntervalSeconds != "30" ||
-            showNotificationOnFailure ||
-            (selectedType == PreconditionType.HEALTH_CHECK.name && (
-                targetUrl != "https://example.com/health" ||
-                method != "GET" ||
-                headers.isNotBlank() ||
-                expectedStatus != "200" ||
-                credentialId.isNotBlank()
-            )) ||
-            (selectedType == PreconditionType.SIM_CHECK.name && requiredCarrier.isNotBlank()) ||
-            (selectedType == PreconditionType.CHAINED_CHECK.name && chainNodes.isNotEmpty())
-        } else {
-            name != precondition.name ||
-            selectedType != precondition.type ||
-            isEnabled != precondition.isEnabled ||
-            targetUrl != precondition.targetUrl ||
-            method != precondition.method ||
-            headers != precondition.headers ||
-            expectedStatus != precondition.expectedStatus.toString() ||
-            requiredCarrier != precondition.requiredCarrier ||
-            credentialId != precondition.credentialId ||
-            onFailureAction != precondition.onFailureAction ||
-            maxRetries != precondition.maxRetries.toString() ||
-            retryIntervalSeconds != precondition.retryIntervalSeconds.toString() ||
-            showNotificationOnFailure != precondition.showNotificationOnFailure ||
-            (selectedType == PreconditionType.CHAINED_CHECK.name && pipelineJson != precondition.pipelineJson)
+    LaunchedEffect(isTestingSheet) {
+        if (!isTestingSheet) {
+            showCancelConfirmDialog = false
         }
     }
+
+    val onCancelOngoingTest: () -> Unit = {
+        activeTestToken += 1L
+        isTestingSheet = false
+        val cancelledSteps =
+            if (sheetTestSteps.isNotEmpty()) {
+                sheetTestSteps.markStepsAsCancelled("Precondition test cancelled by user")
+            } else {
+                listOf(
+                    NodeExecutionStep(
+                        nodeId = testingPreconditionId,
+                        nodeName = name.ifBlank { "Precondition Check" },
+                        nodeType = PreconditionType.CHAINED_CHECK.name,
+                        state = NodeStepState.FAILED,
+                        logMessage = "Precondition test cancelled by user",
+                        errorReason = "Cancelled",
+                        executedAt = System.currentTimeMillis(),
+                        durationMs = 0L,
+                    ),
+                )
+            }
+        sheetTestSteps = cancelledSteps
+        sheetTestResult =
+            PreconditionResult.Failed(
+                reason = "Precondition test cancelled by user",
+                steps = cancelledSteps,
+            )
+        onCancelTestPrecondition?.invoke(testingPreconditionId)
+    }
+
+    val pipelineJson =
+        remember(chainNodes, chainConnections) {
+            buildPipelineJson(chainNodes, chainConnections)
+        }
+
+    val hasUnsavedChanges =
+        remember(
+            precondition,
+            name,
+            icon,
+            isEnabled,
+            pipelineJson,
+            onFailureAction,
+            maxRetries,
+            retryIntervalSeconds,
+            retryStrategy,
+            queueTimeoutMinutes,
+        ) {
+            hasPreconditionChanges(
+                precondition = precondition,
+                name = name,
+                icon = icon,
+                isEnabled = isEnabled,
+                pipelineJson = pipelineJson,
+                onFailureAction = onFailureAction,
+                maxRetries = maxRetries,
+                retryIntervalSeconds = retryIntervalSeconds,
+                retryStrategy = retryStrategy,
+                queueTimeoutMinutes = queueTimeoutMinutes,
+                chainNodesCount = chainNodes.size,
+            )
+        }
 
     BackHandler(enabled = true) {
-        if (isTestingSheet) return@BackHandler
-        if (hasUnsavedChanges) {
-            showDiscardDialog = true
-        } else {
-            onDismiss()
-        }
+        handleDismissRequest(
+            isTesting = isTestingSheet,
+            hasUnsavedChanges = hasUnsavedChanges,
+            onShowDiscard = { showDiscardDialog = true },
+            onDismiss = onDismiss,
+        )
     }
 
-    fun reorderChainNodes(fromIndex: Int, toIndex: Int) {
-        if (fromIndex <= 0 || toIndex <= 0 || fromIndex >= chainNodes.size || toIndex >= chainNodes.size) return
-        val list = chainNodes.toMutableList()
-        val item = list.removeAt(fromIndex)
-        list.add(toIndex, item)
-        chainNodes = list
-
-        val newConns = mutableListOf<WorkflowConnection>()
-        for (i in 0 until list.size - 1) {
-            newConns.add(WorkflowConnection(fromNodeId = list[i].id, toNodeId = list[i + 1].id))
-        }
-        chainConnections = newConns
-    }
-
-    LaunchedEffect(selectedType) {
-        sheetTestResult = null
-        if (selectedType == PreconditionType.CHAINED_CHECK.name) {
-            val hasTrigger = chainNodes.any { it.type == NodeType.MANUAL_TRIGGER }
-            if (!hasTrigger) {
-                val triggerId = UUID.randomUUID().toString()
-                val triggerNode = WorkflowNode(
-                    id = triggerId,
-                    name = "Precondition Test Data",
-                    type = NodeType.MANUAL_TRIGGER,
-                    isEnabled = true,
-                    configJson = JSONObject().apply {
-                        put("testBody", "{\"code\": \"849201\", \"status\": \"active\"}")
-                        put("testSender", "+15551234567")
-                    }.toString()
-                )
-                val restNodes = if (chainNodes.isEmpty()) {
-                    val id1 = UUID.randomUUID().toString()
-                    val id2 = UUID.randomUUID().toString()
-                    val id3 = UUID.randomUUID().toString()
-                    listOf(
-                        WorkflowNode(id = id1, name = "HTTP Request", type = NodeType.HTTP_ACTION, isEnabled = true),
-                        WorkflowNode(id = id2, name = "JSON Parser", type = NodeType.JSON_PARSER, isEnabled = true),
-                        WorkflowNode(id = id3, name = "Condition Check", type = NodeType.CONDITION, isEnabled = true)
-                    )
-                } else chainNodes
-
-                val newNodes = listOf(triggerNode) + restNodes
-                chainNodes = newNodes
-
-                val newConns = mutableListOf<WorkflowConnection>()
-                for (i in 0 until newNodes.size - 1) {
-                    newConns.add(WorkflowConnection(fromNodeId = newNodes[i].id, toNodeId = newNodes[i + 1].id))
-                }
-                chainConnections = newConns
-            }
+    fun reorderStep(index: Int, delta: Int) {
+        computeMovedNodes(chainNodes, index, delta)?.let { (nodes, conns) ->
+            chainNodes = nodes
+            chainConnections = conns
         }
     }
-
-    val typeOptions = listOf(
-        PreconditionType.INTERNET_CHECK.name to "Network / Internet Check",
-        PreconditionType.VPN_CHECK.name to "VPN Check (Tailscale/WireGuard)",
-        PreconditionType.GPS_CHECK.name to "GPS / Location Enabled Check",
-        PreconditionType.SIM_CHECK.name to "SIM Card Active Check",
-        PreconditionType.HEALTH_CHECK.name to "HTTP Healthcheck (Reusing HTTP Node)",
-        PreconditionType.CHAINED_CHECK.name to "Chained Pipeline (HTTP → Parse → Condition)"
-    )
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(if (precondition == null) "Add Precondition" else "Edit Precondition")
+            PreconditionEditorTopBar(
+                isEditing = precondition != null,
+                isTesting = isTestingSheet,
+                hasUnsavedChanges = hasUnsavedChanges,
+                onCloseClick = {
+                    handleDismissRequest(
+                        isTesting = isTestingSheet,
+                        hasUnsavedChanges = hasUnsavedChanges,
+                        onShowDiscard = { showDiscardDialog = true },
+                        onDismiss = onDismiss,
+                    )
+                },
+                onSaveClick = {
+                    keyboardController?.hide()
+                    focusManager.clearFocus()
+                    val error = validatePreconditionSave(name, chainNodes.isNotEmpty())
+                    errorMessage = error
+                    if (error == null) {
+                        showSaveConfirmDialog = true
                     }
                 },
-                navigationIcon = {
-                    IconButton(
-                        onClick = {
-                            if (isTestingSheet) return@IconButton
-                            if (hasUnsavedChanges) {
-                                showDiscardDialog = true
-                            } else {
-                                onDismiss()
-                            }
-                        },
-                        enabled = !isTestingSheet
-                    ) {
-                        Icon(Icons.Default.Close, contentDescription = "Close")
-                    }
-                },
-                actions = {
-                    Button(
-                        onClick = {
-                            keyboardController?.hide()
-                            focusManager.clearFocus()
-                            if (name.isBlank()) {
-                                errorMessage = "Precondition name cannot be blank."
-                                return@Button
-                            }
-                            if (selectedType == PreconditionType.HEALTH_CHECK.name && targetUrl.isBlank()) {
-                                errorMessage = "Healthcheck target URL cannot be blank."
-                                return@Button
-                            }
-                            errorMessage = null
-                            showSaveConfirmDialog = true
-                        },
-                        enabled = hasUnsavedChanges && !isTestingSheet
-                    ) {
-                        Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Save")
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                }
             )
         },
         floatingActionButton = {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                ExtendedFloatingActionButton(
-                    onClick = {
-                        keyboardController?.hide()
-                        focusManager.clearFocus()
-                        if (isTestingSheet) {
-                            showTestStepperSheet = true
-                        } else {
-                            val tempEntity = PreconditionEntity(
-                                id = precondition?.id ?: UUID.randomUUID().toString(),
-                                name = name,
-                                type = selectedType,
-                                isEnabled = isEnabled,
-                                targetUrl = targetUrl,
-                                method = method,
-                                headers = headers,
-                                expectedStatus = expectedStatus.toIntOrNull() ?: 200,
-                                requiredCarrier = requiredCarrier,
-                                credentialId = credentialId,
-                                pipelineJson = if (selectedType == PreconditionType.CHAINED_CHECK.name) pipelineJson else "",
-                                onFailureAction = onFailureAction,
-                                maxRetries = maxRetries.toIntOrNull() ?: 3,
-                                retryIntervalSeconds = retryIntervalSeconds.toIntOrNull() ?: 30,
-                                showNotificationOnFailure = showNotificationOnFailure
-                            )
+            PreconditionEditorFabs(
+                isTesting = isTestingSheet,
+                onTestClick = {
+                    keyboardController?.hide()
+                    focusManager.clearFocus()
+                    handleTestClick(
+                        isTestingSheet = isTestingSheet,
+                        hasNodes = chainNodes.isNotEmpty(),
+                        onShowSheet = { showTestStepperSheet = true },
+                        onError = { errorMessage = it },
+                        onStartTest = {
+                            val runToken = activeTestToken + 1L
+                            activeTestToken = runToken
                             isTestingSheet = true
                             showTestStepperSheet = true
                             sheetTestResult = null
                             sheetTestSteps = emptyList()
-                            onTestPreconditionWithProgress?.invoke(
-                                tempEntity,
-                                { steps -> sheetTestSteps = steps },
-                                { res ->
-                                    isTestingSheet = false
-                                    sheetTestResult = res
-                                }
+                            startPreconditionTest(
+                                preconditionId = testingPreconditionId,
+                                name = name,
+                                isEnabled = isEnabled,
+                                pipelineJson = pipelineJson,
+                                onFailureAction = onFailureAction,
+                                maxRetries = maxRetries,
+                                retryIntervalSeconds = retryIntervalSeconds,
+                                retryStrategy = retryStrategy,
+                                queueTimeoutMinutes = queueTimeoutMinutes,
+                                onTestPreconditionWithProgress = onTestPreconditionWithProgress,
+                                onStepsUpdate = { steps ->
+                                    if (activeTestToken == runToken && isTestingSheet) {
+                                        sheetTestSteps = steps
+                                    }
+                                },
+                                onResult = { res ->
+                                    if (activeTestToken == runToken) {
+                                        isTestingSheet = false
+                                        sheetTestResult = res
+                                        val resSteps =
+                                            when (res) {
+                                                is PreconditionResult.Passed -> res.steps
+                                                is PreconditionResult.Failed -> res.steps
+                                            }
+                                        if (resSteps.isNotEmpty()) {
+                                            sheetTestSteps = resSteps
+                                        }
+                                    }
+                                },
                             )
-                        }
-                    },
-                    icon = {
-                        if (isTestingSheet) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                        } else {
-                            Icon(Icons.Default.PlayArrow, contentDescription = "Test")
-                        }
-                    },
-                    text = { Text(if (isTestingSheet) "Verifying..." else "Test") },
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                )
-
-                if (selectedType == PreconditionType.CHAINED_CHECK.name) {
-                    ExtendedFloatingActionButton(
-                        onClick = { showAddNodeDialog = true },
-                        icon = { Icon(Icons.Default.Add, contentDescription = "Add Step") },
-                        text = { Text("Add Step") },
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                }
-            }
-        },
-        floatingActionButtonPosition = FabPosition.Center
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 20.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Spacer(modifier = Modifier.height(8.dp))
-
-            if (isTestingSheet) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                        Text(
-                            text = "Precondition Verification in Progress... Editing is disabled during test execution.",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
-                }
-            }
-
-            errorMessage?.let { err ->
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.errorContainer,
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = err,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.weight(1f)
-                        )
-                        IconButton(onClick = { errorMessage = null }, modifier = Modifier.size(20.dp)) {
-                            Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = MaterialTheme.colorScheme.onErrorContainer)
-                        }
-                    }
-                }
-            }
-
-            InfoTooltipField(
-                value = name,
-                onValueChange = { name = it },
-                label = "Precondition Name",
-                tooltipText = "Descriptive title identifying this precondition guard rule.",
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                enabled = !isTestingSheet
-            )
-
-            // Direct switch toggle without forced execution
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Precondition Enabled",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Switch(
-                    checked = isEnabled,
-                    onCheckedChange = { isEnabled = it },
-                    enabled = !isTestingSheet
-                )
-            }
-
-            val selectedTypeOption = typeOptions.find { it.first == selectedType } ?: typeOptions.first()
-
-            SearchableDropdownSelector(
-                selectedItemText = selectedTypeOption.second,
-                label = "Precondition Type",
-                searchPlaceholder = "Filter type...",
-                items = typeOptions,
-                itemText = { it.second },
-                onItemSelected = { option ->
-                    if (option != null) selectedType = option.first
-                },
-                showNoneOption = false,
-                tooltipText = "Select the environmental precondition type to evaluate.",
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            FailurePolicyAccordion(
-                onFailureAction = onFailureAction,
-                onFailureActionChanged = { onFailureAction = it },
-                maxRetries = maxRetries,
-                onMaxRetriesChanged = { maxRetries = it },
-                retryIntervalSeconds = retryIntervalSeconds,
-                onRetryIntervalSecondsChanged = { retryIntervalSeconds = it },
-                showNotificationOnFailure = showNotificationOnFailure,
-                onShowNotificationOnFailureChanged = { showNotificationOnFailure = it },
-                onShowNotificationRationale = { showNotificationPermissionRationaleDialog = true }
-            )
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            when (selectedType) {
-                PreconditionType.INTERNET_CHECK.name -> {
-                    Text(
-                        text = "Verifies active Internet connection before executing the node.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                PreconditionType.VPN_CHECK.name -> {
-                    Text(
-                        text = "Verifies active VPN connection (Tailscale, WireGuard, OpenVPN, tun) before executing.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                PreconditionType.GPS_CHECK.name -> {
-                    Text(
-                        text = "Verifies Location permissions (ACCESS_FINE_LOCATION) and checks if GPS/Location hardware is enabled.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                PreconditionType.SIM_CHECK.name -> {
-                    Text(
-                        text = "Verifies Phone state permissions (READ_PHONE_STATE) and checks active SIM card status.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    InfoTooltipField(
-                        value = requiredCarrier,
-                        onValueChange = { requiredCarrier = it },
-                        label = "Required Carrier Name (Optional)",
-                        tooltipText = "Optional cellular carrier name requirement (e.g. Jio, Airtel, T-Mobile).",
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        enabled = !isTestingSheet
-                    )
-                }
-                PreconditionType.HEALTH_CHECK.name -> {
-                    Text(
-                        text = "Reuses HTTP node logic: performs a healthcheck HTTP request to a target server.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    InfoTooltipField(
-                        value = targetUrl,
-                        onValueChange = { targetUrl = it },
-                        label = "Healthcheck Target URL",
-                        tooltipText = "Probe endpoint URL evaluated for HTTP status code response (e.g. https://my-server.com/healthz).",
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        enabled = !isTestingSheet
-                    )
-
-                    InfoTooltipField(
-                        value = method,
-                        onValueChange = { method = it },
-                        label = "HTTP Method (GET, HEAD, POST)",
-                        tooltipText = "HTTP request method used during pre-flight endpoint health probing.",
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        enabled = !isTestingSheet
-                    )
-
-                    InfoTooltipField(
-                        value = expectedStatus,
-                        onValueChange = { expectedStatus = it },
-                        label = "Expected Status Code (Default 200)",
-                        tooltipText = "Expected HTTP response status integer indicating a healthy endpoint (default 200 or 204).",
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        enabled = !isTestingSheet
-                    )
-
-                    InfoTooltipField(
-                        value = headers,
-                        onValueChange = { headers = it },
-                        label = "Headers (Key: Value)",
-                        tooltipText = "Custom HTTP headers included during health probing (e.g. Authorization: Bearer token123).",
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = false,
-                        minLines = 2,
-                        enabled = !isTestingSheet
-                    )
-
-                    val selectedCred = credentials.find { it.id == credentialId }
-                    val selectedCredName = selectedCred?.let { "🔑 ${it.name} (${it.type.name})" } ?: "None (Optional Auth)"
-
-                    SearchableDropdownSelector(
-                        selectedItemText = selectedCredName,
-                        label = "🔑 Attach Saved Credential",
-                        searchPlaceholder = "Search credentials...",
-                        items = credentials,
-                        itemText = { cred -> "🔑 ${cred.name} (${cred.type.name})" },
-                        onItemSelected = { cred ->
-                            credentialId = cred?.id ?: ""
                         },
-                        showNoneOption = true,
-                        noneOptionText = "None",
-                        tooltipText = "Attach saved vault credentials for authenticated HTTP endpoint probing.",
-                        modifier = Modifier.fillMaxWidth()
                     )
-                }
-                PreconditionType.CHAINED_CHECK.name -> {
-                    Text(
-                        text = "Chained Pipeline: Execute an HTTP request, parse data (JSON/Regex), and evaluate with a condition check.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                },
+                onAddStepClick = { showAddNodeDialog = true },
+            )
+        },
+        floatingActionButtonPosition = FabPosition.Center,
+    ) { innerPadding ->
+        PreconditionEditorBody(
+            innerPadding = innerPadding,
+            isTesting = isTestingSheet,
+            onCancelTest = { showCancelConfirmDialog = true },
+            errorMessage = errorMessage,
+            onDismissError = { errorMessage = null },
+            name = name,
+            onNameChange = { name = it },
+            icon = icon,
+            onSelectIconClick = { showIconPicker = true },
+            isEnabled = isEnabled,
+            onEnabledChange = { isEnabled = it },
+            onFailureAction = onFailureAction,
+            onFailureActionChanged = { onFailureAction = it },
+            maxRetries = maxRetries,
+            onMaxRetriesChanged = { maxRetries = it },
+            retryIntervalSeconds = retryIntervalSeconds,
+            onRetryIntervalSecondsChanged = { retryIntervalSeconds = it },
+            retryStrategy = retryStrategy,
+            onRetryStrategyChanged = { retryStrategy = it },
+            queueTimeoutMinutes = queueTimeoutMinutes,
+            onQueueTimeoutMinutesChanged = { queueTimeoutMinutes = it },
+            chainNodes = chainNodes,
+            onAddStep = { showAddNodeDialog = true },
+            onEditStep = { node -> editingChainNode = node },
+            onDeleteStep = { node -> nodePendingDeletion = node },
+            onMoveUp = { index -> reorderStep(index, -1) },
+            onMoveDown = { index -> reorderStep(index, 1) },
+        )
+    }
 
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Text(
-                        text = "Pipeline Steps (${chainNodes.size})",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    var chainCardHeightPx by remember { mutableFloatStateOf(100f) }
-
-                    chainNodes.forEachIndexed { index, node ->
-                        val isTrigger = node.type == NodeType.MANUAL_TRIGGER
-                        val isDragged = draggedChainIndex == index
-                        val dragModifier = if (isDragged) {
-                            Modifier
-                                .zIndex(10f)
-                                .graphicsLayer { translationY = dragChainOffsetY }
-                        } else Modifier
-
-                        val dismissState = rememberSwipeToDismissBoxState(
-                            confirmValueChange = { dismissValue ->
-                                if (dismissValue == SwipeToDismissBoxValue.EndToStart) {
-                                    if (!isTrigger) {
-                                        val newNodes = chainNodes.filterNot { it.id == node.id }
-                                        chainNodes = newNodes
-                                        val newConns = mutableListOf<WorkflowConnection>()
-                                        for (i in 0 until newNodes.size - 1) {
-                                            newConns.add(WorkflowConnection(fromNodeId = newNodes[i].id, toNodeId = newNodes[i + 1].id))
-                                        }
-                                        chainConnections = newConns
-                                    }
-                                    false
-                                } else if (dismissValue == SwipeToDismissBoxValue.StartToEnd) {
-                                    editingChainNode = node
-                                    false
-                                } else false
-                            }
-                        )
-
-                        SwipeToDismissBox(
-                            state = dismissState,
-                            backgroundContent = {
-                                val direction = dismissState.dismissDirection
-                                val color = when {
-                                    direction == SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.secondaryContainer
-                                    direction == SwipeToDismissBoxValue.EndToStart && !isTrigger -> MaterialTheme.colorScheme.errorContainer
-                                    else -> Color.Transparent
-                                }
-                                val alignment = if (direction == SwipeToDismissBoxValue.StartToEnd) Alignment.CenterStart else Alignment.CenterEnd
-                                val icon = if (direction == SwipeToDismissBoxValue.StartToEnd) Icons.Default.Edit else Icons.Default.Delete
-                                val text = if (direction == SwipeToDismissBoxValue.StartToEnd) "Edit" else "Delete"
-                                val tint = if (direction == SwipeToDismissBoxValue.StartToEnd) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onErrorContainer
-
-                                if (direction != SwipeToDismissBoxValue.EndToStart || !isTrigger) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .background(color, shape = RoundedCornerShape(16.dp))
-                                            .padding(horizontal = 24.dp),
-                                        contentAlignment = alignment
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Icon(imageVector = icon, contentDescription = text, tint = tint, modifier = Modifier.size(18.dp))
-                                            Text(text = text, color = tint, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                        }
-                                    }
-                                }
-                            }
-                        ) {
-                            OutlinedCard(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .then(dragModifier)
-                                    .onGloballyPositioned { layoutCoordinates ->
-                                        if (layoutCoordinates.size.height > 0) {
-                                            chainCardHeightPx = layoutCoordinates.size.height.toFloat()
-                                        }
-                                    }
-                                    .clickable(enabled = !isTestingSheet, onClick = { editingChainNode = node }),
-                                shape = RoundedCornerShape(16.dp),
-                                colors = CardDefaults.outlinedCardColors(
-                                    containerColor = if (isDragged) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surface
-                                )
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        if (!isTrigger) {
-                                            Icon(
-                                                imageVector = Icons.Default.DragHandle,
-                                                contentDescription = "Drag to reorder",
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier
-                                                    .size(20.dp)
-                                                    .pointerInput(index, chainNodes.size) {
-                                                        if (!isTestingSheet) {
-                                                            detectDragGesturesAfterLongPress(
-                                                                onDragStart = {
-                                                                    draggedChainIndex = index
-                                                                    dragChainOffsetY = 0f
-                                                                },
-                                                                onDrag = { change, dragAmount ->
-                                                                    change.consume()
-                                                                    dragChainOffsetY += dragAmount.y
-                                                                    val curIdx = draggedChainIndex ?: return@detectDragGesturesAfterLongPress
-                                                                    val threshold = (chainCardHeightPx * 0.5f).coerceAtLeast(40f)
-
-                                                                    if (dragChainOffsetY > threshold && curIdx < chainNodes.size - 1) {
-                                                                        reorderChainNodes(curIdx, curIdx + 1)
-                                                                        draggedChainIndex = curIdx + 1
-                                                                        dragChainOffsetY -= chainCardHeightPx
-                                                                    } else if (dragChainOffsetY < -threshold && curIdx > 1) {
-                                                                        reorderChainNodes(curIdx, curIdx - 1)
-                                                                        draggedChainIndex = curIdx - 1
-                                                                        dragChainOffsetY += chainCardHeightPx
-                                                                    }
-                                                                },
-                                                                onDragEnd = {
-                                                                    draggedChainIndex = null
-                                                                    dragChainOffsetY = 0f
-                                                                },
-                                                                onDragCancel = {
-                                                                    draggedChainIndex = null
-                                                                    dragChainOffsetY = 0f
-                                                                }
-                                                            )
-                                                        }
-                                                    }
-                                            )
-                                        }
-                                        Icon(
-                                            imageVector = WorkflowUiHelper.getNodeIcon(node.type),
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Column {
-                                            Text(
-                                                text = "${index + 1}. ${node.name}",
-                                                style = MaterialTheme.typography.titleSmall,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Text(
-                                                text = if (isTrigger) "Fixed Entry Point" else WorkflowUiHelper.getNodeTitle(node.type),
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                fontSize = 10.sp
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+    PreconditionEditorDialogHost(
+        showTestStepperSheet = showTestStepperSheet,
+        isTestingSheet = isTestingSheet,
+        sheetTestSteps = sheetTestSteps,
+        name = name,
+        onCancelTestStepper = onCancelOngoingTest,
+        onDismissTestStepper = { showTestStepperSheet = false },
+        showCancelConfirmDialog = showCancelConfirmDialog,
+        onConfirmCancelTest = onCancelOngoingTest,
+        onDismissCancelTest = { showCancelConfirmDialog = false },
+        showSaveConfirmDialog = showSaveConfirmDialog,
+        precondition = precondition,
+        icon = icon,
+        isEnabled = isEnabled,
+        pipelineJson = pipelineJson,
+        onFailureAction = onFailureAction,
+        maxRetries = maxRetries,
+        retryIntervalSeconds = retryIntervalSeconds,
+        retryStrategy = retryStrategy,
+        queueTimeoutMinutes = queueTimeoutMinutes,
+        chainNodes = chainNodes,
+        linkedWorkflows = linkedWorkflows,
+        onConfirmSave = {
+            keyboardController?.hide()
+            focusManager.clearFocus()
+            showSaveConfirmDialog = false
+            onSave(it)
+        },
+        onDismissSaveConfirm = { showSaveConfirmDialog = false },
+        editingChainNode = editingChainNode,
+        credentials = credentials,
+        onDismissEditNode = { editingChainNode = null },
+        onSaveEditNode = { updated ->
+            chainNodes = chainNodes.map { if (it.id == updated.id) updated else it }
+            editingChainNode = null
+        },
+        showAddNodeDialog = showAddNodeDialog,
+        onDismissAddNode = { showAddNodeDialog = false },
+        onNodeAdded = { newNode, updatedName, conn ->
+            name = updatedName
+            chainNodes = chainNodes + newNode
+            if (conn != null) {
+                chainConnections = chainConnections + conn
             }
+            showAddNodeDialog = false
+            editingChainNode = newNode
+        },
+        showDiscardDialog = showDiscardDialog,
+        onDismissDiscard = { showDiscardDialog = false },
+        onConfirmDiscard = {
+            showDiscardDialog = false
+            onDismiss()
+        },
+        nodePendingDeletion = nodePendingDeletion,
+        onDismissDeleteStep = { nodePendingDeletion = null },
+        onConfirmDeleteStep = { nodeToDelete ->
+            val (newNodes, newConns) = computeNodesAfterDeletion(chainNodes, nodeToDelete)
+            chainNodes = newNodes
+            chainConnections = newConns
+            nodePendingDeletion = null
+        },
+    )
 
-            Spacer(modifier = Modifier.height(96.dp))
-        }
+    if (showIconPicker) {
+        IconPickerModalBottomSheet(
+            selectedIcon = icon,
+            onIconSelected = { icon = it },
+            onDismiss = { showIconPicker = false },
+            title = "Precondition Icon",
+            subtitle = "Select an icon or emoji for this precondition guard",
+        )
+    }
+}
+
+private inline fun syncPreconditionState(
+    precondition: PreconditionEntity?,
+    hasNodes: Boolean,
+    onPreconditionPresent: (PreconditionEntity) -> Unit,
+    onShowAddNode: () -> Unit,
+) {
+    if (precondition != null) {
+        onPreconditionPresent(precondition)
+    } else if (!hasNodes) {
+        onShowAddNode()
+    }
+}
+
+private fun handleDismissRequest(
+    isTesting: Boolean,
+    hasUnsavedChanges: Boolean,
+    onShowDiscard: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    if (isTesting) return
+    if (hasUnsavedChanges) {
+        onShowDiscard()
+    } else {
+        onDismiss()
+    }
+}
+
+private fun validatePreconditionSave(
+    name: String,
+    hasNodes: Boolean,
+): String? {
+    if (name.isBlank()) return "Precondition name cannot be blank."
+    if (!hasNodes) return "Precondition pipeline must have at least one step."
+    return null
+}
+
+private fun handleTestClick(
+    isTestingSheet: Boolean,
+    hasNodes: Boolean,
+    onShowSheet: () -> Unit,
+    onError: (String) -> Unit,
+    onStartTest: () -> Unit,
+) {
+    if (isTestingSheet) {
+        onShowSheet()
+    } else if (!hasNodes) {
+        onError("Add at least one step to test this precondition pipeline.")
+    } else {
+        onStartTest()
+    }
+}
+
+@Suppress("LongParameterList")
+private fun startPreconditionTest(
+    preconditionId: String?,
+    name: String,
+    isEnabled: Boolean,
+    pipelineJson: String,
+    onFailureAction: String,
+    maxRetries: String,
+    retryIntervalSeconds: String,
+    retryStrategy: String,
+    queueTimeoutMinutes: String,
+    onTestPreconditionWithProgress: ((PreconditionEntity, (List<NodeExecutionStep>) -> Unit, (PreconditionResult) -> Unit) -> Unit)?,
+    onStepsUpdate: (List<NodeExecutionStep>) -> Unit,
+    onResult: (PreconditionResult) -> Unit,
+) {
+    val tempEntity =
+        buildTestingEntity(
+            preconditionId = preconditionId,
+            name = name,
+            isEnabled = isEnabled,
+            pipelineJson = pipelineJson,
+            onFailureAction = onFailureAction,
+            maxRetries = maxRetries,
+            retryIntervalSeconds = retryIntervalSeconds,
+            retryStrategy = retryStrategy,
+            queueTimeoutMinutes = queueTimeoutMinutes,
+        )
+    onTestPreconditionWithProgress?.invoke(tempEntity, onStepsUpdate, onResult)
+}
+
+private fun computeMovedNodes(
+    chainNodes: List<WorkflowNode>,
+    index: Int,
+    delta: Int,
+): Pair<List<WorkflowNode>, List<WorkflowConnection>>? {
+    val target = index + delta
+    if (target < 0 || target >= chainNodes.size) return null
+    return reorderChainNodesList(chainNodes, index, target)
+}
+
+private fun computeNodesAfterDeletion(
+    chainNodes: List<WorkflowNode>,
+    nodeToDelete: WorkflowNode,
+): Pair<List<WorkflowNode>, List<WorkflowConnection>> {
+    val newNodes = chainNodes.filterNot { it.id == nodeToDelete.id }
+    val newConns = mutableListOf<WorkflowConnection>()
+    for (i in 0 until newNodes.size - 1) {
+        newConns.add(WorkflowConnection(fromNodeId = newNodes[i].id, toNodeId = newNodes[i + 1].id))
+    }
+    return newNodes to newConns
+}
+
+@Suppress("LongParameterList")
+@Composable
+private fun PreconditionEditorDialogHost(
+    showTestStepperSheet: Boolean,
+    isTestingSheet: Boolean,
+    sheetTestSteps: List<NodeExecutionStep>,
+    name: String,
+    onCancelTestStepper: (() -> Unit)? = null,
+    onDismissTestStepper: () -> Unit,
+    showCancelConfirmDialog: Boolean,
+    onConfirmCancelTest: () -> Unit,
+    onDismissCancelTest: () -> Unit,
+    showSaveConfirmDialog: Boolean,
+    precondition: PreconditionEntity?,
+    icon: String,
+    isEnabled: Boolean,
+    pipelineJson: String,
+    onFailureAction: String,
+    maxRetries: String,
+    retryIntervalSeconds: String,
+    retryStrategy: String,
+    queueTimeoutMinutes: String,
+    chainNodes: List<WorkflowNode>,
+    linkedWorkflows: List<Workflow>,
+    onConfirmSave: (PreconditionEntity) -> Unit,
+    onDismissSaveConfirm: () -> Unit,
+    editingChainNode: WorkflowNode?,
+    credentials: List<Credential>,
+    onDismissEditNode: () -> Unit,
+    onSaveEditNode: (WorkflowNode) -> Unit,
+    showAddNodeDialog: Boolean,
+    onDismissAddNode: () -> Unit,
+    onNodeAdded: (WorkflowNode, String, WorkflowConnection?) -> Unit,
+    showDiscardDialog: Boolean,
+    onDismissDiscard: () -> Unit,
+    onConfirmDiscard: () -> Unit,
+    nodePendingDeletion: WorkflowNode?,
+    onDismissDeleteStep: () -> Unit,
+    onConfirmDeleteStep: (WorkflowNode) -> Unit,
+) {
+    if (showCancelConfirmDialog && isTestingSheet) {
+        CancelExecutionConfirmDialog(
+            targetName = name.ifBlank { "Precondition Test" },
+            onConfirm = onConfirmCancelTest,
+            onDismiss = onDismissCancelTest,
+        )
     }
 
     if (showTestStepperSheet) {
@@ -861,462 +583,827 @@ fun PreconditionEditorScreen(
             preconditionName = name.ifBlank { "Precondition Test" },
             steps = sheetTestSteps,
             isTesting = isTestingSheet,
-            onDismiss = { showTestStepperSheet = false }
+            onCancelExecution = onCancelTestStepper,
+            onDismiss = onDismissTestStepper,
         )
     }
 
     if (showSaveConfirmDialog) {
-        val nameChanged = name != (precondition?.name ?: "")
-        val typeChanged = selectedType != (precondition?.type ?: PreconditionType.INTERNET_CHECK.name)
-        val enabledChanged = isEnabled != (precondition?.isEnabled ?: true)
-        val targetUrlChanged = targetUrl != (precondition?.targetUrl ?: "https://example.com/health")
-        val retryPolicyChanged = onFailureAction != (precondition?.onFailureAction ?: "FAIL_IMMEDIATELY") ||
-            maxRetries != (precondition?.maxRetries?.toString() ?: "3") ||
-            retryIntervalSeconds != (precondition?.retryIntervalSeconds?.toString() ?: "30") ||
-            showNotificationOnFailure != (precondition?.showNotificationOnFailure ?: false)
-        val originalChainIds = (precondition?.toDomain() as? Precondition.ChainCheck)?.nodes?.map { it.id }?.toSet() ?: emptySet()
-        val currentChainIds = chainNodes.map { it.id }.toSet()
-        val addedSteps = chainNodes.filter { !originalChainIds.contains(it.id) }
-        val removedSteps = (precondition?.toDomain() as? Precondition.ChainCheck)?.nodes?.filter { !currentChainIds.contains(it.id) } ?: emptyList()
-
-        AlertDialog(
-            onDismissRequest = { showSaveConfirmDialog = false },
-            title = { Text("Confirm Precondition Changes") },
-            text = {
-                Column(
-                    modifier = Modifier.verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (linkedWorkflows.isNotEmpty()) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.errorContainer,
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Text(
-                                    text = "⚠️ WARNING: Precondition In Use!",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onErrorContainer
-                                )
-                                Text(
-                                    text = "This precondition is currently attached to ${linkedWorkflows.size} workflow(s):",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onErrorContainer
-                                )
-                                linkedWorkflows.forEach { wf ->
-                                    Text("• ${wf.name}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onErrorContainer, fontSize = 12.sp)
-                                }
-                                Text(
-                                    text = "Saving these changes will immediately modify execution behavior across these workflows.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onErrorContainer
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                    }
-
-                    Text("Here is a summary of new changes to be saved:")
-                    if (nameChanged) {
-                        Text("• Name: '${precondition?.name ?: ""}' → '$name'", fontWeight = FontWeight.Bold)
-                    }
-                    if (typeChanged) {
-                        Text("• Type: ${precondition?.type ?: ""} → $selectedType", fontWeight = FontWeight.Bold)
-                    }
-                    if (enabledChanged) {
-                        Text("• Enabled: $isEnabled")
-                    }
-                    if (targetUrlChanged) {
-                        Text("• Target URL updated")
-                    }
-                    if (retryPolicyChanged) {
-                        Text("• Failure & Retry Policy updated:", fontWeight = FontWeight.Bold)
-                        Text("  - Action: $onFailureAction (was ${precondition?.onFailureAction ?: "FAIL_IMMEDIATELY"})")
-                        Text("  - Max Retries: $maxRetries (was ${precondition?.maxRetries ?: 3})")
-                        Text("  - Retry Interval: ${retryIntervalSeconds}s (was ${precondition?.retryIntervalSeconds ?: 30}s)")
-                        Text("  - Notification Alert: $showNotificationOnFailure (was ${precondition?.showNotificationOnFailure ?: false})")
-                    }
-                    if (addedSteps.isNotEmpty()) {
-                        Text("• Added Pipeline Steps (${addedSteps.size}):", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                        addedSteps.forEach {
-                            Text("  + ${it.name} [${it.type.name}]", fontFamily = FontFamily.Monospace, fontSize = 11.sp)
-                        }
-                    }
-                    if (removedSteps.isNotEmpty()) {
-                        Text("• Removed Pipeline Steps (${removedSteps.size}):", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
-                        removedSteps.forEach {
-                            Text("  - ${it.name} [${it.type.name}]", fontFamily = FontFamily.Monospace, fontSize = 11.sp)
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        keyboardController?.hide()
-                        focusManager.clearFocus()
-                        showSaveConfirmDialog = false
-                        val entity = (precondition ?: PreconditionEntity(
-                            id = UUID.randomUUID().toString(),
-                            name = name,
-                            type = selectedType
-                        )).copy(
-                            name = name,
-                            type = selectedType,
-                            isEnabled = isEnabled,
-                            targetUrl = targetUrl,
-                            method = method,
-                            headers = headers,
-                            expectedStatus = expectedStatus.toIntOrNull() ?: 200,
-                            requiredCarrier = requiredCarrier,
-                            credentialId = credentialId,
-                            pipelineJson = if (selectedType == PreconditionType.CHAINED_CHECK.name) pipelineJson else "",
-                            onFailureAction = onFailureAction,
-                            maxRetries = maxRetries.toIntOrNull() ?: 3,
-                            retryIntervalSeconds = retryIntervalSeconds.toIntOrNull() ?: 30,
-                            showNotificationOnFailure = showNotificationOnFailure,
-                            updatedAt = System.currentTimeMillis()
-                        )
-                        onSave(entity)
-                    }
-                ) {
-                    Text("Confirm & Save")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showSaveConfirmDialog = false }) {
-                    Text("Cancel")
-                }
-            }
+        PreconditionSaveConfirmDialogWrapper(
+            precondition = precondition,
+            name = name,
+            icon = icon,
+            isEnabled = isEnabled,
+            pipelineJson = pipelineJson,
+            onFailureAction = onFailureAction,
+            maxRetries = maxRetries,
+            retryIntervalSeconds = retryIntervalSeconds,
+            retryStrategy = retryStrategy,
+            queueTimeoutMinutes = queueTimeoutMinutes,
+            chainNodes = chainNodes,
+            linkedWorkflows = linkedWorkflows,
+            onConfirmSave = onConfirmSave,
+            onDismiss = onDismissSaveConfirm,
         )
     }
 
-    if (showNotificationPermissionRationaleDialog) {
-        AlertDialog(
-            onDismissRequest = { showNotificationPermissionRationaleDialog = false },
-            title = { Text("Notification Permission Required") },
-            text = {
-                Text("To display failure notifications for precondition checks, please enable notifications in the app's settings.")
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showNotificationPermissionRationaleDialog = false
-                        try {
-                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                data = Uri.fromParts("package", localContext.packageName, null)
-                            }
-                            localContext.startActivity(intent)
-                        } catch (_: Exception) {}
-                    }
-                ) {
-                    Text("Open Settings")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showNotificationPermissionRationaleDialog = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
+    PreconditionNodeConfigWrapper(
+        node = editingChainNode,
+        credentials = credentials,
+        onDismiss = onDismissEditNode,
+        onSave = onSaveEditNode,
+    )
 
-    editingChainNode?.let { node ->
-        NodeConfigBottomSheet(
-            node = node,
-            credentials = credentials,
-            vaultPreconditions = emptyList(),
-            showPreconditionsGuard = false,
-            onDismiss = { editingChainNode = null },
-            onSave = { updated ->
-                chainNodes = chainNodes.map { if (it.id == updated.id) updated else it }
-                editingChainNode = null
-            }
-        )
-    }
-
-    if (showAddNodeDialog) {
-        AddChainNodeDialog(
-            onDismiss = { showAddNodeDialog = false },
-            onSelectType = { type ->
-                val newNodeId = UUID.randomUUID().toString()
-                val newNode = WorkflowNode(
-                    id = newNodeId,
-                    name = WorkflowUiHelper.getNodeTitle(type),
-                    type = type,
-                    isEnabled = true
-                )
-                val lastId = chainNodes.lastOrNull()?.id
-                chainNodes = chainNodes + newNode
-                if (lastId != null) {
-                    chainConnections = chainConnections + WorkflowConnection(fromNodeId = lastId, toNodeId = newNodeId)
-                }
-                showAddNodeDialog = false
-                editingChainNode = newNode
-            }
-        )
-    }
+    AddChainNodeDialogWrapper(
+        showDialog = showAddNodeDialog,
+        hasExistingNodes = chainNodes.isNotEmpty(),
+        currentName = name,
+        lastNodeId = chainNodes.lastOrNull()?.id,
+        onDismiss = onDismissAddNode,
+        onNodeAdded = onNodeAdded,
+    )
 
     if (showDiscardDialog) {
-        AlertDialog(
-            onDismissRequest = { showDiscardDialog = false },
-            title = { Text("Discard Changes?") },
-            text = { Text("You have unsaved changes in this precondition. Are you sure you want to discard them?") },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showDiscardDialog = false
-                        onDismiss()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) {
-                    Text("Discard")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDiscardDialog = false }) {
-                    Text("Keep Editing")
-                }
-            }
+        PreconditionDiscardDialog(
+            onDismissRequest = onDismissDiscard,
+            onConfirmDiscard = onConfirmDiscard,
         )
+    }
+
+    nodePendingDeletion?.let { nodeToDelete ->
+        if (chainNodes.firstOrNull()?.id == nodeToDelete.id) {
+            onDismissDeleteStep()
+        } else {
+            PreconditionDeleteStepDialog(
+                nodeName = nodeToDelete.name,
+                onDismissRequest = onDismissDeleteStep,
+                onConfirmDelete = { onConfirmDeleteStep(nodeToDelete) },
+            )
+        }
+    }
+}
+
+private fun convertLegacyToNodesAndConns(
+    precondition: PreconditionEntity?,
+): Pair<List<WorkflowNode>, List<WorkflowConnection>> {
+    if (precondition == null) return emptyList<WorkflowNode>() to emptyList<WorkflowConnection>()
+    val domain = precondition.toDomain()
+    if (domain is Precondition.ChainCheck && domain.nodes.isNotEmpty()) {
+        return domain.nodes to domain.connections
+    }
+    return when (precondition.type) {
+        PreconditionType.VPN_CHECK.name -> {
+            val id = UUID.randomUUID().toString()
+            listOf(
+                WorkflowNode(
+                    id = id,
+                    name = "VPN Check",
+                    type = NodeType.VPN_CHECK,
+                    isEnabled = true,
+                    configJson = WorkflowUiHelper.getDefaultConfigForType(NodeType.VPN_CHECK),
+                ),
+            ) to emptyList()
+        }
+        PreconditionType.GPS_CHECK.name -> {
+            val id = UUID.randomUUID().toString()
+            listOf(
+                WorkflowNode(
+                    id = id,
+                    name = "GPS Location Check",
+                    type = NodeType.GPS_CHECK,
+                    isEnabled = true,
+                    configJson = WorkflowUiHelper.getDefaultConfigForType(NodeType.GPS_CHECK),
+                ),
+            ) to emptyList()
+        }
+        PreconditionType.BATTERY_CHECK.name -> {
+            val id = UUID.randomUUID().toString()
+            listOf(
+                WorkflowNode(
+                    id = id,
+                    name = "Battery Level Check",
+                    type = NodeType.BATTERY_CHECK,
+                    isEnabled = true,
+                    configJson =
+                        buildJsonObject {
+                            val defaults = parseJsonObjectSafe(WorkflowUiHelper.getDefaultConfigForType(NodeType.BATTERY_CHECK))
+                            for ((k, v) in defaults) put(k, v)
+                            if (precondition.minBatteryPercent > 0) {
+                                put("minBatteryPercent", precondition.minBatteryPercent.toString())
+                            }
+                            put("requireCharging", precondition.requireCharging.toString())
+                        }.toString(),
+                ),
+            ) to emptyList()
+        }
+        PreconditionType.SIM_CHECK.name -> {
+            val id = UUID.randomUUID().toString()
+            listOf(
+                WorkflowNode(
+                    id = id,
+                    name = "SIM Card Check",
+                    type = NodeType.SIM_CHECK,
+                    isEnabled = true,
+                    configJson =
+                        buildJsonObject {
+                            val defaults = parseJsonObjectSafe(WorkflowUiHelper.getDefaultConfigForType(NodeType.SIM_CHECK))
+                            for ((k, v) in defaults) put(k, v)
+                            if (precondition.requiredCarrier.isNotBlank()) {
+                                put("requiredCarrier", precondition.requiredCarrier)
+                            }
+                        }.toString(),
+                ),
+            ) to emptyList()
+        }
+        PreconditionType.HEALTH_CHECK.name -> {
+            val httpId = UUID.randomUUID().toString()
+            val condId = UUID.randomUUID().toString()
+            val httpNode =
+                WorkflowNode(
+                    id = httpId,
+                    name = "HTTP Health Probe",
+                    type = NodeType.HTTP_ACTION,
+                    isEnabled = true,
+                    configJson =
+                        buildJsonObject {
+                            put("url", precondition.targetUrl.ifBlank { "https://example.com/health" })
+                            put("method", precondition.method.ifBlank { "GET" })
+                            put("headers", precondition.headers)
+                            if (precondition.credentialId.isNotBlank()) put("credentialId", precondition.credentialId)
+                        }.toString(),
+                )
+            val condNode =
+                WorkflowNode(
+                    id = condId,
+                    name = "Expected Status Check",
+                    type = NodeType.CONDITION,
+                    isEnabled = true,
+                    configJson =
+                        buildJsonObject {
+                            put("variable", "http_status")
+                            put("operator", "EQUALS")
+                            put("value", precondition.expectedStatus.toString())
+                        }.toString(),
+                )
+            listOf(httpNode, condNode) to listOf(WorkflowConnection(fromNodeId = httpId, toNodeId = condId))
+        }
+        else -> {
+            val id = UUID.randomUUID().toString()
+            listOf(
+                WorkflowNode(
+                    id = id,
+                    name = "Internet & Network Check",
+                    type = NodeType.INTERNET_CHECK,
+                    isEnabled = true,
+                    configJson = WorkflowUiHelper.getDefaultConfigForType(NodeType.INTERNET_CHECK),
+                ),
+            ) to emptyList()
+        }
     }
 }
 
 @Composable
-fun FailurePolicyAccordion(
+private fun PreconditionMetaFields(
+    name: String,
+    onNameChange: (String) -> Unit,
+    icon: String,
+    onSelectIconClick: () -> Unit,
+    isEnabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+    isTesting: Boolean,
     onFailureAction: String,
     onFailureActionChanged: (String) -> Unit,
     maxRetries: String,
     onMaxRetriesChanged: (String) -> Unit,
     retryIntervalSeconds: String,
     onRetryIntervalSecondsChanged: (String) -> Unit,
-    showNotificationOnFailure: Boolean,
-    onShowNotificationOnFailureChanged: (Boolean) -> Unit,
-    onShowNotificationRationale: () -> Unit = {}
+    retryStrategy: String,
+    onRetryStrategyChanged: (String) -> Unit,
+    queueTimeoutMinutes: String,
+    onQueueTimeoutMinutesChanged: (String) -> Unit,
 ) {
-    var expanded by remember { mutableStateOf(false) }
-
-    OutlinedCard(
+    Row(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+        IconSelectorBadge(
+            selectedIcon = icon,
+            onClick = onSelectIconClick,
+            enabled = !isTesting,
+        )
+        InfoTooltipField(
+            value = name,
+            onValueChange = onNameChange,
+            label = "Precondition Name",
+            tooltipText = "Descriptive title identifying this precondition guard rule.",
+            modifier = Modifier.weight(1f),
+            singleLine = true,
+            enabled = !isTesting,
+        )
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "Precondition Enabled",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Switch(
+            checked = isEnabled,
+            onCheckedChange = onEnabledChange,
+            enabled = !isTesting,
+        )
+    }
+
+    Spacer(modifier = Modifier.height(4.dp))
+
+    FailurePolicyAccordion(
+        onFailureAction = onFailureAction,
+        onFailureActionChanged = onFailureActionChanged,
+        maxRetries = maxRetries,
+        onMaxRetriesChanged = onMaxRetriesChanged,
+        retryIntervalSeconds = retryIntervalSeconds,
+        onRetryIntervalSecondsChanged = onRetryIntervalSecondsChanged,
+        retryStrategy = retryStrategy,
+        onRetryStrategyChanged = onRetryStrategyChanged,
+        queueTimeoutMinutes = queueTimeoutMinutes,
+        onQueueTimeoutMinutesChanged = onQueueTimeoutMinutesChanged,
+    )
+}
+
+@Composable
+private fun PreconditionPipelineStepsSection(
+    chainNodes: List<WorkflowNode>,
+    isTesting: Boolean,
+    onAddStep: () -> Unit,
+    onEditStep: (WorkflowNode) -> Unit,
+    onDeleteStep: (WorkflowNode) -> Unit,
+    onMoveUp: (Int) -> Unit,
+    onMoveDown: (Int) -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { expanded = !expanded },
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            Column {
+                Text(
+                    text = "Pipeline Steps (${chainNodes.size})",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = "Sequential check pipeline. Can be a single check node or multi-node chained checks.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        if (chainNodes.isEmpty()) {
+            OutlinedCard(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface),
             ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
+                    Text(
+                        text = "No pipeline check steps configured.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Column {
-                        Text(
-                            text = "Failure & Retry Policy",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                        val actionDesc = if (onFailureAction == "RETRY") "Wait & Retry ($maxRetries attempts)" else "Fail Immediately"
-                        Text(
-                            text = if (expanded) "Configure retry attempts and failure response" else actionDesc,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                    Text(
+                        text = "Add at least one check step (e.g. Internet Check, GPS Check, Battery Check, or HTTP Action).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Button(onClick = onAddStep) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Add First Step")
+                    }
+                }
+            }
+        } else {
+            chainNodes.forEachIndexed { index, node ->
+                val isLast = index == chainNodes.size - 1
+                val isRootNode = index == 0
+
+                androidx.compose.runtime.key(node.id) {
+                    PreconditionChainNodeItem(
+                        node = node,
+                        index = index,
+                        isRootNode = isRootNode,
+                        isLast = isLast,
+                        isTesting = isTesting,
+                        onEdit = { onEditStep(node) },
+                        onDelete = { onDeleteStep(node) },
+                        onMoveUp = { onMoveUp(index) },
+                        onMoveDown = { onMoveDown(index) },
+                    )
+                }
+
+                if (!isLast) {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowDown,
+                            contentDescription = "Next Step",
+                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                            modifier = Modifier.size(18.dp),
                         )
                     }
                 }
-                IconButton(onClick = { expanded = !expanded }) {
-                    Icon(
-                        imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                        contentDescription = if (expanded) "Collapse" else "Expand"
-                    )
-                }
-            }
-
-            if (expanded) {
-                Spacer(modifier = Modifier.height(4.dp))
-                FailurePolicyCard(
-                    onFailureAction = onFailureAction,
-                    onFailureActionChanged = onFailureActionChanged,
-                    maxRetries = maxRetries,
-                    onMaxRetriesChanged = onMaxRetriesChanged,
-                    retryIntervalSeconds = retryIntervalSeconds,
-                    onRetryIntervalSecondsChanged = onRetryIntervalSecondsChanged,
-                    showNotificationOnFailure = showNotificationOnFailure,
-                    onShowNotificationOnFailureChanged = onShowNotificationOnFailureChanged,
-                    onShowNotificationRationale = onShowNotificationRationale
-                )
             }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddChainNodeDialog(
-    onDismiss: () -> Unit,
-    onSelectType: (NodeType) -> Unit
+private fun PreconditionEditorTopBar(
+    isEditing: Boolean,
+    isTesting: Boolean,
+    hasUnsavedChanges: Boolean,
+    onCloseClick: () -> Unit,
+    onSaveClick: () -> Unit,
 ) {
-    val extractionNodes = listOf(
-        NodeType.JSON_PARSER,
-        NodeType.REGEX_PARSER,
-        NodeType.TEMPLATE_FORMATTER,
-        NodeType.PARSE_NOTIFICATION
-    )
-
-    val logicNodes = listOf(
-        NodeType.CONDITION
-    )
-
-    val actionNodes = listOf(
-        NodeType.HTTP_ACTION,
-        NodeType.NTFY_ACTION,
-        NodeType.GOTIFY_ACTION,
-        NodeType.SEND_NOTIFICATION_ACTION,
-        NodeType.SEND_SMS_ACTION
-    )
-
-    NoSwipeBottomSheet(
-        onDismissRequest = onDismiss
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 16.dp)
-        ) {
+    TopAppBar(
+        title = {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 16.dp, bottom = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(
-                    text = "Select Pipeline Step Node",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, contentDescription = "Close")
-                }
+                Text(if (isEditing) "Edit Precondition" else "Add Precondition")
             }
-
-            Column(
-                modifier = Modifier
-                    .weight(1f, fill = false)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+        },
+        navigationIcon = {
+            IconButton(
+                onClick = onCloseClick,
+                enabled = !isTesting,
             ) {
-                Text(
-                    text = "Extraction & Parsing",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                extractionNodes.forEach { type ->
-                    NodeSelectionCard(type = type, onClick = { onSelectType(type) })
-                }
-
-                Text(
-                    text = "Logic & Filtering",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                logicNodes.forEach { type ->
-                    NodeSelectionCard(type = type, onClick = { onSelectType(type) })
-                }
-
-                Text(
-                    text = "Actions & Delivery",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                actionNodes.forEach { type ->
-                    NodeSelectionCard(type = type, onClick = { onSelectType(type) })
-                }
+                Icon(Icons.Default.Close, contentDescription = "Close")
             }
-        }
-    }
+        },
+        actions = {
+            Button(
+                onClick = onSaveClick,
+                enabled = hasUnsavedChanges && !isTesting,
+            ) {
+                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Save")
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+        },
+    )
 }
 
 @Composable
-fun NodeSelectionCard(
-    type: NodeType,
-    onClick: () -> Unit
+private fun PreconditionEditorFabs(
+    isTesting: Boolean,
+    onTestClick: () -> Unit,
+    onAddStepClick: () -> Unit,
 ) {
-    OutlinedCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        colors = CardDefaults.outlinedCardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        )
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Row(
-            modifier = Modifier.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Icon(
-                imageVector = WorkflowUiHelper.getNodeIcon(type),
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary
-            )
-            Column {
-                Text(
-                    text = WorkflowUiHelper.getNodeTitle(type),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = WorkflowUiHelper.getNodeDescription(type),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
+        ExtendedFloatingActionButton(
+            onClick = onTestClick,
+            icon = {
+                if (isTesting) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Default.PlayArrow, contentDescription = "Test")
+                }
+            },
+            text = { Text(if (isTesting) "Verifying..." else "Test") },
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+
+        ExtendedFloatingActionButton(
+            onClick = onAddStepClick,
+            icon = { Icon(Icons.Default.Add, contentDescription = "Add Step") },
+            text = { Text("Add Step") },
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        )
     }
 }
 
-/**
- * Modal Bottom Sheet container wrapper for creating or editing Precondition entities.
- */
 @Composable
-fun PreconditionBottomSheet(
+private fun PreconditionDiscardDialog(
+    onDismissRequest: () -> Unit,
+    onConfirmDiscard: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismissRequest,
+        title = { Text("Discard Changes?") },
+        text = { Text("You have unsaved changes in this precondition. Are you sure you want to discard them?") },
+        confirmButton = {
+            Button(
+                onClick = onConfirmDiscard,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+            ) {
+                Text("Discard")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismissRequest) {
+                Text("Keep Editing")
+            }
+        },
+    )
+}
+
+@Composable
+private fun PreconditionDeleteStepDialog(
+    nodeName: String,
+    onDismissRequest: () -> Unit,
+    onConfirmDelete: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismissRequest,
+        title = { Text("Delete Pipeline Step") },
+        text = { Text("Are you sure you want to delete '$nodeName'? This action cannot be undone.") },
+        confirmButton = {
+            Button(
+                onClick = onConfirmDelete,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+            ) {
+                Text("Delete")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismissRequest) {
+                Text("Cancel")
+            }
+        },
+    )
+}
+
+private fun buildPipelineJson(
+    chainNodes: List<WorkflowNode>,
+    chainConnections: List<WorkflowConnection>,
+): String = AppJson.encodeToString(WorkflowGraph(nodes = chainNodes, connections = chainConnections))
+
+private fun hasPreconditionChanges(
     precondition: PreconditionEntity?,
-    credentials: List<Credential> = emptyList(),
-    onTestPreconditionWithProgress: ((PreconditionEntity, (List<NodeExecutionStep>) -> Unit, (PreconditionResult) -> Unit) -> Unit)? = null,
-    onDismiss: () -> Unit,
-    onSave: (PreconditionEntity) -> Unit
-) {
-    NoSwipeBottomSheet(
-        onDismissRequest = onDismiss
-    ) {
-        PreconditionEditorScreen(
-            precondition = precondition,
-            credentials = credentials,
-            onTestPreconditionWithProgress = onTestPreconditionWithProgress,
-            onDismiss = onDismiss,
-            onSave = onSave
-        )
+    name: String,
+    icon: String,
+    isEnabled: Boolean,
+    pipelineJson: String,
+    onFailureAction: String,
+    maxRetries: String,
+    retryIntervalSeconds: String,
+    retryStrategy: String,
+    queueTimeoutMinutes: String,
+    chainNodesCount: Int,
+): Boolean {
+    if (precondition == null) {
+        return name.isNotBlank() ||
+            icon.isNotBlank() ||
+            !isEnabled ||
+            onFailureAction != "FAIL_IMMEDIATELY" ||
+            maxRetries != "3" ||
+            retryIntervalSeconds != "30" ||
+            retryStrategy != "FIXED" ||
+            queueTimeoutMinutes != "10" ||
+            chainNodesCount > 0
     }
+    return name != precondition.name ||
+        icon != precondition.icon ||
+        isEnabled != precondition.isEnabled ||
+        onFailureAction != precondition.onFailureAction ||
+        maxRetries != precondition.maxRetries.toString() ||
+        retryIntervalSeconds != precondition.retryIntervalSeconds.toString() ||
+        retryStrategy != precondition.retryStrategy ||
+        queueTimeoutMinutes != precondition.queueTimeoutMinutes.toString() ||
+        pipelineJson != precondition.pipelineJson
+}
+
+@Composable
+private fun PreconditionEditorBody(
+    innerPadding: PaddingValues,
+    isTesting: Boolean,
+    onCancelTest: (() -> Unit)? = null,
+    errorMessage: String?,
+    onDismissError: () -> Unit,
+    name: String,
+    onNameChange: (String) -> Unit,
+    icon: String,
+    onSelectIconClick: () -> Unit,
+    isEnabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+    onFailureAction: String,
+    onFailureActionChanged: (String) -> Unit,
+    maxRetries: String,
+    onMaxRetriesChanged: (String) -> Unit,
+    retryIntervalSeconds: String,
+    onRetryIntervalSecondsChanged: (String) -> Unit,
+    retryStrategy: String,
+    onRetryStrategyChanged: (String) -> Unit,
+    queueTimeoutMinutes: String,
+    onQueueTimeoutMinutesChanged: (String) -> Unit,
+    chainNodes: List<WorkflowNode>,
+    onAddStep: () -> Unit,
+    onEditStep: (WorkflowNode) -> Unit,
+    onDeleteStep: (WorkflowNode) -> Unit,
+    onMoveUp: (Int) -> Unit,
+    onMoveDown: (Int) -> Unit,
+) {
+    Column(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 20.dp)
+                .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (isTesting) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.primaryContainer,
+                shape = RoundedCornerShape(10.dp),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Text(
+                        text = "Precondition Verification in Progress... Editing is disabled during test execution.",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (onCancelTest != null) {
+                        TextButton(
+                            onClick = onCancelTest,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        ) {
+                            Text(
+                                text = "Cancel",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        errorMessage?.let { err ->
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.errorContainer,
+                shape = RoundedCornerShape(8.dp),
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = err,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(onClick = onDismissError, modifier = Modifier.size(20.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = MaterialTheme.colorScheme.onErrorContainer)
+                    }
+                }
+            }
+        }
+
+        PreconditionMetaFields(
+            name = name,
+            onNameChange = onNameChange,
+            icon = icon,
+            onSelectIconClick = onSelectIconClick,
+            isEnabled = isEnabled,
+            onEnabledChange = onEnabledChange,
+            isTesting = isTesting,
+            onFailureAction = onFailureAction,
+            onFailureActionChanged = onFailureActionChanged,
+            maxRetries = maxRetries,
+            onMaxRetriesChanged = onMaxRetriesChanged,
+            retryIntervalSeconds = retryIntervalSeconds,
+            onRetryIntervalSecondsChanged = onRetryIntervalSecondsChanged,
+            retryStrategy = retryStrategy,
+            onRetryStrategyChanged = onRetryStrategyChanged,
+            queueTimeoutMinutes = queueTimeoutMinutes,
+            onQueueTimeoutMinutesChanged = onQueueTimeoutMinutesChanged,
+        )
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        PreconditionPipelineStepsSection(
+            chainNodes = chainNodes,
+            isTesting = isTesting,
+            onAddStep = onAddStep,
+            onEditStep = onEditStep,
+            onDeleteStep = onDeleteStep,
+            onMoveUp = onMoveUp,
+            onMoveDown = onMoveDown,
+        )
+
+        Spacer(modifier = Modifier.height(96.dp))
+    }
+}
+
+@Composable
+private fun PreconditionSaveConfirmDialogWrapper(
+    precondition: PreconditionEntity?,
+    name: String,
+    icon: String,
+    isEnabled: Boolean,
+    pipelineJson: String,
+    onFailureAction: String,
+    maxRetries: String,
+    retryIntervalSeconds: String,
+    retryStrategy: String,
+    queueTimeoutMinutes: String,
+    chainNodes: List<WorkflowNode>,
+    linkedWorkflows: List<Workflow>,
+    onConfirmSave: (PreconditionEntity) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    PreconditionChangesConfirmDialog(
+        precondition = precondition,
+        name = name,
+        icon = icon,
+        isEnabled = isEnabled,
+        onFailureAction = onFailureAction,
+        maxRetries = maxRetries,
+        retryIntervalSeconds = retryIntervalSeconds,
+        retryStrategy = retryStrategy,
+        queueTimeoutMinutes = queueTimeoutMinutes,
+        chainNodes = chainNodes,
+        linkedWorkflows = linkedWorkflows,
+        onConfirm = {
+            val entity =
+                (
+                    precondition ?: PreconditionEntity(
+                        id = UUID.randomUUID().toString(),
+                        name = name,
+                        icon = icon,
+                        type = PreconditionType.CHAINED_CHECK.name,
+                    )
+                ).copy(
+                    name = name,
+                    icon = icon,
+                    type = PreconditionType.CHAINED_CHECK.name,
+                    isEnabled = isEnabled,
+                    pipelineJson = pipelineJson,
+                    onFailureAction = onFailureAction,
+                    maxRetries = maxRetries.toIntOrNull()?.coerceAtLeast(0) ?: 3,
+                    retryIntervalSeconds = retryIntervalSeconds.toIntOrNull()?.coerceAtLeast(1) ?: 30,
+                    retryStrategy = retryStrategy,
+                    queueTimeoutMinutes = queueTimeoutMinutes.toIntOrNull()?.coerceAtLeast(1) ?: 10,
+                    updatedAt = System.currentTimeMillis(),
+                )
+            onConfirmSave(entity)
+        },
+        onDismiss = onDismiss,
+    )
+}
+
+@Composable
+private fun PreconditionNodeConfigWrapper(
+    node: WorkflowNode?,
+    credentials: List<Credential>,
+    onDismiss: () -> Unit,
+    onSave: (WorkflowNode) -> Unit,
+) {
+    if (node == null) return
+    NodeConfigBottomSheet(
+        node = node,
+        credentials = credentials,
+        vaultPreconditions = emptyList(),
+        showPreconditionsGuard = false,
+        onDismiss = onDismiss,
+        onSave = onSave,
+    )
+}
+
+private fun findLinkedWorkflows(
+    workflows: List<Workflow>,
+    preconditionId: String?,
+): List<Workflow> =
+    if (preconditionId == null) {
+        emptyList()
+    } else {
+        workflows.filter { wf ->
+            wf.nodes.any { node -> node.preconditions.any { p -> p.id == preconditionId } }
+        }
+    }
+
+private fun buildTestingEntity(
+    preconditionId: String?,
+    name: String,
+    isEnabled: Boolean,
+    pipelineJson: String,
+    onFailureAction: String,
+    maxRetries: String,
+    retryIntervalSeconds: String,
+    retryStrategy: String,
+    queueTimeoutMinutes: String,
+): PreconditionEntity =
+    PreconditionEntity(
+        id = preconditionId ?: UUID.randomUUID().toString(),
+        name = name.ifBlank { "Precondition Pipeline" },
+        type = PreconditionType.CHAINED_CHECK.name,
+        isEnabled = isEnabled,
+        pipelineJson = pipelineJson,
+        onFailureAction = onFailureAction,
+        maxRetries = maxRetries.toIntOrNull()?.coerceAtLeast(0) ?: 3,
+        retryIntervalSeconds = retryIntervalSeconds.toIntOrNull()?.coerceAtLeast(1) ?: 30,
+        retryStrategy = retryStrategy,
+        queueTimeoutMinutes = queueTimeoutMinutes.toIntOrNull()?.coerceAtLeast(1) ?: 10,
+    )
+
+private fun reorderChainNodesList(
+    chainNodes: List<WorkflowNode>,
+    fromIndex: Int,
+    toIndex: Int,
+): Pair<List<WorkflowNode>, List<WorkflowConnection>> {
+    if (fromIndex !in chainNodes.indices || toIndex !in chainNodes.indices) {
+        return chainNodes to emptyList()
+    }
+    val list = chainNodes.toMutableList()
+    val item = list.removeAt(fromIndex)
+    list.add(toIndex, item)
+    val newConns =
+        (0 until list.size - 1).map { i ->
+            WorkflowConnection(fromNodeId = list[i].id, toNodeId = list[i + 1].id)
+        }
+    return list to newConns
+}
+
+@Composable
+private fun AddChainNodeDialogWrapper(
+    showDialog: Boolean,
+    hasExistingNodes: Boolean,
+    currentName: String,
+    lastNodeId: String?,
+    onDismiss: () -> Unit,
+    onNodeAdded: (WorkflowNode, String, WorkflowConnection?) -> Unit,
+) {
+    if (!showDialog) return
+    AddChainNodeDialog(
+        title = if (!hasExistingNodes) "Select Precondition Check Type" else "Select Pipeline Step Node",
+        isInitialPrecondition = !hasExistingNodes,
+        onDismiss = onDismiss,
+        onSelectType = { type ->
+            val newNodeId = UUID.randomUUID().toString()
+            val defaultConfig = WorkflowUiHelper.getDefaultConfigForType(type)
+            val title = WorkflowUiHelper.getNodeTitle(type)
+            val newNode =
+                WorkflowNode(
+                    id = newNodeId,
+                    name = title,
+                    type = type,
+                    isEnabled = true,
+                    configJson = defaultConfig,
+                )
+            val updatedName =
+                if (currentName == "Precondition Guard" || currentName.isBlank()) {
+                    "$title Guard"
+                } else {
+                    currentName
+                }
+            val conn = lastNodeId?.let { WorkflowConnection(fromNodeId = it, toNodeId = newNodeId) }
+            onNodeAdded(newNode, updatedName, conn)
+        },
+    )
 }

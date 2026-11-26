@@ -35,15 +35,16 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 
 @Composable
-fun rememberAlwaysFloatingInteractionSource(): MutableInteractionSource {
-    return remember {
+fun rememberAlwaysFloatingInteractionSource(): MutableInteractionSource =
+    remember {
         object : MutableInteractionSource {
             override val interactions: Flow<Interaction> = flowOf(FocusInteraction.Focus())
+
             override suspend fun emit(interaction: Interaction) {}
+
             override fun tryEmit(interaction: Interaction): Boolean = true
         }
     }
-}
 
 @Composable
 fun InfoTooltipField(
@@ -58,7 +59,7 @@ fun InfoTooltipField(
     supportingText: String? = null,
     readOnly: Boolean = false,
     enabled: Boolean = true,
-    additionalTrailingIcon: (@Composable () -> Unit)? = null
+    additionalTrailingIcon: (@Composable () -> Unit)? = null,
 ) {
     var showTooltip by remember { mutableStateOf(false) }
     val interactionSource = rememberAlwaysFloatingInteractionSource()
@@ -79,53 +80,55 @@ fun InfoTooltipField(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 additionalTrailingIcon?.invoke()
                 Box(
-                    modifier = Modifier.pointerInput(Unit) {
-                        awaitPointerEventScope {
-                            while (true) {
-                                val event = awaitPointerEvent(PointerEventPass.Initial)
-                                if (event.type == PointerEventType.Press) {
-                                    event.changes.forEach { it.consume() }
-                                    showTooltip = !showTooltip
-                                } else if (event.type == PointerEventType.Release) {
-                                    event.changes.forEach { it.consume() }
+                    modifier =
+                        Modifier.pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                                    if (event.type == PointerEventType.Press) {
+                                        event.changes.forEach { it.consume() }
+                                        showTooltip = !showTooltip
+                                    } else if (event.type == PointerEventType.Release) {
+                                        event.changes.forEach { it.consume() }
+                                    }
                                 }
                             }
-                        }
-                    }
+                        },
                 ) {
                     IconButton(onClick = { showTooltip = !showTooltip }) {
                         Icon(
                             imageVector = Icons.Default.Info,
                             contentDescription = "Field Information",
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = MaterialTheme.colorScheme.primary,
                         )
                     }
 
                     DropdownMenu(
                         expanded = showTooltip,
-                        onDismissRequest = { showTooltip = false }
+                        onDismissRequest = { showTooltip = false },
                     ) {
                         Column(
-                            modifier = Modifier
-                                .widthIn(max = 280.dp)
-                                .padding(12.dp)
+                            modifier =
+                                Modifier
+                                    .widthIn(max = 280.dp)
+                                    .padding(12.dp),
                         ) {
                             Text(
                                 text = label,
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
+                                color = MaterialTheme.colorScheme.primary,
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = tooltipText,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
                 }
             }
-        }
+        },
     )
 }

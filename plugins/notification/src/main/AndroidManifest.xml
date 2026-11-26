@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.zophop.plugin.notification">
+
+    <application>
+        <service android:name=".NotificationNodePluginService" android:exported="false">
+            <intent-filter>
+                <action android:name="dev.zophop.plugin.ACTION_NODE_SERVICE" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>

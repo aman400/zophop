@@ -5,7 +5,12 @@ plugins {
 
 android {
     namespace = "dev.zophop.core.ui"
-    compileSdk = 37
+    compileSdk {
+        version =
+            release(37) {
+                minorApiLevel = 1
+            }
+    }
 
     defaultConfig {
         minSdk = 26
@@ -29,6 +34,8 @@ kotlin {
 
 dependencies {
     implementation(project(":core:model"))
+    api(project(":core:plugin-api"))
+    api(project(":core:engine"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.fragment.ktx)
@@ -42,4 +49,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
 }

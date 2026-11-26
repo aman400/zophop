@@ -32,8 +32,18 @@ jobs:
       - name: Run All Module Unit & Integration Tests
         run: ./gradlew test --stacktrace
 
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug --stacktrace
+      - name: Build Debug APKs & Plugin AARs
+        run: ./gradlew assembleDebug :core:plugin-api:assembleRelease :core:model:assembleRelease --stacktrace
+
+      - name: Upload CI Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: zophop-ci-artifacts
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            external/*/build/outputs/apk/debug/*.apk
+            core/plugin-api/build/outputs/aar/*.aar
+            core/model/build/outputs/aar/*.aar
 
       - name: Upload Test Reports On Failure
         if: failure()

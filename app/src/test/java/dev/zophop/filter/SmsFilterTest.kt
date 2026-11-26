@@ -6,7 +6,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SmsFilterTest {
-
     @Test
     fun testWildcardToRegexConversion() {
         assertEquals("^.*HDFC.*$", SmsFilter.wildcardToRegex("*HDFC*"))
@@ -26,8 +25,8 @@ class SmsFilterTest {
                 sender = "ANY_SENDER",
                 body = "Hello world, any message body text",
                 allowlist = listOf(".*"),
-                keywordRegexStr = ".*"
-            )
+                keywordRegexStr = ".*",
+            ),
         )
     }
 
@@ -45,8 +44,17 @@ class SmsFilterTest {
 
     @Test
     fun testEmptyAllowlist() {
-        assertFalse(SmsFilter.matchesAllowlist("HDFCBK", emptyList()))
-        assertFalse(SmsFilter.matchesAllowlist("HDFCBK", listOf("   ")))
+        // BUG-03 FIX: an empty allowlist now means "match all" (wildcard), so forwarding
+        // is not blocked when no explicit allowlist is configured.
+        assertTrue(
+            "Empty list must match any sender (BUG-03 fix)",
+            SmsFilter.matchesAllowlist("HDFCBK", emptyList()),
+        )
+        // Whitespace-only entries are trimmed and filtered, resulting in an empty list → match all
+        assertTrue(
+            "Whitespace-only entries must match any sender (BUG-03 fix)",
+            SmsFilter.matchesAllowlist("HDFCBK", listOf("   ")),
+        )
     }
 
     @Test
@@ -79,8 +87,8 @@ class SmsFilterTest {
                 sender = "VM-HDFCBK",
                 body = "Your OTP is 654321",
                 allowlist = allowlist,
-                keywordRegexStr = keywordRegex
-            )
+                keywordRegexStr = keywordRegex,
+            ),
         )
 
         // Sender matches but body doesn't -> False
@@ -89,8 +97,8 @@ class SmsFilterTest {
                 sender = "VM-HDFCBK",
                 body = "Welcome to HDFC Bank internet banking",
                 allowlist = allowlist,
-                keywordRegexStr = keywordRegex
-            )
+                keywordRegexStr = keywordRegex,
+            ),
         )
 
         // Body matches but sender doesn't -> False
@@ -99,8 +107,8 @@ class SmsFilterTest {
                 sender = "SPAM-SENDER",
                 body = "Your OTP is 654321",
                 allowlist = allowlist,
-                keywordRegexStr = keywordRegex
-            )
+                keywordRegexStr = keywordRegex,
+            ),
         )
 
         // Neither matches -> False
@@ -109,8 +117,8 @@ class SmsFilterTest {
                 sender = "SPAM-SENDER",
                 body = "Hello World",
                 allowlist = allowlist,
-                keywordRegexStr = keywordRegex
-            )
+                keywordRegexStr = keywordRegex,
+            ),
         )
     }
 }

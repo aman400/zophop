@@ -6,15 +6,15 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class CredentialRepositoryTest {
-
     @Test
     fun testCredentialEntitySerialization() {
-        val cred = Credential(
-            id = "c1",
-            name = "Test Bearer Credential",
-            type = CredentialType.BEARER_TOKEN,
-            dataMap = mapOf("token" to "secret-token-123")
-        )
+        val cred =
+            Credential(
+                id = "c1",
+                name = "Test Bearer Credential",
+                type = CredentialType.BEARER_TOKEN,
+                dataMap = mapOf("token" to "secret-token-123"),
+            )
 
         val entity = CredentialEntity.fromDomain(cred)
         assertEquals("c1", entity.id)

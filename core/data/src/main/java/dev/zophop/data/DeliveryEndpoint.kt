@@ -9,5 +9,5 @@ data class DeliveryEndpoint(
     val serverUrl: String = "",
     val topic: String = "",
     val token: String = "",
-    val isEnabled: Boolean = true
+    val isEnabled: Boolean = true,
 )

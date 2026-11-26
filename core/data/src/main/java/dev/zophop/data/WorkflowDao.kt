@@ -8,7 +8,6 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface WorkflowDao {
-
     @Query("SELECT * FROM workflows ORDER BY updatedAt DESC")
     fun getAllWorkflowsFlow(): Flow<List<WorkflowEntity>>
 
@@ -31,13 +30,31 @@ interface WorkflowDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertExecutionLog(log: WorkflowExecutionLogEntity)
 
+    @Query("SELECT * FROM workflow_execution_logs WHERE id = :id")
+    suspend fun getExecutionLogById(id: String): WorkflowExecutionLogEntity?
+
     @Query("SELECT * FROM workflow_execution_logs ORDER BY timestamp DESC LIMIT :limit")
     fun getRecentExecutionLogsFlow(limit: Int = 50): Flow<List<WorkflowExecutionLogEntity>>
 
     @Query("SELECT * FROM workflow_execution_logs WHERE workflowId = :workflowId ORDER BY timestamp DESC LIMIT :limit")
-    fun getLogsForWorkflowFlow(workflowId: String, limit: Int = 50): Flow<List<WorkflowExecutionLogEntity>>
+    fun getLogsForWorkflowFlow(
+        workflowId: String,
+        limit: Int = 50,
+    ): Flow<List<WorkflowExecutionLogEntity>>
 
-    @Query("DELETE FROM workflow_execution_logs WHERE workflowId = :workflowId")
+    @Query("SELECT * FROM workflow_execution_logs WHERE status = 'QUEUED' ORDER BY timestamp DESC")
+    fun getQueuedWorkflowLogsFlow(): Flow<List<WorkflowExecutionLogEntity>>
+
+    @Query("SELECT * FROM workflow_execution_logs WHERE status = 'QUEUED' ORDER BY timestamp DESC")
+    suspend fun getQueuedWorkflowLogs(): List<WorkflowExecutionLogEntity>
+
+    @Query("SELECT * FROM workflow_execution_logs WHERE status = 'RUNNING' ORDER BY timestamp DESC")
+    suspend fun getRunningWorkflowLogs(): List<WorkflowExecutionLogEntity>
+
+    @Query("DELETE FROM workflow_execution_logs WHERE id = :id")
+    suspend fun deleteExecutionLogById(id: String)
+
+    @Query("DELETE FROM workflow_execution_logs WHERE workflowId = :workflowId AND status != 'QUEUED'")
     suspend fun clearLogsForWorkflow(workflowId: String)
 
     @Query("DELETE FROM workflow_execution_logs")

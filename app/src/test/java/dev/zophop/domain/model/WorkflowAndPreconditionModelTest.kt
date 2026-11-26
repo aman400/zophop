@@ -4,23 +4,22 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.util.UUID
 
 class WorkflowAndPreconditionModelTest {
-
     @Test
     fun testWorkflowModelImmutabilityAndCopy() {
         val node1 = WorkflowNode("n1", "Node 1", NodeType.SMS_TRIGGER)
         val conn1 = WorkflowConnection("n1", "n2")
 
-        val workflow = Workflow(
-            id = "w_123",
-            name = "Test Workflow",
-            description = "Desc",
-            isEnabled = true,
-            nodes = listOf(node1),
-            connections = listOf(conn1)
-        )
+        val workflow =
+            Workflow(
+                id = "w_123",
+                name = "Test Workflow",
+                description = "Desc",
+                isEnabled = true,
+                nodes = listOf(node1),
+                connections = listOf(conn1),
+            )
 
         assertEquals("w_123", workflow.id)
         assertEquals("Test Workflow", workflow.name)
@@ -41,31 +40,40 @@ class WorkflowAndPreconditionModelTest {
         assertEquals("FAIL_IMMEDIATELY", internet.onFailureAction)
         assertEquals(3, internet.maxRetries)
         assertEquals(30, internet.retryIntervalSeconds)
-        assertFalse(internet.showNotificationOnFailure)
 
-        val health = Precondition.HealthCheck(
-            targetUrl = "https://example.com/health",
-            onFailureAction = "RETRY",
-            maxRetries = 5,
-            retryIntervalSeconds = 10,
-            showNotificationOnFailure = true
-        )
+        val health =
+            Precondition.HealthCheck(
+                targetUrl = "https://example.com/health",
+                onFailureAction = "RETRY",
+                maxRetries = 5,
+                retryIntervalSeconds = 10,
+            )
         assertEquals(PreconditionType.HEALTH_CHECK, health.type)
         assertEquals("https://example.com/health", health.targetUrl)
         assertEquals("RETRY", health.onFailureAction)
         assertEquals(5, health.maxRetries)
         assertEquals(10, health.retryIntervalSeconds)
-        assertTrue(health.showNotificationOnFailure)
+
+        val battery =
+            Precondition.BatteryCheck(
+                minBatteryPercent = 20,
+                requireCharging = true,
+            )
+        assertEquals(PreconditionType.BATTERY_CHECK, battery.type)
+        assertEquals(20, battery.minBatteryPercent)
+        assertTrue(battery.requireCharging)
+        assertTrue(battery.isEnabled)
     }
 
     @Test
     fun testCredentialModelDataMap() {
-        val cred = Credential(
-            id = "c_1",
-            name = "Test Token",
-            type = CredentialType.BEARER_TOKEN,
-            dataMap = mapOf("token" to "secret_token_123")
-        )
+        val cred =
+            Credential(
+                id = "c_1",
+                name = "Test Token",
+                type = CredentialType.BEARER_TOKEN,
+                dataMap = mapOf("token" to "secret_token_123"),
+            )
 
         assertEquals("c_1", cred.id)
         assertEquals("Test Token", cred.name)

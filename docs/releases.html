@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZopHop Release Guide — APKs, Telegram Plugin &amp; JitPack SDK</title>
+  <meta name="description" content="Build signed ZopHop release APKs, Telegram external plugin APKs, Plugin SDK AARs, and distribute public SDK artifacts via JitPack and GitHub Releases.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/svg+xml" href="assets/app-icon.svg">
+  <link rel="stylesheet" href="styles.css">
+  <script>const APP_VERSION = "3.0.0";</script>
+  <script src="docs.js" defer></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="container nav-bar">
+      <a href="index.html" class="logo">
+        <img src="assets/app-icon.svg" alt="ZopHop Logo" class="logo-img">
+        <span class="logo-title">ZopHop</span>
+        <span class="logo-ver app-version-v">v3.0.0</span>
+      </a>
+
+      <nav class="nav-pages" aria-label="Documentation Pages">
+        <a href="index.html" class="nav-pill">Overview</a>
+        <a href="manual.html" class="nav-pill">User Manual</a>
+        <a href="plugins.html" class="nav-pill">Plugin SDK</a>
+        <a href="releases.html" class="nav-pill active">Releases</a>
+      </nav>
+
+      <div class="nav-actions">
+        <button id="sidebarToggle" class="icon-btn mobile-menu-btn" type="button" title="Toggle Table of Contents">☰</button>
+        <button id="themeToggle" class="icon-btn" type="button" title="Toggle Dark/Light Theme">☀️</button>
+        <a href="https://github.com/aman400/zophop/releases" target="_blank" class="btn btn-primary btn-sm">GitHub Releases</a>
+      </div>
+    </div>
+  </header>
+
+  <div class="container">
+    <div class="docs-shell">
+      <aside class="docs-sidebar" id="docsSidebar">
+        <input type="search" id="sidebarSearch" class="sidebar-search" placeholder="Filter release guide...">
+        <div class="sidebar-group-title">Publishing Pipeline</div>
+        <ul class="sidebar-nav">
+          <li><a href="#artifacts" class="sidebar-link active" data-keywords="apk aar maven download">Release Artifacts</a></li>
+          <li><a href="#local-build" class="sidebar-link" data-keywords="keystore keytool assembleRelease local">1. Local Signed Build</a></li>
+          <li><a href="#github-actions" class="sidebar-link" data-keywords="ci workflow tag secrets github_token">2. Automated GitHub Release</a></li>
+          <li><a href="#jitpack" class="sidebar-link" data-keywords="jitpack maven sdk publish">3. JitPack SDK Distribution</a></li>
+        </ul>
+      </aside>
+
+      <main class="docs-content">
+        <div class="doc-hero" id="artifacts">
+          <span class="section-tag">CI/CD &amp; Distribution</span>
+          <h1 class="section-title">Signed Releases, External APKs &amp; JitPack SDK</h1>
+          <p class="section-subtitle" style="margin-bottom: 18px;">
+            Every release tag triggers <code>.github/workflows/release.yml</code> to test, sign, and attach APKs and SDK AARs to GitHub Releases. Public Maven artifacts are served automatically from release tags via JitPack.
+          </p>
+
+          <div class="table-container" style="margin-bottom:0;">
+            <table>
+              <thead><tr><th>Artifact</th><th>Output File / Coordinate</th><th>Purpose</th></tr></thead>
+              <tbody>
+                <tr><td><strong>Main App APK</strong></td><td><code class="app-apk-name">ZopHop-v3.0.0.apk</code></td><td>Primary Android automation host app (<code>dev.zophop</code>)</td></tr>
+                <tr><td><strong>Telegram Plugin APK</strong></td><td><code>ZopHop-Telegram-Plugin-v1.0.apk</code></td><td>Official external AIDL plugin for Telegram Bot notifications</td></tr>
+                <tr><td><strong>Plugin API AAR</strong></td><td><code>zophop-plugin-api-v3.0.0.aar</code></td><td>AIDL contracts, manifests, adapters &amp; log formatters</td></tr>
+                <tr><td><strong>Core Model AAR</strong></td><td><code>zophop-core-model-v3.0.0.aar</code></td><td>Domain models &amp; safe JSON helpers</td></tr>
+                <tr><td><strong>JitPack (Public, No Token)</strong></td><td><code>com.github.aman400.zophop:plugin-api:v3.0.0</code> &amp; <code>core-model</code></td><td>Zero-auth public Maven consumption via <code>https://jitpack.io</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <section class="doc-section" id="local-build">
+          <h2>1. Local Signed Build Generation</h2>
+          <h3>Step A: Generate a Keystore (One-Time Setup)</h3>
+          <div class="code-box"><span class="code-label">Shell</span>keytool -genkey -v -keystore release.keystore \
+  -alias zophop_key \
+  -keyalg RSA \
+  -keysize 2048 \
+  -validity 10000</div>
+
+          <h3>Step B: Build Release APKs &amp; Plugin SDK AARs</h3>
+          <div class="code-box"><span class="code-label">Gradle</span>KEYSTORE_FILE=release.keystore \
+KEYSTORE_PASSWORD=your_password \
+KEY_ALIAS=zophop_key \
+KEY_PASSWORD=your_password \
+./gradlew assembleRelease :core:plugin-api:assembleRelease :core:model:assembleRelease</div>
+
+          <p>Generated outputs:</p>
+          <div class="code-box"><span class="code-label">Build Outputs</span>app/build/outputs/apk/release/ZopHop-v3.0.0.apk
+external/telegram/build/outputs/apk/release/ZopHop-Telegram-Plugin-v1.0.apk
+core/plugin-api/build/outputs/aar/plugin-api-release.aar
+core/model/build/outputs/aar/model-release.aar</div>
+        </section>
+
+        <section class="doc-section" id="github-actions">
+          <h2>2. Automated GitHub Release &amp; JitPack Distribution</h2>
+          <h3>Step A: Optional Signing Secrets</h3>
+          <p>To sign both <code>ZopHop-v3.0.0.apk</code> and <code>ZopHop-Telegram-Plugin-v1.0.apk</code> with your production keystore, Base64-encode <code>release.keystore</code> and add these Repository Secrets under <strong>Settings → Secrets and variables → Actions</strong>:</p>
+          <div class="code-box"><span class="code-label">Shell</span>base64 -i release.keystore -o keystore_base64.txt</div>
+          <ul>
+            <li><code>KEYSTORE_BASE64</code> — Contents of <code>keystore_base64.txt</code></li>
+            <li><code>KEYSTORE_PASSWORD</code> — Keystore password</li>
+            <li><code>KEY_ALIAS</code> — Keystore alias (e.g., <code>zophop_key</code>)</li>
+            <li><code>KEY_PASSWORD</code> — Key password</li>
+          </ul>
+          <div class="alert alert-note">
+            <span>ℹ️</span>
+            <div>No extra secrets or environment variables are needed for GitHub Releases — the workflow automatically uses the built-in <code>GITHUB_TOKEN</code> (<code>contents: write</code>).</div>
+          </div>
+
+          <h3>Step B: Sync Docs &amp; Push Release Tag</h3>
+          <div class="code-box"><span class="code-label">Git Tag</span>./gradlew syncVersion
+VERSION="3.0.0"
+
+git tag -a v$VERSION -m "ZopHop v$VERSION Release"
+git push origin v$VERSION</div>
+          <p>GitHub Actions automatically runs <code>./gradlew test --stacktrace</code>, builds &amp; signs all APKs/AARs, and attaches them to a GitHub Release. JitPack then builds and serves <code>com.github.aman400.zophop:plugin-api</code> and <code>com.github.aman400.zophop:core-model</code> publicly from the release tag.</p>
+        </section>
+
+        <section class="doc-section" id="jitpack">
+          <h2>3. Public SDK Distribution via JitPack</h2>
+          <p><code>jitpack.yml</code> automatically builds and publishes <code>:core:model</code> and <code>:core:plugin-api</code> whenever a tag is requested on <code>https://jitpack.io</code>. To verify the JitPack publication locally in <code>~/.m2</code>:</p>
+          <div class="code-box"><span class="code-label">Local JitPack Verification</span>./gradlew -Pjitpack=true \
+  :core:model:publishReleasePublicationToMavenLocal \
+  :core:plugin-api:publishReleasePublicationToMavenLocal \
+  --stacktrace</div>
+          <p>External plugin authors can depend publicly without any authentication token (<code>implementation("com.github.aman400.zophop:plugin-api:v3.0.0")</code>) or use offline <code>.aar</code> assets from GitHub Releases — see the <a href="plugins.html"><strong>Plugin SDK Guide</strong></a>.</p>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <footer class="site-footer">
+    <div class="container footer-content">
+      <div>
+        <p><strong>ZopHop Automation Engine <span class="app-version-v">v3.0.0</span></strong> — Android 8.0+ (API 26–37)</p>
+        <p style="margin-top: 4px;">Open-source software released under the MIT License.</p>
+      </div>
+      <div class="footer-links">
+        <a href="index.html">Overview</a>
+        <a href="manual.html">User Manual</a>
+        <a href="plugins.html">Plugin SDK</a>
+        <a href="releases.html">Releases</a>
+        <a href="https://github.com/aman400/zophop" target="_blank">GitHub</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

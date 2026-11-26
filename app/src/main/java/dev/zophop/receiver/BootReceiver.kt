@@ -11,8 +11,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 class BootReceiver : BroadcastReceiver() {
-
-    override fun onReceive(context: Context, intent: Intent) {
+    override fun onReceive(
+        context: Context,
+        intent: Intent,
+    ) {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
             val settingsRepo = EncryptedSettingsRepository(context)
             val settings = settingsRepo.getSettings()
@@ -26,8 +28,9 @@ class BootReceiver : BroadcastReceiver() {
                         val manager = ForwardingManager.getInstance(context)
                         manager.scheduleWorkManagerRetry()
                         manager.processPendingQueue()
+                        dev.zophop.worker.WorkflowQueueManager.processQueuedWorkflows(context)
                     } finally {
-                        pendingResult.finish()
+                        pendingResult?.finish()
                     }
                 }
             }

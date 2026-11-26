@@ -6,7 +6,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SmsFilterAdvancedTest {
-
     @Test
     fun testWildcardToRegexConversion() {
         assertEquals("^.*HDFC.*$", SmsFilter.wildcardToRegex("*HDFC*"))
@@ -28,7 +27,8 @@ class SmsFilterAdvancedTest {
         assertFalse(SmsFilter.matchesAllowlist("   ", allowlist))
 
         val emptyList = emptyList<String>()
-        assertFalse(SmsFilter.matchesAllowlist("ANY_SENDER", emptyList))
+        // BUG-03 fix: empty allowlist now means "match all" (wildcard)
+        assertTrue(SmsFilter.matchesAllowlist("ANY_SENDER", emptyList))
     }
 
     @Test

@@ -6,42 +6,43 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingsRepositoryTest {
-
     @Test
     fun testDeliveryNodeSerializationAndDeserialization() {
-        val node1 = DeliveryNode(
-            id = "node_1",
-            name = "Ntfy Target",
-            serverType = ServerType.NTFY,
-            serverUrl = "https://ntfy.sh",
-            topic = "my_topic",
-            token = "tk_secret",
-            isEnabled = true,
-            requireInternet = true,
-            requireVpn = false,
-            requireHealthcheck = true,
-            customHealthcheckUrl = "https://ntfy.sh/health",
-            healthcheckMethod = "GET",
-            healthcheckHeaders = "Header1: Val1\nHeader2: Val2",
-            healthcheckExpectedStatus = 200
-        )
+        val node1 =
+            DeliveryNode(
+                id = "node_1",
+                name = "Ntfy Target",
+                serverType = ServerType.NTFY,
+                serverUrl = "https://ntfy.sh",
+                topic = "my_topic",
+                token = "tk_secret",
+                isEnabled = true,
+                requireInternet = true,
+                requireVpn = false,
+                requireHealthcheck = true,
+                customHealthcheckUrl = "https://ntfy.sh/health",
+                healthcheckMethod = "GET",
+                healthcheckHeaders = "Header1: Val1\nHeader2: Val2",
+                healthcheckExpectedStatus = 200,
+            )
 
-        val node2 = DeliveryNode(
-            id = "node_2",
-            name = "Gotify Server",
-            serverType = ServerType.GOTIFY,
-            serverUrl = "https://gotify.example.com",
-            topic = "",
-            token = "gotify_app_token",
-            isEnabled = false,
-            requireInternet = false,
-            requireVpn = true,
-            requireHealthcheck = false,
-            customHealthcheckUrl = "",
-            healthcheckMethod = "POST",
-            healthcheckHeaders = "",
-            healthcheckExpectedStatus = 204
-        )
+        val node2 =
+            DeliveryNode(
+                id = "node_2",
+                name = "Gotify Server",
+                serverType = ServerType.GOTIFY,
+                serverUrl = "https://gotify.example.com",
+                topic = "",
+                token = "gotify_app_token",
+                isEnabled = false,
+                requireInternet = false,
+                requireVpn = true,
+                requireHealthcheck = false,
+                customHealthcheckUrl = "",
+                healthcheckMethod = "POST",
+                healthcheckHeaders = "",
+                healthcheckExpectedStatus = 204,
+            )
 
         val serialized = EncryptedSettingsRepository.serializeNodes(listOf(node1, node2))
         val deserialized = EncryptedSettingsRepository.deserializeNodes(serialized)
@@ -86,9 +87,10 @@ class SettingsRepositoryTest {
 
     @Test
     fun testAppSettingsAllowlistItemsParsing() {
-        val settings = AppSettings(
-            allowlist = "  +123456789 , +987654321 \n BankAlerts \n "
-        )
+        val settings =
+            AppSettings(
+                allowlist = "  +123456789 , +987654321 \n BankAlerts \n ",
+            )
 
         val items = settings.allowlistItems
         assertEquals(3, items.size)
@@ -103,12 +105,28 @@ class SettingsRepositoryTest {
         val nodeDisabledValid = DeliveryNode(id = "n2", name = "Disabled", serverUrl = "https://ntfy.sh", isEnabled = false)
         val nodeEnabledBlankUrl = DeliveryNode(id = "n3", name = "Blank", serverUrl = "  ", isEnabled = true)
 
-        val settings = AppSettings(
-            nodes = listOf(nodeEnabledValid, nodeDisabledValid, nodeEnabledBlankUrl)
-        )
+        val settings =
+            AppSettings(
+                nodes = listOf(nodeEnabledValid, nodeDisabledValid, nodeEnabledBlankUrl),
+            )
 
         val active = settings.activeNodes
         assertEquals(1, active.size)
         assertEquals("n1", active[0].id)
+    }
+
+    @Test
+    fun testAppSettingsDefaultAndCustomThemeFields() {
+        val defaultSettings = AppSettings()
+        assertEquals("SYSTEM", defaultSettings.themeMode)
+        assertEquals("EMERALD_AMBER", defaultSettings.themePalette)
+
+        val customSettings =
+            AppSettings(
+                themeMode = "DARK",
+                themePalette = "OCEAN_CYAN",
+            )
+        assertEquals("DARK", customSettings.themeMode)
+        assertEquals("OCEAN_CYAN", customSettings.themePalette)
     }
 }

@@ -1,19 +1,25 @@
 plugins {
     alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
 }
 
 android {
     namespace = "dev.zophop"
-    compileSdk = 37
+    compileSdk {
+        version =
+            release(37) {
+                minorApiLevel = 1
+            }
+    }
 
     defaultConfig {
         applicationId = "dev.zophop"
         minSdk = 26
-        targetSdk = 37
-        versionCode = 2
-        versionName = "2.0.0"
+        targetSdk = 36
+        versionCode = providers.gradleProperty("ZOPHOP_VERSION_CODE").map { it.toInt() }.orElse(3).get()
+        versionName = providers.gradleProperty("ZOPHOP_VERSION").orElse("3.0.0").get()
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -21,7 +27,9 @@ android {
     signingConfigs {
         create("release") {
             val keystoreFile = System.getenv("KEYSTORE_FILE") ?: "release.keystore"
-            val storeFileObj = file(keystoreFile)
+            val storeFileObj =
+                file(keystoreFile).takeIf { it.exists() }
+                    ?: rootProject.file(keystoreFile)
             if (storeFileObj.exists()) {
                 storeFile = storeFileObj
                 storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "zophop_secret"
@@ -38,11 +46,12 @@ android {
         }
         release {
             manifestPlaceholders["appName"] = "ZopHop"
+            isDebuggable = false
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
+                "proguard-rules.pro",
             )
             val releaseSigning = signingConfigs.getByName("release")
             signingConfig = if (releaseSigning.storeFile?.exists() == true) releaseSigning else signingConfigs.getByName("debug")
@@ -63,6 +72,19 @@ android {
         unitTests.isReturnDefaultValues = true
         unitTests.isIncludeAndroidResources = true
     }
+
+    packaging {
+        resources {
+            merges += "META-INF/services/dev.zophop.plugin.api.NodePluginModule"
+            excludes += setOf(
+                "/META-INF/{AL2.0,LGPL2.1}",
+                "/META-INF/INDEX.LIST",
+                "/META-INF/DEPENDENCIES",
+                "/META-INF/LICENSE*",
+                "/META-INF/NOTICE*",
+            )
+        }
+    }
 }
 
 androidComponents {
@@ -71,8 +93,9 @@ androidComponents {
     }
     onVariants { variant ->
         val suffix = if (variant.buildType == "debug") "-Debug" else ""
+        val verName = android.defaultConfig.versionName ?: "2.0.0"
         variant.outputs.forEach { output ->
-            output.outputFileName.set("ZopHop${suffix}-v1.0.0.apk")
+            output.outputFileName.set("ZopHop$suffix-v$verName.apk")
         }
     }
 }
@@ -91,11 +114,20 @@ tasks.whenTaskAdded {
 
 dependencies {
     implementation(project(":core:model"))
+    implementation(project(":core:plugin-api"))
     implementation(project(":core:data"))
     implementation(project(":core:engine"))
     implementation(project(":core:ui"))
     implementation(project(":feature:workflows"))
     implementation(project(":feature:preconditions"))
+    implementation(project(":feature:backup"))
+
+    implementation(project(":plugins:call"))
+    implementation(project(":plugins:sms"))
+    implementation(project(":plugins:gps"))
+    implementation(project(":plugins:ntfy"))
+    implementation(project(":plugins:gotify"))
+    implementation(project(":plugins:notification"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.fragment.ktx)
@@ -118,14 +150,13 @@ dependencies {
 
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.okhttp)
-    implementation(libs.androidx.security.crypto)
+    implementation(libs.kotlinx.serialization.json)
 
     testImplementation(libs.junit)
     testImplementation(libs.androidx.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.work.testing)
-    testImplementation(libs.json)
     testImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

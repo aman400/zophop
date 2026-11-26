@@ -5,7 +5,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UrlValidatorTest {
-
     @Test
     fun testHttpsUrlIsValid() {
         assertTrue(UrlValidator.isValidUrl("https://ntfy.sh"))
@@ -25,6 +24,7 @@ class UrlValidatorTest {
         assertFalse(UrlValidator.isValidUrl("http://192.168.1.50:8080", allowInsecurePrivateHttp = false))
         assertFalse(UrlValidator.isValidUrl("http://100.64.1.2:8080", allowInsecurePrivateHttp = false))
         assertFalse(UrlValidator.isValidUrl("http://10.0.0.5", allowInsecurePrivateHttp = false))
+        assertFalse(UrlValidator.isValidUrl("http://my-node.ts.net:8080", allowInsecurePrivateHttp = false))
     }
 
     @Test
@@ -34,6 +34,10 @@ class UrlValidatorTest {
         assertTrue(UrlValidator.isValidUrl("http://10.0.0.5", allowInsecurePrivateHttp = true))
         assertTrue(UrlValidator.isValidUrl("http://172.20.0.1", allowInsecurePrivateHttp = true))
         assertTrue(UrlValidator.isValidUrl("http://server.local:8080", allowInsecurePrivateHttp = true))
+        assertTrue(UrlValidator.isValidUrl("http://my-node.ts.net:8080", allowInsecurePrivateHttp = true))
+        assertTrue(UrlValidator.isValidUrl("http://home-server.tailscale.net:8080", allowInsecurePrivateHttp = true))
+        assertTrue(UrlValidator.isValidUrl("http://device.lan:8080", allowInsecurePrivateHttp = true))
+        assertTrue(UrlValidator.isValidUrl("http://internal.service.internal:8080", allowInsecurePrivateHttp = true))
     }
 
     @Test

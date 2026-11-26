@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.zophop.plugin.telegram">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:label="ZopHop Telegram Plugin"
+        android:icon="@android:drawable/ic_menu_send">
+        <service
+            android:name=".TelegramNodePluginService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="dev.zophop.plugin.ACTION_NODE_SERVICE" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>

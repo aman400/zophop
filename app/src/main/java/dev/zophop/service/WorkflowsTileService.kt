@@ -6,7 +6,6 @@ import android.service.quicksettings.TileService
 import dev.zophop.data.EncryptedSettingsRepository
 
 class WorkflowsTileService : TileService() {
-
     override fun onStartListening() {
         super.onStartListening()
         updateTileState()

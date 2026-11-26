@@ -1,39 +1,41 @@
 package dev.zophop.domain.model
 
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonNames
 import java.util.UUID
 
-enum class CredentialType {
-    BEARER_TOKEN,
-    BASIC_AUTH,
-    HEADER_SET,
-    NTFY_AUTH,
-    GOTIFY_AUTH;
+object CredentialType {
+    const val BEARER_TOKEN = "BEARER_TOKEN"
+    const val BASIC_AUTH = "BASIC_AUTH"
+    const val HEADER_SET = "HEADER_SET"
+    const val NTFY_AUTH = "NTFY_AUTH"
+    const val GOTIFY_AUTH = "GOTIFY_AUTH"
 
-    fun displayName(): String {
-        return when (this) {
-            BEARER_TOKEN -> "Bearer Token (API Key)"
-            BASIC_AUTH -> "Basic Auth (Username & Password)"
-            HEADER_SET -> "Custom Headers"
-            NTFY_AUTH -> "ntfy Server & Token"
-            GOTIFY_AUTH -> "Gotify Server & App Token"
-        }
-    }
-
-    fun isCompatibleWith(nodeType: NodeType): Boolean {
-        return when (nodeType) {
-            NodeType.NTFY_ACTION -> this == NTFY_AUTH || this == BEARER_TOKEN || this == HEADER_SET
-            NodeType.GOTIFY_ACTION -> this == GOTIFY_AUTH
-            NodeType.HTTP_ACTION -> this == BEARER_TOKEN || this == BASIC_AUTH || this == HEADER_SET
-            else -> true
+    fun isCompatibleWith(
+        credentialType: String,
+        requiredCredentialType: String?,
+    ): Boolean {
+        if (requiredCredentialType.isNullOrBlank()) return true
+        return when (requiredCredentialType) {
+            NTFY_AUTH -> credentialType == NTFY_AUTH || credentialType == BEARER_TOKEN || credentialType == HEADER_SET
+            GOTIFY_AUTH -> credentialType == GOTIFY_AUTH
+            BEARER_TOKEN -> credentialType == BEARER_TOKEN || credentialType == HEADER_SET
+            BASIC_AUTH -> credentialType == BASIC_AUTH || credentialType == HEADER_SET
+            HEADER_SET -> credentialType == HEADER_SET
+            else -> credentialType.equals(requiredCredentialType, ignoreCase = true) || credentialType == BEARER_TOKEN
         }
     }
 }
 
+@Serializable
 data class Credential(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
-    val type: CredentialType,
+    val type: String,
+    @OptIn(ExperimentalSerializationApi::class)
+    @JsonNames("data", "dataJson")
     val dataMap: Map<String, String> = emptyMap(),
     val createdAt: Long = System.currentTimeMillis(),
-    val updatedAt: Long = System.currentTimeMillis()
+    val updatedAt: Long = System.currentTimeMillis(),
 )
