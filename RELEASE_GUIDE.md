@@ -1,6 +1,6 @@
 # ZopHop Signed Release & JitPack SDK Guide
 
-<!-- APP_VERSION = "3.1.0" -->
+<!-- APP_VERSION = "3.1.1" -->
 
 This guide details how to generate signed Release APKs and Plugin SDK AARs locally, and how automated GitHub Release + JitPack distribution works via [`.github/workflows/release.yml`](.github/workflows/release.yml) and [`jitpack.yml`](jitpack.yml).
 
@@ -33,11 +33,11 @@ KEY_PASSWORD=your_password \
 The signed release binaries and AAR libraries are generated at:
 
 ```text
-app/build/outputs/apk/release/ZopHop-v3.1.0.apk
-external/telegram/build/outputs/apk/release/ZopHop-Telegram-Plugin-v3.1.0.apk
-external/smtp/build/outputs/apk/release/ZopHop-SMTP-Plugin-v3.1.0.apk
-core/plugin-api/build/outputs/aar/zophop-plugin-api-v3.1.0.aar
-core/model/build/outputs/aar/zophop-core-model-v3.1.0.aar
+app/build/outputs/apk/release/ZopHop-v3.1.1.apk
+external/telegram/build/outputs/apk/release/ZopHop-Telegram-Plugin-v3.1.1.apk
+external/smtp/build/outputs/apk/release/ZopHop-SMTP-Plugin-v3.1.1.apk
+core/plugin-api/build/outputs/aar/zophop-plugin-api-v3.1.1.aar
+core/model/build/outputs/aar/zophop-core-model-v3.1.1.aar
 ```
 
 ---
@@ -47,7 +47,7 @@ core/model/build/outputs/aar/zophop-core-model-v3.1.0.aar
 The repository includes a pre-configured release workflow in `.github/workflows/release.yml` triggered on `v*` tag pushes or manual `workflow_dispatch`.
 
 ### Step A: Configure Repository Secrets (Optional)
-If you want GitHub Actions to sign `ZopHop-v3.1.0.apk`, `ZopHop-Telegram-Plugin-v3.1.0.apk`, and `ZopHop-SMTP-Plugin-v3.1.0.apk` with your production keystore, encode `release.keystore` to Base64:
+If you want GitHub Actions to sign `ZopHop-v3.1.1.apk`, `ZopHop-Telegram-Plugin-v3.1.1.apk`, and `ZopHop-SMTP-Plugin-v3.1.1.apk` with your production keystore, encode `release.keystore` to Base64:
 
 ```bash
 base64 -i release.keystore -o keystore_base64.txt
@@ -74,8 +74,8 @@ git push origin "v$VERSION"
 
 GitHub Actions will automatically:
 1. Run the full unit and Robolectric integration test suite (`./gradlew test --stacktrace`).
-2. Build and sign the main app (`ZopHop-v3.1.0.apk`) and external plugin APKs (`ZopHop-Telegram-Plugin-v3.1.0.apk`, `ZopHop-SMTP-Plugin-v3.1.0.apk`).
-3. Build release AAR libraries (`zophop-plugin-api-v3.1.0.aar` and `zophop-core-model-v3.1.0.aar`).
+2. Build and sign the main app (`ZopHop-v3.1.1.apk`) and external plugin APKs (`ZopHop-Telegram-Plugin-v3.1.1.apk`, `ZopHop-SMTP-Plugin-v3.1.1.apk`).
+3. Build release AAR libraries (`zophop-plugin-api-v3.1.1.aar` and `zophop-core-model-v3.1.1.aar`).
 4. Create a GitHub Release and attach all `.apk` and `.aar` assets.
 
 Once the release tag is pushed, **JitPack** (`jitpack.yml`) builds and serves `com.github.aman400.zophop:plugin-api` and `com.github.aman400.zophop:core-model` publicly without authentication.
@@ -92,7 +92,7 @@ maven { url = uri("https://jitpack.io") }
 
 // app/build.gradle.kts
 dependencies {
-    implementation("com.github.aman400.zophop:plugin-api:v3.1.0")
+    implementation("com.github.aman400.zophop:plugin-api:v3.1.1")
 }
 ```
 

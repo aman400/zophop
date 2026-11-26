@@ -71,7 +71,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import dev.zophop.core.ui.components.rememberAlwaysFloatingInteractionSource
 
 private const val MAX_DIRECT_QUICK_CHIPS = 5
 private const val QUICK_CHIPS_PREVIEW_COUNT = 4
@@ -212,7 +211,6 @@ fun AutocompleteTextField(
     insertRawVariable: Boolean = false,
     isSecret: Boolean = false,
 ) {
-    val interactionSource = rememberAlwaysFloatingInteractionSource()
     var showSearchSheet by remember { mutableStateOf(value = false) }
     var passwordVisible by remember { mutableStateOf(!isSecret) }
 
@@ -262,7 +260,6 @@ fun AutocompleteTextField(
                 } else {
                     null
                 },
-            interactionSource = interactionSource,
             modifier = Modifier.fillMaxWidth(),
             lineLimits =
                 if (singleLine) {
