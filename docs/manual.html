@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZopHop User &amp; Feature Manual — Complete Documentation</title>
+  <meta name="description" content="Complete HTML documentation for ZopHop v3.0.0: Visual Workflow Builder, all 20+ nodes, JSON &amp; Regex parsers, cURL import, Preconditions, Live Execution Stepper, Biometric Vault, Themes, Concurrency &amp; Encrypted Backups.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/svg+xml" href="assets/app-icon.svg">
+  <link rel="stylesheet" href="styles.css">
+  <script>const APP_VERSION = "3.0.0";</script>
+  <script src="docs.js" defer></script>
+</head>
+<body>
+
+  <!-- Shared Top Navigation -->
+  <header class="site-header">
+    <div class="container nav-bar">
+      <a href="index.html" class="logo">
+        <img src="assets/app-icon.svg" alt="ZopHop Logo" class="logo-img">
+        <span class="logo-title">ZopHop</span>
+        <span class="logo-ver app-version-v">v3.0.0</span>
+      </a>
+
+      <nav class="nav-pages" aria-label="Documentation Pages">
+        <a href="index.html" class="nav-pill">Overview</a>
+        <a href="manual.html" class="nav-pill active">User Manual</a>
+        <a href="plugins.html" class="nav-pill">Plugin SDK</a>
+        <a href="releases.html" class="nav-pill">Releases</a>
+      </nav>
+
+      <div class="nav-actions">
+        <button id="sidebarToggle" class="icon-btn mobile-menu-btn" type="button" title="Toggle Table of Contents">☰</button>
+        <button id="themeToggle" class="icon-btn" type="button" title="Toggle Dark/Light Theme">☀️</button>
+        <a href="https://github.com/aman400/zophop" target="_blank" class="btn btn-secondary btn-sm">GitHub</a>
+      </div>
+    </div>
+  </header>
+
+  <div class="container">
+    <div class="docs-shell">
+      <!-- Sticky Sidebar TOC -->
+      <aside class="docs-sidebar" id="docsSidebar">
+        <input type="search" id="sidebarSearch" class="sidebar-search" placeholder="Filter manual sections...">
+
+        <div class="sidebar-group-title">Core Concepts</div>
+        <ul class="sidebar-nav">
+          <li><a href="#overview" class="sidebar-link active" data-keywords="intro overview">Manual Overview</a></li>
+          <li><a href="#architecture" class="sidebar-link" data-keywords="gradle modules architecture engine">1. Architecture &amp; Modules</a></li>
+          <li><a href="#builder" class="sidebar-link" data-keywords="workflows pipeline graph card dry run test">2. Visual Pipeline Builder</a></li>
+          <li><a href="#nodes" class="sidebar-link" data-keywords="trigger sms notification cron call regex json condition vpn gps">3. Complete Node Catalog</a></li>
+          <li><a href="#curl" class="sidebar-link" data-keywords="http webhook curl import headers">4. HTTP Webhook &amp; cURL Import</a></li>
+        </ul>
+
+        <div class="sidebar-group-title">Reliability &amp; Execution</div>
+        <ul class="sidebar-nav">
+          <li><a href="#preconditions" class="sidebar-link" data-keywords="precondition vpn healthcheck chained backoff retry queue">5. Preconditions &amp; Chains</a></li>
+          <li><a href="#logs" class="sidebar-link" data-keywords="stepper execution log queue cancel tile">6. Stepper, Logs &amp; Queue</a></li>
+        </ul>
+
+        <div class="sidebar-group-title">Security &amp; Settings</div>
+        <ul class="sidebar-nav">
+          <li><a href="#vault" class="sidebar-link" data-keywords="vault biometric keystore encrypted bearer gotify ntfy">7. Encrypted Vault</a></li>
+          <li><a href="#settings" class="sidebar-link" data-keywords="themes palettes material you concurrency backup export import">8. Themes, Concurrency &amp; Backup</a></li>
+          <li><a href="#setup" class="sidebar-link" data-keywords="install apk docker ntfy gotify">9. Setup &amp; Self-Hosting</a></li>
+        </ul>
+
+        <div class="sidebar-group-title">Reference</div>
+        <ul class="sidebar-nav">
+          <li><a href="#presets" class="sidebar-link" data-keywords="bank hdfc icici sbi axis google otp regex">10. Bank &amp; OTP Presets</a></li>
+          <li><a href="#testing" class="sidebar-link" data-keywords="adb emulator sms logcat">11. ADB Emulator Testing</a></li>
+          <li><a href="#battery" class="sidebar-link" data-keywords="oem xiaomi samsung oneplus pixel battery">12. OEM Battery Fixes</a></li>
+          <li><a href="#security" class="sidebar-link" data-keywords="security flag_secure privacy redaction">13. Security Hardening</a></li>
+        </ul>
+      </aside>
+
+      <!-- Main Documentation Body -->
+      <main class="docs-content">
+        <div class="doc-hero" id="overview">
+          <span class="section-tag">Complete User &amp; Architecture Manual</span>
+          <h1 class="section-title">ZopHop <span class="app-version-v">v3.0.0</span> Documentation</h1>
+          <p class="section-subtitle" style="margin-bottom: 18px;">
+            ZopHop is an on-device Android automation and forwarding engine. Capture SMS, push notifications, calls, or cron schedules; validate chained preconditions; execute visual workflow graphs; and deliver alerts to ntfy, Gotify, Telegram, SMS, and HTTP webhooks.
+          </p>
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <a href="plugins.html" class="btn btn-amber btn-sm">Build Custom Plugins (SDK) →</a>
+            <a href="releases.html" class="btn btn-secondary btn-sm">Release &amp; AAR Publishing →</a>
+          </div>
+        </div>
+
+        <!-- Section 1: Architecture -->
+        <section class="doc-section" id="architecture">
+          <h2>1. Architecture &amp; Multi-Module Structure</h2>
+          <p>Events flow through a deterministic 4-stage pipeline: <strong>Trigger Capture → Precondition Evaluation → Graph Execution → Built-In or External AIDL Delivery</strong>.</p>
+
+          <div class="arch-card" style="margin:18px 0;">
+            <div class="arch-svg-container">
+              <svg viewBox="0 0 1000 220" width="100%" height="220" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M 195 110 L 250 110" stroke="#10b981" stroke-width="3" stroke-dasharray="6 6"/>
+                <path d="M 455 110 L 510 110" stroke="#10b981" stroke-width="3"/>
+                <path d="M 730 110 L 785 110" stroke="#f59e0b" stroke-width="3"/>
+
+                <rect x="10" y="25" width="185" height="170" rx="14" fill="#111827" stroke="#10b981" stroke-width="2"/>
+                <text x="102" y="56" text-anchor="middle" fill="#d1fae5" font-family="Roboto, sans-serif" font-weight="700" font-size="13">1. Event Triggers</text>
+                <text x="102" y="88" text-anchor="middle" fill="#34d399" font-family="Roboto, sans-serif" font-size="12">SmsReceiver (PDU)</text>
+                <text x="102" y="112" text-anchor="middle" fill="#34d399" font-family="Roboto, sans-serif" font-size="12">NotificationListener</text>
+                <text x="102" y="136" text-anchor="middle" fill="#34d399" font-family="Roboto, sans-serif" font-size="12">CallState / Cron</text>
+                <text x="102" y="160" text-anchor="middle" fill="#9ca3af" font-family="Roboto, sans-serif" font-size="12">Manual / Dry-Run</text>
+
+                <rect x="250" y="25" width="205" height="170" rx="14" fill="#111827" stroke="#10b981" stroke-width="2"/>
+                <text x="352" y="56" text-anchor="middle" fill="#d1fae5" font-family="Roboto, sans-serif" font-weight="700" font-size="13">2. Precondition Engine</text>
+                <text x="352" y="88" text-anchor="middle" fill="#9ca3af" font-family="Roboto, sans-serif" font-size="12">VPN • Internet • SIM</text>
+                <text x="352" y="112" text-anchor="middle" fill="#9ca3af" font-family="Roboto, sans-serif" font-size="12">GPS • Battery • HTTP</text>
+                <text x="352" y="136" text-anchor="middle" fill="#34d399" font-family="Roboto, sans-serif" font-size="12">Chained Pipelines</text>
+                <text x="352" y="164" text-anchor="middle" fill="#fbbf24" font-family="Roboto, sans-serif" font-size="11">Retry / Queue + Backoff</text>
+
+                <rect x="510" y="25" width="220" height="170" rx="14" fill="#111827" stroke="#10b981" stroke-width="2"/>
+                <text x="620" y="56" text-anchor="middle" fill="#d1fae5" font-family="Roboto, sans-serif" font-weight="700" font-size="13">3. Workflow Engine</text>
+                <text x="620" y="88" text-anchor="middle" fill="#34d399" font-family="Roboto, sans-serif" font-size="12">Regex &amp; JSON Parser</text>
+                <text x="620" y="112" text-anchor="middle" fill="#34d399" font-family="Roboto, sans-serif" font-size="12">Condition Branching</text>
+                <text x="620" y="136" text-anchor="middle" fill="#34d399" font-family="Roboto, sans-serif" font-size="12">ExecutionContext Vars</text>
+                <text x="620" y="164" text-anchor="middle" fill="#9ca3af" font-family="Roboto, sans-serif" font-size="11">Live Stepper &amp; Cancel</text>
+
+                <rect x="785" y="25" width="205" height="170" rx="14" fill="#111827" stroke="#f59e0b" stroke-width="2"/>
+                <text x="887" y="56" text-anchor="middle" fill="#fef3c7" font-family="Roboto, sans-serif" font-weight="700" font-size="13">4. Delivery &amp; Plugins</text>
+                <text x="887" y="88" text-anchor="middle" fill="#fbbf24" font-family="Roboto, sans-serif" font-size="12">ntfy • Gotify • Webhook</text>
+                <text x="887" y="112" text-anchor="middle" fill="#fbbf24" font-family="Roboto, sans-serif" font-size="12">SMS • Notify • Call</text>
+                <text x="887" y="136" text-anchor="middle" fill="#7dd3fc" font-family="Roboto, sans-serif" font-size="12">Telegram &amp; Custom APKs</text>
+                <text x="887" y="164" text-anchor="middle" fill="#9ca3af" font-family="Roboto, sans-serif" font-size="11">Vault AES-256 Redacted</text>
+              </svg>
+            </div>
+          </div>
+
+          <h3>Multi-Module Gradle Architecture</h3>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr><th>Module</th><th>Responsibility</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><code>:app</code></td><td>Main Android app, navigation shell, background services, Quick Settings Tile, and <code>AppBackupBridge</code>.</td></tr>
+                <tr><td><code>:core:model</code></td><td>Domain models (<code>Workflow</code>, <code>Precondition</code>, <code>Credential</code>, <code>Serialization.kt</code>) — published via JitPack as <code>com.github.aman400.zophop:core-model</code>.</td></tr>
+                <tr><td><code>:core:plugin-api</code></td><td>AIDL contract (<code>INodePluginService</code>), <code>NodePluginManifest</code>, <code>NodePluginModule</code>, <code>ExecutionContext</code>, <code>HttpCredentialAdapter</code>, <code>ExecutionLogFormatter</code> — published via JitPack as <code>com.github.aman400.zophop:plugin-api</code>.</td></tr>
+                <tr><td><code>:core:data</code></td><td>Encrypted Vault storage (<code>CredentialRepository</code>), Room/local workflow &amp; log persistence, <code>SettingsRepository</code>.</td></tr>
+                <tr><td><code>:core:engine</code></td><td><code>WorkflowEngine</code>, <code>PreconditionEvaluator</code>, <code>UnifiedPluginRegistry</code>, <code>ExternalPluginExecutor</code>, <code>CurlCommandParser</code>, core node executors.</td></tr>
+                <tr><td><code>:core:ui</code></td><td>Material 3 theme engine (7 palettes + Material You), <code>BiometricAuthHelper</code>, shared Compose components.</td></tr>
+                <tr><td><code>:feature:workflows</code></td><td>Workflows list, Pipeline Builder editor, live <code>NodeExecutionStepper</code>, and Complete Execution Log modal.</td></tr>
+                <tr><td><code>:feature:preconditions</code></td><td>Reusable Preconditions list, Chained Pipeline editor, inline testing &amp; safe cancellation.</td></tr>
+                <tr><td><code>:feature:backup</code></td><td>Portable JSON backup export/import, dependency auto-resolution, PBKDF2/AES password encryption.</td></tr>
+                <tr><td><code>:plugins:*</code></td><td>Built-in SPI modules (<code>sms</code>, <code>notification</code>, <code>ntfy</code>, <code>gotify</code>, <code>call</code>, <code>gps</code>).</td></tr>
+                <tr><td><code>:external:telegram</code></td><td>Standalone external plugin APK (<code>ZopHop-Telegram-Plugin-v1.0.apk</code>) over AIDL IPC.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Section 2: Workflows & Pipeline Builder -->
+        <section class="doc-section" id="builder">
+          <h2>2. Workflows &amp; Visual Pipeline Builder</h2>
+          <p>Each workflow is powered by a directed graph (<code>WorkflowGraph</code>) connecting <strong>Triggers</strong>, <strong>Parsers &amp; Extractors</strong>, <strong>Logic / Hardware Checks</strong>, and <strong>Actions</strong>. Click any screenshot below to zoom.</p>
+
+          <div class="shot-row">
+            <div class="shot-card" data-title="Workflows Dashboard">
+              <div class="shot-media"><img src="assets/screenshots/workflows-list.png" alt="Workflows List"></div>
+              <div class="shot-meta"><span class="shot-badge">Screen</span><div class="shot-title">Workflows Dashboard</div><div class="shot-caption">Active switches, metadata chips, precondition counts, and quick actions.</div></div>
+            </div>
+            <div class="shot-card" data-title="Pipeline Builder Canvas">
+              <div class="shot-media"><img src="assets/screenshots/pipeline-builder.png" alt="Pipeline Builder"></div>
+              <div class="shot-meta"><span class="shot-badge">Screen</span><div class="shot-title">Pipeline Builder</div><div class="shot-caption">Visual node pipeline with step ordering, branches, and dry-run testing.</div></div>
+            </div>
+            <div class="shot-card" data-title="Step Picker Node Catalog">
+              <div class="shot-media"><img src="assets/screenshots/node-catalog.png" alt="Node Catalog"></div>
+              <div class="shot-meta"><span class="shot-badge">Screen</span><div class="shot-title">Node Catalog</div><div class="shot-caption">Categorized Triggers, Parsers, Logic Checks, Actions &amp; External Plugins.</div></div>
+            </div>
+          </div>
+
+          <div class="shot-row">
+            <div class="shot-card" data-title="Workflow Card Detail (Cropped)">
+              <div class="shot-media"><img src="assets/screenshots/crop-workflow-card.png" alt="Workflow Card Cropping"></div>
+              <div class="shot-meta"><span class="shot-badge crop">Screen Crop</span><div class="shot-title">Workflow Card Controls</div><div class="shot-caption">Toggle auto-execution, view node/link/precondition badges, open Logs, Edit, or Delete.</div></div>
+            </div>
+            <div class="shot-card" data-title="Pipeline Nodes &amp; Branches (Cropped)">
+              <div class="shot-media"><img src="assets/screenshots/crop-pipeline-nodes.png" alt="Pipeline Nodes Cropping"></div>
+              <div class="shot-meta"><span class="shot-badge crop">Screen Crop</span><div class="shot-title">Pipeline Node Connections</div><div class="shot-caption">Per-node preconditions, failure policies, and true/false branching ports.</div></div>
+            </div>
+          </div>
+
+          <ul>
+            <li><strong>Conditional Branching</strong>: Edges carry <code>outputPort</code> (<code>main</code>, <code>true</code>, <code>false</code>) so Condition Evaluators route branches independently.</li>
+            <li><strong>Per-Node Preconditions</strong>: Attach reusable Vault preconditions (like <code>VPN</code>) directly to individual delivery steps.</li>
+            <li><strong>Per-Node Failure Policies</strong>: Choose <code>STOP_WORKFLOW</code>, <code>RETRY_WITH_BACKOFF</code>, or <code>CONTINUE_ON_FAILURE</code>.</li>
+            <li><strong>Dry-Run Test Mode</strong>: Tap <strong>Test Run</strong> inside the Pipeline Builder with simulated trigger fields (<code>testSender</code>, <code>testBody</code>, <code>testPayload</code>, <code>testTitle</code>) before enabling live triggers.</li>
+          </ul>
+        </section>
+
+        <!-- Section 3: Complete Node Catalog (Tabbed UI) -->
+        <section class="doc-section" id="nodes" data-tab-group="nodes">
+          <h2>3. Complete Node Catalog</h2>
+          <p>Filter node categories below to inspect every built-in and plugin node's <code>typeId</code>, configuration options, and emitted <code>ExecutionContext</code> output variables.</p>
+
+          <div class="tab-nav">
+            <button class="tab-btn active" data-tab="nodes-triggers" type="button">Triggers (5)</button>
+            <button class="tab-btn" data-tab="nodes-parsers" type="button">Parsers &amp; JSON (4)</button>
+            <button class="tab-btn" data-tab="nodes-logic" type="button">Logic &amp; Hardware (7)</button>
+            <button class="tab-btn" data-tab="nodes-actions" type="button">Actions &amp; Plugins (8+)</button>
+          </div>
+
+          <div class="tab-panel active" id="nodes-triggers">
+            <div class="table-container">
+              <table>
+                <thead><tr><th>Node</th><th><code>typeId</code></th><th>Key Configuration</th><th>Output Variables</th></tr></thead>
+                <tbody>
+                  <tr><td><strong>SMS Trigger</strong></td><td><code>dev.zophop.plugin.sms.SMS_TRIGGER</code></td><td>Sender regex (<code>.*HDFCBK.*</code>), body keyword regex, simulated <code>testSender</code>/<code>testBody</code></td><td><code>sender</code>, <code>body</code>, <code>header</code>, <code>text</code></td></tr>
+                  <tr><td><strong>App Notification</strong></td><td><code>dev.zophop.plugin.notification.NOTIFICATION_TRIGGER</code></td><td>Package filter (<code>com.whatsapp</code> or <code>.*</code>), text regex, test fields</td><td><code>package_name</code>, <code>title</code>, <code>text</code>, <code>sender</code>, <code>body</code></td></tr>
+                  <tr><td><strong>Manual Trigger</strong></td><td><code>MANUAL_TRIGGER</code></td><td>Simulated event JSON/text payload (<code>testBody</code>)</td><td><code>body</code>, <code>text</code>, <code>timestamp</code></td></tr>
+                  <tr><td><strong>Cron Schedule</strong></td><td><code>CRON_TRIGGER</code></td><td>Interval/cron (<code>every 15m</code>, <code>hourly</code>, <code>daily</code>, <code>0 8 * * *</code>)</td><td><code>body</code>, <code>text</code>, <code>sender</code>, <code>timestamp</code></td></tr>
+                  <tr><td><strong>Incoming Call</strong></td><td><code>dev.zophop.plugin.call.CALL_TRIGGER</code></td><td>Caller number regex (<code>.*555.*</code>). Requires <code>READ_PHONE_STATE</code></td><td><code>caller_number</code>, <code>sender</code>, <code>header</code></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="tab-panel" id="nodes-parsers">
+            <div class="table-container">
+              <table>
+                <thead><tr><th>Node</th><th><code>typeId</code></th><th>Capabilities</th><th>Outputs</th></tr></thead>
+                <tbody>
+                  <tr><td><strong>Parse Notification</strong></td><td><code>PARSE_NOTIFICATION</code></td><td>Regex field extraction from notification text into <code>outputKey</code></td><td><code>code</code>, <code>otp</code>, custom key</td></tr>
+                  <tr><td><strong>Regex Parser</strong></td><td><code>REGEX_PARSER</code></td><td>Capture group 1 and named groups <code>(?&lt;amount&gt;...)</code></td><td><code>code</code>, <code>otp</code>, named groups</td></tr>
+                  <tr><td><strong>JSON Parser</strong></td><td><code>JSON_PARSER</code></td><td>Path extraction from <code>http_response</code>/<code>body</code>; strips Markdown fences</td><td><code>json_output</code>, <code>code</code>, <code>otp</code>, custom key</td></tr>
+                  <tr><td><strong>Template Formatter</strong></td><td><code>TEMPLATE_FORMATTER</code></td><td>Renders <code>${var}</code> &amp; <code>{var}</code> tokens into reusable payloads</td><td><code>formatted_payload</code>, <code>payload</code></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <h4>JSON Parser Query Syntax &amp; 8 Target Types</h4>
+            <ul>
+              <li><strong>Nested &amp; Bracket Keys</strong>: <code>data.user.id</code>, <code>data['x-api-status']</code></li>
+              <li><strong>Array &amp; Negative Indices</strong>: <code>items[0].code</code>, <code>items[-1]</code> (last item), <code>matrix[0][1]</code></li>
+              <li><strong>Wildcard Projection</strong>: <code>users[*].name</code></li>
+              <li><strong>Collection Lengths</strong>: <code>items.length</code>, <code>items.size</code>, <code>items.count</code></li>
+              <li><strong>Recursive Deep Search</strong>: <code>..otp</code> (finds first non-null <code>otp</code> key at any depth)</li>
+              <li><strong>Target Types (<code>targetType</code>)</strong>: <code>AUTO</code>, <code>STRING</code>, <code>NUMBER</code>, <code>DOUBLE</code>, <code>BOOLEAN</code>, <code>JSON_STRING</code>, <code>COUNT</code>, <code>ARRAY</code> (with <code>defaultValue</code> fallback).</li>
+            </ul>
+          </div>
+
+          <div class="tab-panel" id="nodes-logic">
+            <ul>
+              <li><strong>Condition Evaluator (<code>CONDITION</code>)</strong>: Branches onto <code>"true"</code> or <code>"false"</code> ports across 14 operators:
+                <ul>
+                  <li>String: <code>EQUALS</code>, <code>NOT_EQUALS</code>, <code>CONTAINS</code>, <code>NOT_CONTAINS</code>, <code>STARTS_WITH</code>, <code>ENDS_WITH</code>, <code>REGEX_MATCH</code>, <code>NOT_REGEX_MATCH</code></li>
+                  <li>Presence: <code>NOT_EMPTY</code>, <code>IS_EMPTY</code></li>
+                  <li>Numeric: <code>GREATER_THAN</code>, <code>GREATER_THAN_OR_EQUAL</code>, <code>LESS_THAN</code>, <code>LESS_THAN_OR_EQUAL</code></li>
+                </ul>
+              </li>
+              <li><strong>VPN Check (<code>VPN_CHECK</code>)</strong>: Inspects <code>tun</code>, <code>wg</code>, <code>tailscale</code>. Outputs <code>vpn_connected</code>, <code>vpn_interface</code>, <code>vpn_type</code>.</li>
+              <li><strong>GPS Check (<code>GPS_CHECK</code>)</strong>: Verifies location hardware &amp; captures coordinates. Outputs <code>gps_enabled</code>, <code>latitude</code>, <code>longitude</code>, <code>accuracy</code>, <code>maps_url</code>.</li>
+              <li><strong>Internet Check (<code>INTERNET_CHECK</code>)</strong>: Verifies active connectivity (<code>ANY</code>, <code>WIFI</code>, <code>CELLULAR</code>). Outputs <code>internet_connected</code>, <code>network_type</code>, <code>is_metered</code>.</li>
+              <li><strong>Bluetooth Check (<code>BLUETOOTH_CHECK</code>)</strong>: Checks Bluetooth state &amp; optional bonded device name. Outputs <code>bluetooth_enabled</code>, <code>bluetooth_connected</code>, <code>connected_device_name</code>, <code>bonded_device_count</code>.</li>
+              <li><strong>SIM Check (<code>SIM_CHECK</code>)</strong>: Verifies SIM readiness &amp; carrier name filter. Outputs <code>sim_ready</code>, <code>carrier_name</code>, <code>sim_count</code>, <code>is_roaming</code>.</li>
+              <li><strong>Battery Check (<code>BATTERY_CHECK</code>)</strong>: Enforces minimum battery % &amp; optional charging state. Outputs <code>battery_percent</code>, <code>is_charging</code>, <code>charging_status</code>.</li>
+            </ul>
+          </div>
+
+          <div class="tab-panel" id="nodes-actions">
+            <div class="table-container">
+              <table>
+                <thead><tr><th>Action Node</th><th><code>typeId</code></th><th>Capabilities &amp; Notes</th></tr></thead>
+                <tbody>
+                  <tr><td><strong>ntfy Push</strong></td><td><code>dev.zophop.plugin.ntfy.NTFY_ACTION</code></td><td>Topic, priority (1–5), title, tags, <code>NTFY_AUTH</code> / <code>BEARER_TOKEN</code> Vault auth.</td></tr>
+                  <tr><td><strong>Gotify Push</strong></td><td><code>dev.zophop.plugin.gotify.GOTIFY_ACTION</code></td><td>Gotify server push with priority (1–10) &amp; <code>X-Gotify-Key</code> (<code>GOTIFY_AUTH</code>).</td></tr>
+                  <tr><td><strong>HTTP Webhook</strong></td><td><code>HTTP_ACTION</code></td><td><code>GET/POST/PUT/PATCH/DELETE/HEAD</code>, headers, JSON/Form/Raw body, Vault auth, <strong>cURL Import</strong>. Outputs <code>http_response</code>, <code>http_status</code>.</td></tr>
+                  <tr><td><strong>System Notification</strong></td><td><code>SEND_NOTIFICATION_ACTION</code></td><td>Displays local Android notification with <code>${variable}</code> title/body templates.</td></tr>
+                  <tr><td><strong>Send SMS</strong></td><td><code>dev.zophop.plugin.sms.SEND_SMS_ACTION</code></td><td>Sends outbound SMS via device SIM. Requires <code>SEND_SMS</code> permission.</td></tr>
+                  <tr><td><strong>Get GPS Location</strong></td><td><code>dev.zophop.plugin.gps.GET_LOCATION_ACTION</code></td><td>Fetches coordinates and writes <code>latitude</code>, <code>longitude</code>, <code>accuracy</code>, <code>maps_url</code>.</td></tr>
+                  <tr><td><strong>Answer / Disconnect Call</strong></td><td><code>dev.zophop.plugin.call.*</code></td><td>Rejects or answers incoming calls paired with <code>CALL_TRIGGER</code> (Android 9+).</td></tr>
+                  <tr><td><strong>Telegram Bot</strong> <span class="pill sky">External APK</span></td><td><code>dev.zophop.plugin.telegram.TELEGRAM_ACTION</code></td><td>Sends messages via <code>@BotFather</code> token (<code>TELEGRAM_AUTH</code>). Requires <code>ZopHop-Telegram-Plugin-v1.0.apk</code>.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 4: HTTP Webhook & cURL Import -->
+        <section class="doc-section" id="curl">
+          <h2>4. HTTP Webhook Action &amp; Import from cURL</h2>
+          <p>The HTTP Webhook editor provides clickable <code>${variable}</code> chips, secret header masking, Vault credential adapters, and one-tap <strong>Import from cURL</strong> powered by <code>CurlCommandParser</code>.</p>
+
+          <div class="shot-row">
+            <div class="shot-card" data-title="HTTP Webhook Action Config">
+              <div class="shot-media"><img src="assets/screenshots/http-webhook-config.png" alt="HTTP Webhook Config"></div>
+              <div class="shot-meta"><span class="shot-badge">Screen</span><div class="shot-title">HTTP Webhook Editor</div><div class="shot-caption">Configure method, query params, headers, JSON body, and Vault auth.</div></div>
+            </div>
+            <div class="shot-card" data-title="Import from cURL Dialog (Cropped)">
+              <div class="shot-media"><img src="assets/screenshots/crop-curl-import.png" alt="Import from cURL Crop"></div>
+              <div class="shot-meta"><span class="shot-badge crop">Screen Crop</span><div class="shot-title">One-Tap cURL Import</div><div class="shot-caption">Paste any curl snippet (or tap Use Sample) to preview parsed method, headers &amp; payload.</div></div>
+            </div>
+          </div>
+
+          <ul>
+            <li><strong>Methods</strong>: <code>-X</code> / <code>--request</code> (automatically infers <code>POST</code> when body flags exist, or <code>GET</code> with <code>-G</code>).</li>
+            <li><strong>Headers &amp; Auth</strong>: <code>-H</code> / <code>--header</code>, <code>-u user:pass</code> (Basic Auth), <code>-A</code> (<code>User-Agent</code>), <code>-b</code> (<code>Cookie</code>), <code>-e</code> (<code>Referer</code>).</li>
+            <li><strong>Payloads &amp; Query Params</strong>: <code>-d</code> / <code>--data</code> / <code>--data-raw</code> / <code>--data-binary</code> / <code>-F</code> and URL query pairs.</li>
+          </ul>
+        </section>
+
+        <!-- Section 5: Preconditions & Chained Pipelines -->
+        <section class="doc-section" id="preconditions">
+          <h2>5. Preconditions &amp; Chained Check Pipelines</h2>
+          <p>Attach reusable environmental preconditions to workflows or individual nodes so deliveries wait safely when a VPN tunnel or self-hosted service is offline.</p>
+
+          <div class="shot-row">
+            <div class="shot-card" data-title="Preconditions Screen">
+              <div class="shot-media"><img src="assets/screenshots/preconditions-list.png" alt="Preconditions List"></div>
+              <div class="shot-meta"><span class="shot-badge">Screen</span><div class="shot-title">Preconditions Manager</div><div class="shot-caption">Inline Test button, failure policies, and linked workflow counts.</div></div>
+            </div>
+            <div class="shot-card" data-title="Chained Precondition Detail (Cropped)">
+              <div class="shot-media"><img src="assets/screenshots/crop-precondition-chain.png" alt="Precondition Chain Cropping"></div>
+              <div class="shot-meta"><span class="shot-badge crop">Screen Crop</span><div class="shot-title">Chained Pipeline Cards</div><div class="shot-caption">Compose multi-step precondition chains with cycle protection.</div></div>
+            </div>
+          </div>
+
+          <div class="grid-2">
+            <div class="subcard">
+              <h4 style="margin-top:0;">7 Precondition Types</h4>
+              <ul class="card-list">
+                <li><strong>Internet Check</strong> (<code>INTERNET_CHECK</code>) — Active Wi-Fi / Cellular</li>
+                <li><strong>VPN Check</strong> (<code>VPN_CHECK</code>) — <code>tun0</code>, <code>wg</code>, Tailscale</li>
+                <li><strong>Health Check</strong> (<code>HEALTH_CHECK</code>) — <code>GET/HEAD/POST</code> HTTP probe</li>
+                <li><strong>SIM Check</strong> (<code>SIM_CHECK</code>) — Carrier name &amp; SIM slot</li>
+                <li><strong>GPS &amp; Battery Checks</strong> — Location enabled &amp; min % / charging</li>
+                <li><strong>Chained Pipeline</strong> (<code>CHAINED_CHECK</code>) — Multi-step sub-workflow guard</li>
+              </ul>
+            </div>
+            <div class="subcard">
+              <h4 style="margin-top:0;">Failure Policies &amp; 4 Backoff Curves</h4>
+              <ul class="card-list">
+                <li><strong><code>FAIL_IMMEDIATELY</code></strong> — Aborts run &amp; logs failure reason.</li>
+                <li><strong><code>RETRY</code></strong> — Retries up to <code>maxRetries</code> with <code>FIXED</code>, <code>LINEAR</code>, <code>EXPONENTIAL</code>, or <code>RANDOMIZED</code> jitter backoff.</li>
+                <li><strong><code>QUEUE</code></strong> — Holds execution in WorkManager queue until satisfied or <code>queueTimeoutMinutes</code> expires.</li>
+                <li><strong>Safe Cancellation</strong> — Ongoing tests/runs prompt <code>CancelExecutionConfirmDialog</code> before aborting.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 6: Execution Logs, Live Stepper & Queue -->
+        <section class="doc-section" id="logs">
+          <h2>6. Execution Logs, Live Stepper, Queue &amp; Cancellation</h2>
+          <p>Track every live, queued, and historical workflow run down to millisecond step timings and redacted HTTP request/response blocks.</p>
+
+          <div class="shot-row">
+            <div class="shot-card" data-title="Execution History &amp; Stepper">
+              <div class="shot-media"><img src="assets/screenshots/execution-logs.png" alt="Execution Logs"></div>
+              <div class="shot-meta"><span class="shot-badge">Screen</span><div class="shot-title">Execution History</div><div class="shot-caption">Live status badges, queue controls, and cancel confirmation.</div></div>
+            </div>
+            <div class="shot-card" data-title="Complete Execution Log Modal">
+              <div class="shot-media"><img src="assets/screenshots/complete-log-dialog.png" alt="Complete Log Modal"></div>
+              <div class="shot-meta"><span class="shot-badge">Screen</span><div class="shot-title">Complete Log Modal</div><div class="shot-caption">Filter All / Passed / Errors, copy WF/Exec IDs, and inspect redacted payloads.</div></div>
+            </div>
+            <div class="shot-card" data-title="Live Stepper Progress (Cropped)">
+              <div class="shot-media"><img src="assets/screenshots/crop-execution-stepper.png" alt="Stepper Cropping"></div>
+              <div class="shot-meta"><span class="shot-badge crop">Screen Crop</span><div class="shot-title">NodeExecutionStepper</div><div class="shot-caption">Step-by-step PENDING / RUNNING / SUCCESS / FAILED timeline.</div></div>
+            </div>
+            <div class="shot-card" data-title="Complete Log Trace (Cropped)">
+              <div class="shot-media"><img src="assets/screenshots/crop-complete-log.png" alt="Complete Log Cropping"></div>
+              <div class="shot-meta"><span class="shot-badge crop">Screen Crop</span><div class="shot-title">Structured Redacted Logs</div><div class="shot-caption">Bearer/Gotify tokens automatically masked while preserving headers &amp; JSON body.</div></div>
+            </div>
+          </div>
+
+          <ul>
+            <li><strong>Queue Actions</strong>: Tap <strong>Process Now</strong>, <strong>Retry from Failed Node</strong>, or <strong>Cancel</strong> (protected by confirmation dialog).</li>
+            <li><strong>Quick Settings Tile</strong>: Add <strong>SMS Automations</strong> (<code>WorkflowsTileService</code>) to your Android Quick Settings shade to pause or resume automation in one tap.</li>
+          </ul>
+        </section>
+
+        <!-- Section 7: Encrypted Vault -->
+        <section class="doc-section" id="vault">
+          <h2>7. Encrypted Credential Vault &amp; Biometric Lock</h2>
+          <p>Store tokens and API keys in AES-256-GCM <code>EncryptedSharedPreferences</code> backed by Android KeyStore <code>MasterKey</code> and optional Fingerprint / Device PIN gating via <code>BiometricAuthHelper</code>.</p>
+
+          <div class="shot-row">
+            <div class="shot-card" data-title="Encrypted Credential Vault">
+              <div class="shot-media"><img src="assets/screenshots/vault-screen.png" alt="Vault Screen"></div>
+              <div class="shot-meta"><span class="shot-badge">Screen</span><div class="shot-title">Encrypted Vault</div><div class="shot-caption">Manage Bearer, Basic, Headers, ntfy, Gotify, and plugin secrets.</div></div>
+            </div>
+            <div class="shot-card" data-title="Biometric Lock &amp; Usage Badges (Cropped)">
+              <div class="shot-media"><img src="assets/screenshots/crop-vault-card.png" alt="Vault Card Cropping"></div>
+              <div class="shot-meta"><span class="shot-badge crop">Screen Crop</span><div class="shot-title">Masked Cards &amp; Dependency Badges</div><div class="shot-caption">See how many workflows depend on each secret before editing or deleting.</div></div>
+            </div>
+          </div>
+
+          <div class="table-container">
+            <table>
+              <thead><tr><th>Credential Type</th><th>Stored Fields</th><th>Usage</th></tr></thead>
+              <tbody>
+                <tr><td><code>BEARER_TOKEN</code></td><td><code>token</code></td><td>HTTP Webhooks (<code>Authorization: Bearer ...</code>), ntfy.sh, fallback for plugins</td></tr>
+                <tr><td><code>BASIC_AUTH</code></td><td><code>username</code>, <code>password</code></td><td>HTTP Webhooks, self-hosted reverse proxies</td></tr>
+                <tr><td><code>HEADER_SET</code></td><td><code>headers</code> (multiline <code>Key: Value</code>)</td><td>Cloudflare Access, custom API keys</td></tr>
+                <tr><td><code>NTFY_AUTH</code></td><td><code>serverUrl</code>, <code>topic</code>, <code>token</code></td><td>ntfy Push Action &amp; HTTP Webhook adapter</td></tr>
+                <tr><td><code>GOTIFY_AUTH</code></td><td><code>serverUrl</code>, <code>appToken</code></td><td>Gotify Push Action &amp; HTTP Webhook adapter (<code>X-Gotify-Key</code>)</td></tr>
+                <tr><td>Plugin Specs (e.g. <code>TELEGRAM_AUTH</code>)</td><td>Defined dynamically by plugins</td><td>Discovered automatically via <code>CredentialSpecRegistry</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Section 8: Settings, Themes, Concurrency & Backups -->
+        <section class="doc-section" id="settings">
+          <h2>8. Settings, Themes, Concurrency &amp; Portable Backups</h2>
+
+          <div class="shot-row">
+            <div class="shot-card" data-title="Appearance &amp; Theme Settings">
+              <div class="shot-media"><img src="assets/screenshots/settings-appearance.png" alt="Settings Appearance"></div>
+              <div class="shot-meta"><span class="shot-badge">Screen</span><div class="shot-title">Appearance Studio</div><div class="shot-caption">Master automation toggle, Light/Dark/System mode &amp; Material You.</div></div>
+            </div>
+            <div class="shot-card" data-title="Concurrency &amp; Queue Limits">
+              <div class="shot-media"><img src="assets/screenshots/settings-concurrency.png" alt="Settings Concurrency"></div>
+              <div class="shot-meta"><span class="shot-badge">Screen</span><div class="shot-title">Engine Concurrency</div><div class="shot-caption">Tune parallel workers (1–10), queue size (5–100), and queue expiry (1–60m).</div></div>
+            </div>
+            <div class="shot-card" data-title="Backups &amp; Installed Plugins">
+              <div class="shot-media"><img src="assets/screenshots/settings-backup-plugins.png" alt="Settings Backup &amp; Plugins"></div>
+              <div class="shot-meta"><span class="shot-badge">Screen</span><div class="shot-title">Backups &amp; Plugins</div><div class="shot-caption">Selective encrypted export/import, permissions, and plugin toggles.</div></div>
+            </div>
+          </div>
+
+          <div class="shot-row">
+            <div class="shot-card" data-title="7 Color Palettes (Cropped)">
+              <div class="shot-media"><img src="assets/screenshots/crop-theme-palettes.png" alt="Theme Palettes Cropping"></div>
+              <div class="shot-meta"><span class="shot-badge crop">Screen Crop</span><div class="shot-title">6 Curated Palettes + Material You</div><div class="shot-caption">Emerald, Ocean, Indigo, Crimson, Forest, Slate, and Dynamic Wallpaper colors.</div></div>
+            </div>
+            <div class="shot-card" data-title="Concurrency Sliders (Cropped)">
+              <div class="shot-media"><img src="assets/screenshots/crop-concurrency-queue.png" alt="Concurrency Sliders Cropping"></div>
+              <div class="shot-meta"><span class="shot-badge crop">Screen Crop</span><div class="shot-title">Worker &amp; Queue Controls</div><div class="shot-caption">Prevent bursts of incoming notifications from dropping or throttling.</div></div>
+            </div>
+            <div class="shot-card" data-title="Backup &amp; Plugins Section (Cropped)">
+              <div class="shot-media"><img src="assets/screenshots/crop-backup-plugins.png" alt="Backup &amp; Plugins Cropping"></div>
+              <div class="shot-meta"><span class="shot-badge crop">Screen Crop</span><div class="shot-title">Encrypted Backups &amp; Plugin Controls</div><div class="shot-caption">Auto-include referenced dependencies, password encrypt secrets, resolve conflicts.</div></div>
+            </div>
+          </div>
+
+          <ul>
+            <li><strong>Selective Export &amp; Dependency Resolution</strong>: Pick specific workflows and ZopHop automatically bundles referenced Vault credentials and Preconditions (<code>Auto-Include Dependencies</code>).</li>
+            <li><strong>Password-Encrypted Archives</strong>: Encrypt exported credentials with PBKDF2-HMAC-SHA256 + AES-256-GCM before sharing or saving to file.</li>
+            <li><strong>Import Conflict Policies</strong>: Choose <code>OVERWRITE</code>, <code>KEEP_BOTH</code>, or <code>SKIP_EXISTING</code> when restoring.</li>
+          </ul>
+        </section>
+
+        <!-- Section 9: Setup & Self-Hosting -->
+        <section class="doc-section" id="setup">
+          <h2>9. First-Time Setup &amp; Self-Hosted Server Guides</h2>
+          <ol>
+            <li>Download <code class="app-apk-name">ZopHop-v3.0.0.apk</code> (and optionally <code>ZopHop-Telegram-Plugin-v1.0.apk</code>) from <a href="https://github.com/aman400/zophop/releases" target="_blank">GitHub Releases</a>.</li>
+            <li>On Google Play Protect prompts, tap <strong>More details → Install anyway</strong>.</li>
+            <li>Open <strong>Settings &amp; Permissions</strong> inside ZopHop to grant <code>RECEIVE_SMS</code>, Notification Listener access, <code>POST_NOTIFICATIONS</code> (Android 13+), and <strong>Unrestricted</strong> battery usage.</li>
+          </ol>
+
+          <div class="grid-2">
+            <div>
+              <h4>ntfy (Docker Compose + ACLs)</h4>
+              <div class="code-box"><span class="code-label">docker-compose.yml (ntfy)</span>services:
+  ntfy:
+    image: binwiederhier/ntfy
+    command: ["serve"]
+    volumes:
+      - ./ntfy:/var/lib/ntfy
+    environment:
+      NTFY_BASE_URL: https://ntfy.example.com
+      NTFY_AUTH_DEFAULT_ACCESS: deny-all
+    ports: ["8080:80"]
+    restart: unless-stopped</div>
+            </div>
+            <div>
+              <h4>Gotify (Docker Compose)</h4>
+              <div class="code-box"><span class="code-label">docker-compose.yml (Gotify)</span>services:
+  gotify:
+    image: gotify/server:latest
+    restart: unless-stopped
+    volumes:
+      - ./gotify_data:/app/data
+    ports: ["8081:80"]</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 10: Bank Presets -->
+        <section class="doc-section" id="presets">
+          <h2>10. Indian Banking &amp; 2FA OTP Filter Presets</h2>
+          <div class="table-container">
+            <table>
+              <thead><tr><th>Bank / Service</th><th>Sender Regex</th><th>Extraction Regex</th><th>Template Payload</th></tr></thead>
+              <tbody>
+                <tr><td><strong>HDFC Bank</strong></td><td><code>.*HDFCBK.*</code></td><td><code>\b\d{6}\b</code></td><td><code>[${sender}] OTP: ${code}</code></td></tr>
+                <tr><td><strong>ICICI Bank</strong></td><td><code>.*ICICIB.*</code></td><td><code>\b\d{6}\b</code></td><td><code>[${sender}] OTP: ${code}</code></td></tr>
+                <tr><td><strong>SBI</strong></td><td><code>.*SBINBK.*</code></td><td><code>\b\d{6}\b</code></td><td><code>[${sender}] OTP: ${code}</code></td></tr>
+                <tr><td><strong>Axis Bank</strong></td><td><code>.*AXISBK.*</code></td><td><code>\b\d{6}\b</code></td><td><code>[${sender}] OTP: ${code}</code></td></tr>
+                <tr><td><strong>Google 2FA</strong></td><td><code>Google</code></td><td><code>G-(\d{6})</code></td><td><code>[Google] Code: ${code}</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Section 11: Testing -->
+        <section class="doc-section" id="testing">
+          <h2>11. Testing with ADB Emulator</h2>
+          <p>Simulate incoming OTP SMS messages on Android Studio Emulator or inspect external plugin discovery logs:</p>
+          <div class="code-box"><span class="code-label">ADB Shell</span># Simulate bank &amp; 2FA SMS messages
+adb emu sms send VM-HDFCBK "Your OTP for transaction of Rs 500 is 482910."
+adb emu sms send Google "G-884920 is your Google verification code."
+
+# Inspect external plugin discovery &amp; execution logs
+adb logcat -s ExternalPluginRegistry:W ExternalPluginExecutor:W</div>
+        </section>
+
+        <!-- Section 12: OEM Battery Tabs -->
+        <section class="doc-section" id="battery" data-tab-group="oem-manual">
+          <h2>12. Troubleshooting &amp; OEM Battery Optimization Fixes</h2>
+          <div class="tab-nav">
+            <button class="tab-btn active" data-tab="m-xiaomi" type="button">Xiaomi / POCO</button>
+            <button class="tab-btn" data-tab="m-samsung" type="button">Samsung</button>
+            <button class="tab-btn" data-tab="m-oneplus" type="button">OnePlus / Oppo</button>
+            <button class="tab-btn" data-tab="m-pixel" type="button">Pixel / Stock</button>
+          </div>
+          <div class="subcard tab-panel active" id="m-xiaomi">
+            <h4 style="margin-top:0;">Xiaomi / Redmi / POCO (MIUI &amp; HyperOS)</h4>
+            <ol>
+              <li><strong>Autostart</strong>: Security App → Permissions → Background autostart → Enable ZopHop (and plugin APKs).</li>
+              <li><strong>No Restrictions</strong>: Settings → Apps → Manage Apps → ZopHop → Battery Saver → <strong>No Restrictions</strong>.</li>
+              <li><strong>Lock in Recents</strong>: Open Recents → Press &amp; hold ZopHop → Tap Lock.</li>
+            </ol>
+          </div>
+          <div class="subcard tab-panel" id="m-samsung">
+            <h4 style="margin-top:0;">Samsung Galaxy (One UI)</h4>
+            <ol>
+              <li>Settings → Apps → ZopHop → Battery → <strong>Unrestricted</strong>.</li>
+              <li>Settings → Device care → Battery → Background usage limits → <strong>Never auto sleeping apps</strong> → Add ZopHop.</li>
+            </ol>
+          </div>
+          <div class="subcard tab-panel" id="m-oneplus">
+            <h4 style="margin-top:0;">OnePlus / Oppo / Realme (OxygenOS &amp; ColorOS)</h4>
+            <ol>
+              <li>Settings → Apps → App Management → ZopHop → Battery usage → Enable <strong>Allow background activity</strong> &amp; <strong>Allow auto launch</strong>.</li>
+            </ol>
+          </div>
+          <div class="subcard tab-panel" id="m-pixel">
+            <h4 style="margin-top:0;">Google Pixel / Stock Android</h4>
+            <ol>
+              <li>Settings → Apps → ZopHop → App battery usage → Allow background usage → <strong>Unrestricted</strong>.</li>
+            </ol>
+          </div>
+        </section>
+
+        <!-- Section 13: Security -->
+        <section class="doc-section" id="security">
+          <h2>13. Security, Privacy &amp; Data Hardening</h2>
+          <ol>
+            <li><strong>Hardware-Backed Encryption</strong>: Vault secrets use AES-256-GCM <code>EncryptedSharedPreferences</code> with Android KeyStore <code>MasterKey</code>.</li>
+            <li><strong>Screen Protection (<code>FLAG_SECURE</code>)</strong>: Release builds block screenshots and screen recordings across the app.</li>
+            <li><strong>Log Redaction</strong>: <code>ExecutionLogFormatter</code> masks <code>Authorization</code>, <code>X-Gotify-Key</code>, <code>X-API-Key</code>, <code>Cookie</code>, and token headers.</li>
+            <li><strong>Zero Telemetry &amp; Cloud Backup Opt-Out</strong>: <code>android:allowBackup="false"</code> disables cloud auto-backups; zero analytics SDKs exist.</li>
+            <li><strong>URL Credential Guard</strong>: <code>HttpActionExecutor</code> rejects URLs containing embedded <code>user:pass@</code> credentials.</li>
+          </ol>
+          <div class="alert alert-note" style="margin-top:18px;">
+            <span>🧩</span>
+            <div>
+              Want to extend ZopHop with your own triggers or delivery targets? Read the interactive <a href="plugins.html"><strong>Plugin SDK &amp; Slack Tutorial</strong></a>.
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <!-- Lightbox Modal -->
+  <div class="lightbox" id="lightbox" aria-hidden="true">
+    <div class="lightbox-dialog">
+      <div class="lightbox-top">
+        <strong id="lightboxTitle">Screenshot Preview</strong>
+        <button class="lightbox-close" id="lightboxClose" type="button">Close (Esc)</button>
+      </div>
+      <div class="lightbox-body">
+        <img id="lightboxImg" src="" alt="Preview">
+        <p class="lightbox-caption" id="lightboxCaption"></p>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-footer">
+    <div class="container footer-content">
+      <div>
+        <p><strong>ZopHop Automation Engine <span class="app-version-v">v3.0.0</span></strong> — Android 8.0+ (API 26–37)</p>
+        <p style="margin-top: 4px;">Open-source software released under the MIT License.</p>
+      </div>
+      <div class="footer-links">
+        <a href="index.html">Overview</a>
+        <a href="manual.html">User Manual</a>
+        <a href="plugins.html">Plugin SDK</a>
+        <a href="releases.html">Releases</a>
+        <a href="https://github.com/aman400/zophop" target="_blank">GitHub</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

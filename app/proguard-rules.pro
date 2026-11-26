@@ -1,28 +1,77 @@
-# ZopHop ProGuard / R8 Keep Rules
+# ==============================================================================
+# ZopHop ProGuard / R8 Rules
+# ==============================================================================
 
-# Keep Data Models and Database Entities
+# ------------------------------------------------------------------------------
+# Release Log Stripping
+# ------------------------------------------------------------------------------
+# Strip android.util.Log calls and their arguments in release builds
+-assumenosideeffects class android.util.Log {
+    public static boolean isLoggable(java.lang.String, int);
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+    public static int w(...);
+    public static int e(...);
+    public static int wtf(...);
+    public static java.lang.String getStackTraceString(java.lang.Throwable);
+    public static int println(...);
+}
+
+# Strip standard console prints
+-assumenosideeffects class java.io.PrintStream {
+    public void println(...);
+    public void print(...);
+}
+
+-assumenosideeffects class kotlin.io.ConsoleKt {
+    public static void print(...);
+    public static void println(...);
+}
+
+# ------------------------------------------------------------------------------
+# Plugin Architecture Keep Rules
+# ------------------------------------------------------------------------------
+# BuiltInPluginRegistry loads modules listed in META-INF/services via Class.forName(...)
+# and accesses their singleton INSTANCE or default constructor.
+-keep class * implements dev.zophop.plugin.api.NodePluginModule {
+    public static final ** INSTANCE;
+    public <init>();
+}
+
+# Keep dynamic node executors instantiated by plugins
+-keep class * implements dev.zophop.plugin.api.NodeExecutor {
+    public <init>(...);
+}
+
+# Preserve NodePluginManifest, PluginContext, and dynamic plugin API models
+-keep class dev.zophop.plugin.api.** { *; }
+
+# ------------------------------------------------------------------------------
+# Data Models, Domain Serialization, and Entities
+# ------------------------------------------------------------------------------
+# Keep Room entities, domain models, execution steps, and backup models used in DB / JSON
 -keep class dev.zophop.data.** { *; }
+-keep class dev.zophop.domain.model.** { *; }
+-keep class dev.zophop.domain.engine.NodeExecutionStep { *; }
+-keep class dev.zophop.domain.engine.NodeExecutionStep$** { *; }
+-keep class dev.zophop.domain.engine.NodeStepState { *; }
+-keep class dev.zophop.feature.backup.** { *; }
 
-# Keep Room Database
--keep class * extends androidx.room.RoomDatabase
+# Keep AndroidX / kotlinx.serialization generated serializers
+-keepattributes *Annotation*, InnerClasses
+-dontnote kotlinx.serialization.AnnotationsKt
+-keepclassmembers class kotlinx.serialization.json.** {
+    *** Companion;
+}
+-keepclasseswithmembers class kotlinx.serialization.json.** {
+    kotlinx.serialization.KSerializer serializer(...);
+}
+
+# ------------------------------------------------------------------------------
+# Third-Party Library Suppressions
+# ------------------------------------------------------------------------------
 -dontwarn androidx.room.paging.**
-
-# Keep WorkManager Workers
--keep class dev.zophop.worker.** { *; }
-
-# Keep Services, TileService and Broadcast Receivers
--keep class dev.zophop.service.** { *; }
--keep class dev.zophop.receiver.** { *; }
-
-# OkHttp & Okio Network Client
--dontwarn okhttp3.**
--dontwarn okio.**
--keep class okhttp3.internal.** { *; }
-
-# Kotlin Coroutines
--keepclassmembers class kotlinx.coroutines.** { *; }
-
-# EncryptedSharedPreferences / Google Tink Annotations
 -dontwarn com.google.errorprone.annotations.**
 -dontwarn javax.annotation.**
 -dontwarn org.checkerframework.**

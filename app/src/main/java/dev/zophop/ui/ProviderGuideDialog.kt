@@ -32,14 +32,14 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.zophop.core.ui.components.NoSwipeBottomSheet
 import dev.zophop.data.ServerType
-import dev.zophop.ui.components.NoSwipeBottomSheet
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProviderGuideBottomSheet(
     initialServerType: String = ServerType.NTFY,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     var selectedType by remember { mutableStateOf(initialServerType) }
     val isGotify = selectedType == ServerType.GOTIFY
@@ -48,29 +48,31 @@ fun ProviderGuideBottomSheet(
         onDismissRequest = onDismiss,
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 12.dp)
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 12.dp),
         ) {
             // Header
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column {
                     Text(
                         text = "📖 Delivery Provider Setup Guide",
                         fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
+                        fontSize = 18.sp,
                     )
                     Text(
                         text = "Step-by-step instructions for ntfy & Gotify",
                         fontSize = 12.sp,
-                        color = Color.Gray
+                        color = Color.Gray,
                     )
                 }
                 TextButton(onClick = onDismiss) {
@@ -79,15 +81,16 @@ fun ProviderGuideBottomSheet(
             }
 
             Column(
-                modifier = Modifier
-                    .weight(1f, fill = false)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                modifier =
+                    Modifier
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 // Segmented Provider Selector
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     if (!isGotify) {
                         Button(onClick = { selectedType = ServerType.NTFY }, modifier = Modifier.weight(1f)) {
@@ -120,18 +123,19 @@ fun ProviderGuideBottomSheet(
             androidx.compose.material3.Surface(
                 modifier = Modifier.fillMaxWidth(),
                 color = MaterialTheme.colorScheme.surfaceContainer,
-                tonalElevation = 6.dp
+                tonalElevation = 6.dp,
             ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 14.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 14.dp),
                     horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Button(
                         onClick = onDismiss,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text("Got It!", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
@@ -147,48 +151,48 @@ fun NtfySetupGuideContent() {
         Text(
             text = "ntfy allows sending push notifications via plain HTTP/HTTPS requests.",
             fontSize = 13.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         GuideStepItem(
             stepNumber = "1",
             title = "Choose Server URL",
-            description = "Use the free public server (https://ntfy.sh) or enter your self-hosted ntfy server URL."
+            description = "Use the free public server (https://ntfy.sh) or enter your self-hosted ntfy server URL.",
         )
 
         GuideStepItem(
             stepNumber = "2",
             title = "Set a Unique Topic Name",
-            description = "Pick a unique topic string (e.g. my-private-otp-9823). Keep it long and unguessable so others cannot guess your feed!"
+            description = "Pick a unique topic string (e.g. my-private-otp-9823). Keep it long and unguessable so others cannot guess your feed!",
         )
 
         GuideStepItem(
             stepNumber = "3",
             title = "Subscribe to Notifications",
-            description = "Open https://ntfy.sh/my-private-otp-9823 in your browser or install the official ntfy Android/iOS app and subscribe to your topic."
+            description = "Open https://ntfy.sh/my-private-otp-9823 in your browser or install the official ntfy Android/iOS app and subscribe to your topic.",
         )
 
         GuideStepItem(
             stepNumber = "4",
             title = "Optional Access Token",
-            description = "If your self-hosted ntfy server uses authentication or ACL protection, generate a Bearer Token in ntfy Web UI and paste it into the Token field."
+            description = "If your self-hosted ntfy server uses authentication or ACL protection, generate a Bearer Token in ntfy Web UI and paste it into the Token field.",
         )
 
         Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
         ) {
             Column(modifier = Modifier.padding(10.dp)) {
                 Text(
                     text = "💡 Quick Verification Example:",
                     fontWeight = FontWeight.Bold,
                     fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
                 Text(
                     text = "curl -d \"Test message\" https://ntfy.sh/my-private-otp-9823",
                     fontFamily = FontFamily.Monospace,
                     fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
             }
         }
@@ -201,62 +205,63 @@ fun GotifySetupGuideContent() {
         Text(
             text = "Gotify is a self-hosted notification server for sending and receiving messages in real time.",
             fontSize = 13.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         GuideStepItem(
             stepNumber = "1",
             title = "Deploy Gotify Server",
-            description = "Run Gotify on your VPS or local home server via Docker:"
+            description = "Run Gotify on your VPS or local home server via Docker:",
         )
 
         Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color(0xFF0F172A), RoundedCornerShape(6.dp))
-                .padding(8.dp)
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF0F172A), RoundedCornerShape(6.dp))
+                    .padding(8.dp),
         ) {
             Text(
                 text = "docker run -p 8080:80 -v gotify_data:/app/data gotify/server",
                 fontFamily = FontFamily.Monospace,
                 fontSize = 10.sp,
-                color = Color(0xFF38BDF8)
+                color = Color(0xFF38BDF8),
             )
         }
 
         GuideStepItem(
             stepNumber = "2",
             title = "Log in to Web UI",
-            description = "Open your Gotify Web UI (e.g. https://gotify.example.com) and log in using admin credentials."
+            description = "Open your Gotify Web UI (e.g. https://gotify.example.com) and log in using admin credentials.",
         )
 
         GuideStepItem(
             stepNumber = "3",
             title = "Create an Application",
-            description = "Navigate to 'Apps' → Click 'Create Application' → Enter name 'ZopHop'."
+            description = "Navigate to 'Apps' → Click 'Create Application' → Enter name 'ZopHop'.",
         )
 
         GuideStepItem(
             stepNumber = "4",
             title = "Copy Application Token",
-            description = "Copy the generated Application Token (X-Gotify-Key, e.g. A1b2C3d4E5f6) and paste it into the Gotify App Token field."
+            description = "Copy the generated Application Token (X-Gotify-Key, e.g. A1b2C3d4E5f6) and paste it into the Gotify App Token field.",
         )
 
         Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
         ) {
             Column(modifier = Modifier.padding(10.dp)) {
                 Text(
                     text = "💡 Verification Curl Request:",
                     fontWeight = FontWeight.Bold,
                     fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
                 )
                 Text(
                     text = "curl -X POST \"https://gotify.example.com/message?token=A1b2C3d4\" -F \"message=Test\"",
                     fontFamily = FontFamily.Monospace,
                     fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
                 )
             }
         }
@@ -267,23 +272,24 @@ fun GotifySetupGuideContent() {
 fun GuideStepItem(
     stepNumber: String,
     title: String,
-    description: String
+    description: String,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.Top
+        verticalAlignment = Alignment.Top,
     ) {
         Box(
-            modifier = Modifier
-                .background(MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(12.dp))
-                .padding(horizontal = 8.dp, vertical = 2.dp)
+            modifier =
+                Modifier
+                    .background(MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(12.dp))
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
         ) {
             Text(
                 text = stepNumber,
                 color = MaterialTheme.colorScheme.onPrimary,
                 fontWeight = FontWeight.Bold,
-                fontSize = 11.sp
+                fontSize = 11.sp,
             )
         }
 
@@ -291,12 +297,12 @@ fun GuideStepItem(
             Text(
                 text = title,
                 fontWeight = FontWeight.Bold,
-                fontSize = 13.sp
+                fontSize = 13.sp,
             )
             Text(
                 text = description,
                 fontSize = 12.sp,
-                color = Color.Gray
+                color = Color.Gray,
             )
         }
     }

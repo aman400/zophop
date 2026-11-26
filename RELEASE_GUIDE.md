@@ -1,6 +1,8 @@
-# ZopHop Signed Release & GitHub Publishing Guide
+# ZopHop Signed Release & JitPack SDK Guide
 
-This guide details how to generate signed Release APKs locally and how to set up automated GitHub Release publishing.
+<!-- APP_VERSION = "3.0.0" -->
+
+This guide details how to generate signed Release APKs and Plugin SDK AARs locally, and how automated GitHub Release + JitPack distribution works via [`.github/workflows/release.yml`](.github/workflows/release.yml) and [`jitpack.yml`](jitpack.yml).
 
 ---
 
@@ -17,7 +19,7 @@ keytool -genkey -v -keystore release.keystore \
   -validity 10000
 ```
 
-### Step B: Build Signed Release APK
+### Step B: Build Release APKs & Plugin SDK AARs
 Pass keystore parameters as environment variables when invoking Gradle:
 
 ```bash
@@ -25,45 +27,78 @@ KEYSTORE_FILE=release.keystore \
 KEYSTORE_PASSWORD=your_password \
 KEY_ALIAS=zophop_key \
 KEY_PASSWORD=your_password \
-./gradlew assembleRelease
+./gradlew assembleRelease :core:plugin-api:assembleRelease :core:model:assembleRelease
 ```
 
-The signed, optimized Release APK will be generated at:
+The signed release binaries and AAR libraries are generated at:
+
 ```text
-app/build/outputs/apk/release/ZopHop-v1.0.0.apk
+app/build/outputs/apk/release/ZopHop-v3.0.0.apk
+external/telegram/build/outputs/apk/release/ZopHop-Telegram-Plugin-v1.0.apk
+core/plugin-api/build/outputs/aar/plugin-api-release.aar
+core/model/build/outputs/aar/model-release.aar
 ```
 
 ---
 
-## 2. Automated GitHub Release Publishing
+## 2. Automated GitHub Release & JitPack Distribution
 
-The repository includes a pre-configured GitHub Actions workflow in `.github/workflows/release.yml`.
+The repository includes a pre-configured release workflow in `.github/workflows/release.yml` triggered on `v*` tag pushes or manual `workflow_dispatch`.
 
 ### Step A: Configure Repository Secrets (Optional)
-If you want GitHub Actions to sign APKs with your custom production keystore, encode your `release.keystore` file to Base64:
+If you want GitHub Actions to sign both `ZopHop-v3.0.0.apk` and `ZopHop-Telegram-Plugin-v1.0.apk` with your production keystore, encode `release.keystore` to Base64:
 
 ```bash
 base64 -i release.keystore -o keystore_base64.txt
 ```
 
-Then in your GitHub Repository:
-Navigate to **Settings** → **Secrets and variables** → **Actions** → Add the following Repository Secrets:
-- `KEYSTORE_BASE64`: Content of `keystore_base64.txt`
+Then in your GitHub Repository, navigate to **Settings → Secrets and variables → Actions** and add:
+- `KEYSTORE_BASE64`: Contents of `keystore_base64.txt`
 - `KEYSTORE_PASSWORD`: Keystore password
-- `KEY_ALIAS`: Keystore alias (e.g. `zophop_key`)
+- `KEY_ALIAS`: Keystore alias (e.g., `zophop_key`)
 - `KEY_PASSWORD`: Key password
 
-*(If secrets are omitted, GitHub Actions will fall back to auto-generating signed release builds.)*
+*(If omitted, GitHub Actions falls back to debug-signed release builds. No extra secrets or environment variables are required for GitHub Releases — the workflow uses the built-in `GITHUB_TOKEN` with `contents: write` permission.)*
 
-### Step B: Publish a New Release Tag
-To publish a new GitHub Release automatically, tag your commit and push to GitHub:
+### Step B: Synchronize Docs & Publish a Release Tag
+Before tagging, run `./gradlew syncVersion` if you bumped `ZOPHOP_VERSION` in `gradle.properties`, then tag and push:
 
 ```bash
-git tag -a v1.0.0 -m "ZopHop v1.0.0 Release"
-git push origin v1.0.0
+VERSION="3.0.0"
+
+git tag -a v$VERSION -m "ZopHop v$VERSION Release"
+git push origin v$VERSION
 ```
 
 GitHub Actions will automatically:
-1. Compile and optimize R8 ProGuard release binaries.
-2. Sign the output APK (`ZopHop-v1.0.0.apk`).
-3. Create a GitHub Release and attach the APK asset for direct download.
+1. Run the full unit and Robolectric integration test suite (`./gradlew test --stacktrace`).
+2. Build and sign the main app (`ZopHop-v3.0.0.apk`) and external plugin APKs (`ZopHop-Telegram-Plugin-v1.0.apk`).
+3. Build release AAR libraries (`zophop-plugin-api-v3.0.0.aar` and `zophop-core-model-v3.0.0.aar`).
+4. Create a GitHub Release and attach all `.apk` and `.aar` assets.
+
+Once the release tag is pushed, **JitPack** (`jitpack.yml`) builds and serves `com.github.aman400.zophop:plugin-api` and `com.github.aman400.zophop:core-model` publicly without authentication.
+
+---
+
+## 3. Public SDK Consumption via JitPack
+
+External plugin developers can consume the SDK publicly without any token via **JitPack** (see [docs/plugins.html](docs/plugins.html) or the [Online Plugin SDK Docs](https://aman400.github.io/zophop/plugins.html)):
+
+```kotlin
+// settings.gradle.kts
+maven { url = uri("https://jitpack.io") }
+
+// app/build.gradle.kts
+dependencies {
+    implementation("com.github.aman400.zophop:plugin-api:v3.0.0")
+}
+```
+
+To test the exact JitPack publication locally in `~/.m2`:
+
+```bash
+./gradlew -Pjitpack=true \
+  :core:model:publishReleasePublicationToMavenLocal \
+  :core:plugin-api:publishReleasePublicationToMavenLocal \
+  --stacktrace
+```

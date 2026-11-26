@@ -18,5 +18,5 @@ data class MessageEntity(
     val receivedAt: Long,
     val status: String, // QUEUED, DELIVERED, EXPIRED, FAILED
     val retryCount: Int = 0,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
 )

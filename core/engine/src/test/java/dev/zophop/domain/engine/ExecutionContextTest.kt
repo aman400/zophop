@@ -1,11 +1,11 @@
 package dev.zophop.domain.engine
 
+import dev.zophop.plugin.api.ExecutionContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ExecutionContextTest {
-
     @Test
     fun testGetAndSetVariables() {
         val context = ExecutionContext()
@@ -21,14 +21,15 @@ class ExecutionContextTest {
 
     @Test
     fun testTypedGetters() {
-        val context = ExecutionContext(
-            mapOf(
-                "str" to "hello",
-                "num" to "42",
-                "bool" to "true",
-                "intVal" to 99
+        val context =
+            ExecutionContext(
+                mapOf(
+                    "str" to "hello",
+                    "num" to "42",
+                    "bool" to "true",
+                    "intVal" to 99,
+                ),
             )
-        )
 
         assertEquals("hello", context.getString("str"))
         assertEquals("42", context.getString("num"))
@@ -37,12 +38,13 @@ class ExecutionContextTest {
 
     @Test
     fun testInterpolateSimpleVariables() {
-        val context = ExecutionContext(
-            mapOf(
-                "sender" to "BANK_SMS",
-                "code" to "987654"
+        val context =
+            ExecutionContext(
+                mapOf(
+                    "sender" to "BANK_SMS",
+                    "code" to "987654",
+                ),
             )
-        )
 
         val template = "Received code \${code} from \${sender}"
         val result = context.interpolate(template)
@@ -68,5 +70,32 @@ class ExecutionContextTest {
         val result = context.interpolate(template)
 
         assertEquals("[OTP] Your OTP code is ready.", result)
+    }
+
+    @Test
+    fun testInterpolate_blocksSecondOrderTemplateExpansion() {
+        val context =
+            ExecutionContext(
+                mapOf(
+                    "secret_token" to "SUPER_SECRET_123",
+                    "body" to "User sent \${secret_token} and {secret_token}",
+                ),
+            )
+
+        val result = context.interpolate("SMS: \${body}")
+        assertEquals("SMS: User sent \${secret_token} and {secret_token}", result)
+    }
+
+    @Test
+    fun testInterpolate_preservesDollarSignsAndBackslashesInValues() {
+        val context =
+            ExecutionContext(
+                mapOf(
+                    "amount" to "$100 $0 $1 \\backslash",
+                ),
+            )
+
+        val result = context.interpolate("Paid: \${amount}")
+        assertEquals("Paid: $100 $0 $1 \\backslash", result)
     }
 }

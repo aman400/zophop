@@ -1,20 +1,54 @@
 package dev.zophop.ui
 
 import android.app.Application
-import androidx.compose.ui.test.junit4.createComposeRule
+import android.content.ComponentName
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.ActivityInfo
+import androidx.activity.ComponentActivity
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.work.Configuration
 import dev.zophop.ui.credentials.CredentialsScreen
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 
-class TestApp : Application(), Configuration.Provider {
+class TestApp :
+    Application(),
+    Configuration.Provider {
+    override fun onCreate() {
+        super.onCreate()
+        val componentName = ComponentName(packageName, ComponentActivity::class.java.name)
+        val hasComponentActivity =
+            runCatching { packageManager.getActivityInfo(componentName, 0) }.isSuccess
+        if (!hasComponentActivity) {
+            val activityInfo =
+                ActivityInfo().apply {
+                    packageName = this@TestApp.packageName
+                    name = ComponentActivity::class.java.name
+                    exported = true
+                }
+            Shadows.shadowOf(packageManager).apply {
+                addOrUpdateActivity(activityInfo)
+                addIntentFilterForActivity(
+                    componentName,
+                    IntentFilter(Intent.ACTION_MAIN).apply {
+                        addCategory(Intent.CATEGORY_LAUNCHER)
+                    },
+                )
+            }
+        }
+    }
+
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder().build()
 }
@@ -22,7 +56,6 @@ class TestApp : Application(), Configuration.Provider {
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [33], application = TestApp::class)
 class ComposeUiScreensComprehensiveTest {
-
     @get:Rule
     val composeTestRule = createComposeRule()
 
@@ -43,11 +76,67 @@ class ComposeUiScreensComprehensiveTest {
                 hasSmsPermission = true,
                 onRequestSmsPermission = {},
                 hasNotificationPermission = true,
-                onRequestNotificationPermission = {}
+                onRequestNotificationPermission = {},
             )
         }
 
         composeTestRule.onNodeWithText("Global Automations Switch").assertExists()
+    }
+
+    @Test
+    fun testPermissionStatusRowGrantedState() {
+        composeTestRule.setContent {
+            PermissionStatusRow(
+                title = "Location & GPS",
+                subtitle = "Required for GPS check condition node",
+                isGranted = true,
+                onGrantClick = {},
+            )
+        }
+
+        composeTestRule.onNodeWithText("Location & GPS").assertExists()
+        composeTestRule.onNodeWithText("Required for GPS check condition node").assertExists()
+        composeTestRule.onNodeWithText("Granted").assertExists()
+    }
+
+    @Test
+    fun testPermissionStatusRowUngrantedState() {
+        var clicked = false
+        composeTestRule.setContent {
+            PermissionStatusRow(
+                title = "Send SMS",
+                subtitle = "Required for Send SMS action node",
+                isGranted = false,
+                grantButtonLabel = "Grant",
+                onGrantClick = { clicked = true },
+            )
+        }
+
+        composeTestRule.onNodeWithText("Send SMS").assertExists()
+        composeTestRule.onNodeWithText("Required for Send SMS action node").assertExists()
+        composeTestRule.onNodeWithText("Grant").assertExists()
+        composeTestRule.onNodeWithText("Grant").performClick()
+        assertTrue(clicked)
+    }
+
+    @Test
+    fun testPermissionStatusRowExternalModuleGrant() {
+        var moduleClicked = false
+        composeTestRule.setContent {
+            PermissionStatusRow(
+                title = "android.permission.CAMERA",
+                subtitle = "Required by external module: Telegram Actions",
+                isGranted = false,
+                grantButtonLabel = "Grant in Module",
+                onGrantClick = { moduleClicked = true },
+            )
+        }
+
+        composeTestRule.onNodeWithText("android.permission.CAMERA").assertExists()
+        composeTestRule.onNodeWithText("Required by external module: Telegram Actions").assertExists()
+        composeTestRule.onNodeWithText("Grant in Module").assertExists()
+        composeTestRule.onNodeWithText("Grant in Module").performClick()
+        assertTrue(moduleClicked)
     }
 
     @Test
@@ -57,7 +146,6 @@ class ComposeUiScreensComprehensiveTest {
         composeTestRule.setContent {
             CredentialsScreen(
                 viewModel = viewModel,
-                onBack = {}
             )
         }
 
@@ -74,7 +162,7 @@ class ComposeUiScreensComprehensiveTest {
                 hasSmsPermission = true,
                 onRequestSmsPermission = {},
                 hasNotificationPermission = true,
-                onRequestNotificationPermission = {}
+                onRequestNotificationPermission = {},
             )
         }
 

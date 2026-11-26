@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="180dp"
+    android:height="180dp"
+    android:viewportWidth="180"
+    android:viewportHeight="180">
+
+    <!-- Subtle SMS bubble sprite -->
+    <path
+        android:pathData="M18,24 h44 a7,7 0 0 1 7,7 v24 a7,7 0 0 1 -7,7 h-22 l-11,9 v-9 h-11 a7,7 0 0 1 -7,-7 v-24 a7,7 0 0 1 7,-7 z"
+        android:strokeColor="#1410B981"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:fillColor="#1810B981"
+        android:pathData="M29,43 a2.2,2.2 0 1,0 4.4,0 a2.2,2.2 0 1,0 -4.4,0 M38,43 a2.2,2.2 0 1,0 4.4,0 a2.2,2.2 0 1,0 -4.4,0 M47,43 a2.2,2.2 0 1,0 4.4,0 a2.2,2.2 0 1,0 -4.4,0" />
+
+    <!-- Subtle cron clock sprite -->
+    <path
+        android:pathData="M138,48 m-20,0 a20,20 0 1,0 40,0 a20,20 0 1,0 -40,0"
+        android:strokeColor="#14F59E0B"
+        android:strokeWidth="2" />
+    <path
+        android:pathData="M138,36 v12 l8,5"
+        android:strokeColor="#18F59E0B"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- Subtle branching graph sprite -->
+    <path
+        android:pathData="M24,132 C38,132 38,114 54,114 M24,132 C38,132 38,150 54,150 M62,114 L74,132 L62,150"
+        android:strokeColor="#1410B981"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:fillColor="#1810B981"
+        android:pathData="M14,126 h12 v12 h-12 z M58,114 m-4.5,0 a4.5,4.5 0 1,0 9,0 a4.5,4.5 0 1,0 -9,0 M58,150 m-4.5,0 a4.5,4.5 0 1,0 9,0 a4.5,4.5 0 1,0 -9,0 M74,132 m-4.5,0 a4.5,4.5 0 1,0 9,0 a4.5,4.5 0 1,0 -9,0" />
+</vector>

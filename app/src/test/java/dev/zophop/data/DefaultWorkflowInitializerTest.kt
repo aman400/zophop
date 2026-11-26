@@ -8,7 +8,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class DefaultWorkflowInitializerTest {
-
     class FakeWorkflowRepository : WorkflowRepository {
         val workflows = mutableListOf<Workflow>()
 
@@ -25,7 +24,10 @@ class DefaultWorkflowInitializerTest {
             workflows.add(workflow)
         }
 
-        override suspend fun setWorkflowEnabled(id: String, isEnabled: Boolean) {
+        override suspend fun setWorkflowEnabled(
+            id: String,
+            isEnabled: Boolean,
+        ) {
             val idx = workflows.indexOfFirst { it.id == id }
             if (idx != -1) {
                 workflows[idx] = workflows[idx].copy(isEnabled = isEnabled)
@@ -38,40 +40,53 @@ class DefaultWorkflowInitializerTest {
 
         override fun getRecentExecutionLogsFlow(limit: Int): Flow<List<WorkflowExecutionLogEntity>> = flowOf(emptyList())
 
-        override fun getLogsForWorkflowFlow(workflowId: String, limit: Int): Flow<List<WorkflowExecutionLogEntity>> = flowOf(emptyList())
+        override fun getLogsForWorkflowFlow(
+            workflowId: String,
+            limit: Int,
+        ): Flow<List<WorkflowExecutionLogEntity>> = flowOf(emptyList())
 
         override suspend fun saveExecutionLog(log: WorkflowExecutionLogEntity) {}
 
+        override suspend fun getExecutionLogById(id: String): WorkflowExecutionLogEntity? = null
+
         override suspend fun clearLogsForWorkflow(workflowId: String) {}
+
+        override fun getQueuedWorkflowLogsFlow(): Flow<List<WorkflowExecutionLogEntity>> = flowOf(emptyList())
+
+        override suspend fun getQueuedWorkflowLogs(): List<WorkflowExecutionLogEntity> = emptyList()
+
+        override suspend fun deleteExecutionLogById(id: String) {}
     }
 
     @Test
-    fun testInitializerCreatesDefaultWorkflowWhenDbIsEmpty() = runTest {
-        val repo = FakeWorkflowRepository()
-        val initializer = DefaultWorkflowInitializer(repo)
+    fun testInitializerCreatesDefaultWorkflowWhenDbIsEmpty() =
+        runTest {
+            val repo = FakeWorkflowRepository()
+            val initializer = DefaultWorkflowInitializer(repo)
 
-        assertEquals(0, repo.getWorkflowCount())
+            assertEquals(0, repo.getWorkflowCount())
 
-        initializer.checkAndInitialize()
+            initializer.checkAndInitialize()
 
-        assertEquals(1, repo.getWorkflowCount())
-        val defaultWf = repo.workflows.first()
-        assertEquals("default_sms_workflow", defaultWf.id)
-        assertEquals(4, defaultWf.nodes.size)
-        assertEquals(3, defaultWf.connections.size)
-    }
+            assertEquals(1, repo.getWorkflowCount())
+            val defaultWf = repo.workflows.first()
+            assertEquals("default_manual_workflow", defaultWf.id)
+            assertEquals(3, defaultWf.nodes.size)
+            assertEquals(2, defaultWf.connections.size)
+        }
 
     @Test
-    fun testInitializerIdempotentWhenDbIsNotEmpty() = runTest {
-        val repo = FakeWorkflowRepository()
-        repo.saveWorkflow(Workflow(id = "existing_1", name = "Existing Workflow"))
+    fun testInitializerIdempotentWhenDbIsNotEmpty() =
+        runTest {
+            val repo = FakeWorkflowRepository()
+            repo.saveWorkflow(Workflow(id = "existing_1", name = "Existing Workflow"))
 
-        val initializer = DefaultWorkflowInitializer(repo)
-        assertEquals(1, repo.getWorkflowCount())
+            val initializer = DefaultWorkflowInitializer(repo)
+            assertEquals(1, repo.getWorkflowCount())
 
-        initializer.checkAndInitialize()
+            initializer.checkAndInitialize()
 
-        assertEquals(1, repo.getWorkflowCount())
-        assertEquals("existing_1", repo.workflows.first().id)
-    }
+            assertEquals(1, repo.getWorkflowCount())
+            assertEquals("existing_1", repo.workflows.first().id)
+        }
 }

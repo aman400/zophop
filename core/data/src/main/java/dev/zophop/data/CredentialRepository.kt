@@ -6,24 +6,23 @@ import kotlinx.coroutines.flow.map
 
 interface CredentialRepository {
     fun getAllCredentialsFlow(): Flow<List<Credential>>
+
     suspend fun getCredentialById(id: String): Credential?
+
     suspend fun saveCredential(credential: Credential)
+
     suspend fun deleteCredential(id: String)
 }
 
 class RoomCredentialRepository(
-    private val credentialDao: CredentialDao
+    private val credentialDao: CredentialDao,
 ) : CredentialRepository {
-
-    override fun getAllCredentialsFlow(): Flow<List<Credential>> {
-        return credentialDao.getAllCredentialsFlow().map { entities ->
+    override fun getAllCredentialsFlow(): Flow<List<Credential>> =
+        credentialDao.getAllCredentialsFlow().map { entities ->
             entities.map { it.toDomain() }
         }
-    }
 
-    override suspend fun getCredentialById(id: String): Credential? {
-        return credentialDao.getCredentialById(id)?.toDomain()
-    }
+    override suspend fun getCredentialById(id: String): Credential? = credentialDao.getCredentialById(id)?.toDomain()
 
     override suspend fun saveCredential(credential: Credential) {
         val updated = credential.copy(updatedAt = System.currentTimeMillis())

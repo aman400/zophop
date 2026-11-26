@@ -5,7 +5,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SecurityAndUrlValidationTest {
-
     @Test
     fun testValidPublicHttpsUrlsAllowed() {
         assertTrue(UrlValidator.isValidUrl("https://ntfy.sh/my-topic"))
@@ -58,5 +57,32 @@ class SecurityAndUrlValidationTest {
         assertFalse(UrlValidator.isValidUrl("not_a_url"))
         assertFalse(UrlValidator.isValidUrl("https://"))
         assertFalse(UrlValidator.isValidUrl("ht tp://bad.com"))
+    }
+
+    @Test
+    fun testUserInfoInUrlIsRejected() {
+        assertFalse(UrlValidator.isValidUrl("https://user:pass@ntfy.sh/topic"))
+        assertFalse(UrlValidator.isValidUrl("http://user:pass@localhost:8080/topic"))
+        assertFalse(UrlValidator.isValidUrl("https://@ntfy.sh/topic"))
+    }
+
+    @Test
+    fun testMetadataLinkLocalZeroAndMappedIpv6Blocked() {
+        // Cloud metadata & link-local must be rejected regardless of allowInsecurePrivateHttp
+        assertFalse(UrlValidator.isValidUrl("http://169.254.169.254/latest/meta-data/", allowInsecurePrivateHttp = true))
+        assertFalse(UrlValidator.isValidUrl("https://169.254.169.254/latest/meta-data/", allowInsecurePrivateHttp = true))
+        assertFalse(UrlValidator.isValidUrl("http://[fe80::1]/", allowInsecurePrivateHttp = true))
+        assertFalse(UrlValidator.isValidUrl("http://[::ffff:169.254.169.254]/", allowInsecurePrivateHttp = true))
+
+        // Unspecified 0.0.0.0 and decimal/octal obfuscated IPs rejected on HTTP
+        assertFalse(UrlValidator.isValidUrl("http://0.0.0.0:8080/hook", allowInsecurePrivateHttp = false))
+        assertFalse(UrlValidator.isValidUrl("http://0.0.0.0:8080/hook", allowInsecurePrivateHttp = true))
+        assertFalse(UrlValidator.isValidUrl("http://2130706433/", allowInsecurePrivateHttp = true))
+        assertFalse(UrlValidator.isValidUrl("http://0177.0.0.1/", allowInsecurePrivateHttp = true))
+
+        // IPv4-mapped IPv6 private addresses respect allowInsecurePrivateHttp
+        assertFalse(UrlValidator.isValidUrl("http://[::ffff:10.0.0.1]:8080/hook", allowInsecurePrivateHttp = false))
+        assertTrue(UrlValidator.isValidUrl("http://[::ffff:10.0.0.1]:8080/hook", allowInsecurePrivateHttp = true))
+        assertTrue(UrlValidator.isValidUrl("http://[::ffff:127.0.0.1]:8080/hook", allowInsecurePrivateHttp = false))
     }
 }

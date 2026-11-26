@@ -6,13 +6,13 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CredentialStoreAndMappingTest {
-
     private class FakeCredentialDao : CredentialDao {
         val storage = mutableMapOf<String, CredentialEntity>()
 
@@ -31,14 +31,15 @@ class CredentialStoreAndMappingTest {
 
     @Test
     fun testBearerTokenCredentialEntityMapping() {
-        val entity = CredentialEntity(
-            id = "cred_bearer_99",
-            name = "Stripe API Key",
-            type = CredentialType.BEARER_TOKEN.name,
-            dataJson = """{"token":"sk_test_51MzX9900221"}""",
-            createdAt = 1000L,
-            updatedAt = 2000L
-        )
+        val entity =
+            CredentialEntity(
+                id = "cred_bearer_99",
+                name = "Stripe API Key",
+                type = CredentialType.BEARER_TOKEN,
+                dataJson = """{"token":"sk_test_51MzX9900221"}""",
+                createdAt = 1000L,
+                updatedAt = 2000L,
+            )
 
         val domain = entity.toDomain()
         assertEquals("cred_bearer_99", domain.id)
@@ -54,14 +55,15 @@ class CredentialStoreAndMappingTest {
 
     @Test
     fun testBasicAuthCredentialEntityMapping() {
-        val entity = CredentialEntity(
-            id = "cred_basic_1",
-            name = "Webhook Basic Auth",
-            type = CredentialType.BASIC_AUTH.name,
-            dataJson = """{"username":"admin","password":"secret_password_123"}""",
-            createdAt = 1000L,
-            updatedAt = 2000L
-        )
+        val entity =
+            CredentialEntity(
+                id = "cred_basic_1",
+                name = "Webhook Basic Auth",
+                type = CredentialType.BASIC_AUTH,
+                dataJson = """{"username":"admin","password":"secret_password_123"}""",
+                createdAt = 1000L,
+                updatedAt = 2000L,
+            )
 
         val domain = entity.toDomain()
         assertEquals(CredentialType.BASIC_AUTH, domain.type)
@@ -71,14 +73,15 @@ class CredentialStoreAndMappingTest {
 
     @Test
     fun testNtfyAuthCredentialEntityMapping() {
-        val entity = CredentialEntity(
-            id = "cred_ntfy_1",
-            name = "ntfy Server Vault",
-            type = CredentialType.NTFY_AUTH.name,
-            dataJson = """{"serverUrl":"https://ntfy.sh","topic":"my-secure-topic","token":"tk_secret_1"}""",
-            createdAt = 1000L,
-            updatedAt = 2000L
-        )
+        val entity =
+            CredentialEntity(
+                id = "cred_ntfy_1",
+                name = "ntfy Server Vault",
+                type = CredentialType.NTFY_AUTH,
+                dataJson = """{"serverUrl":"https://ntfy.sh","topic":"my-secure-topic","token":"tk_secret_1"}""",
+                createdAt = 1000L,
+                updatedAt = 2000L,
+            )
 
         val domain = entity.toDomain()
         assertEquals(CredentialType.NTFY_AUTH, domain.type)
@@ -89,14 +92,15 @@ class CredentialStoreAndMappingTest {
 
     @Test
     fun testGotifyAuthCredentialEntityMapping() {
-        val entity = CredentialEntity(
-            id = "cred_gotify_1",
-            name = "Gotify Server Vault",
-            type = CredentialType.GOTIFY_AUTH.name,
-            dataJson = """{"serverUrl":"https://gotify.example.com","appToken":"A1B2C3D4E5"}""",
-            createdAt = 1000L,
-            updatedAt = 2000L
-        )
+        val entity =
+            CredentialEntity(
+                id = "cred_gotify_1",
+                name = "Gotify Server Vault",
+                type = CredentialType.GOTIFY_AUTH,
+                dataJson = """{"serverUrl":"https://gotify.example.com","appToken":"A1B2C3D4E5"}""",
+                createdAt = 1000L,
+                updatedAt = 2000L,
+            )
 
         val domain = entity.toDomain()
         assertEquals(CredentialType.GOTIFY_AUTH, domain.type)
@@ -106,14 +110,15 @@ class CredentialStoreAndMappingTest {
 
     @Test
     fun testHeaderSetCredentialEntityMapping() {
-        val entity = CredentialEntity(
-            id = "cred_headers_1",
-            name = "Custom Auth Headers",
-            type = CredentialType.HEADER_SET.name,
-            dataJson = """{"headers":"X-Api-Key: secret123\nX-Client-Id: client999"}""",
-            createdAt = 1000L,
-            updatedAt = 2000L
-        )
+        val entity =
+            CredentialEntity(
+                id = "cred_headers_1",
+                name = "Custom Auth Headers",
+                type = CredentialType.HEADER_SET,
+                dataJson = """{"headers":"X-Api-Key: secret123\nX-Client-Id: client999"}""",
+                createdAt = 1000L,
+                updatedAt = 2000L,
+            )
 
         val domain = entity.toDomain()
         assertEquals(CredentialType.HEADER_SET, domain.type)
@@ -122,14 +127,15 @@ class CredentialStoreAndMappingTest {
 
     @Test
     fun testCorruptCredentialJsonDataMapFallback() {
-        val entity = CredentialEntity(
-            id = "cred_corrupt",
-            name = "Corrupt Data",
-            type = CredentialType.BEARER_TOKEN.name,
-            dataJson = "INVALID_NON_JSON_STRING",
-            createdAt = 1000L,
-            updatedAt = 2000L
-        )
+        val entity =
+            CredentialEntity(
+                id = "cred_corrupt",
+                name = "Corrupt Data",
+                type = CredentialType.BEARER_TOKEN,
+                dataJson = "INVALID_NON_JSON_STRING",
+                createdAt = 1000L,
+                updatedAt = 2000L,
+            )
 
         val domain = entity.toDomain()
         assertEquals("cred_corrupt", domain.id)
@@ -137,29 +143,46 @@ class CredentialStoreAndMappingTest {
     }
 
     @Test
-    fun testCredentialRepositoryCrudOperations() = runTest {
-        val fakeDao = FakeCredentialDao()
-        val repository = RoomCredentialRepository(fakeDao)
+    fun testCredentialTypeCompatibilityInterfaceDriven() {
+        assertTrue(CredentialType.isCompatibleWith(CredentialType.NTFY_AUTH, "NTFY_AUTH"))
+        assertTrue(CredentialType.isCompatibleWith(CredentialType.BEARER_TOKEN, "NTFY_AUTH"))
+        assertTrue(CredentialType.isCompatibleWith(CredentialType.HEADER_SET, "NTFY_AUTH"))
+        assertFalse(CredentialType.isCompatibleWith(CredentialType.GOTIFY_AUTH, "NTFY_AUTH"))
 
-        val cred = Credential(
-            id = "cred_repo_1",
-            name = "Repo Test Credential",
-            type = CredentialType.BEARER_TOKEN,
-            dataMap = mapOf("token" to "bearer_token_xyz")
-        )
+        assertTrue(CredentialType.isCompatibleWith(CredentialType.GOTIFY_AUTH, "GOTIFY_AUTH"))
+        assertFalse(CredentialType.isCompatibleWith(CredentialType.BASIC_AUTH, "GOTIFY_AUTH"))
 
-        repository.saveCredential(cred)
-
-        val fetched = repository.getCredentialById("cred_repo_1")
-        assertNotNull(fetched)
-        assertEquals("Repo Test Credential", fetched?.name)
-        assertEquals("bearer_token_xyz", fetched?.dataMap?.get("token"))
-
-        val allList = repository.getAllCredentialsFlow().first()
-        assertEquals(1, allList.size)
-
-        repository.deleteCredential("cred_repo_1")
-        assertNull(repository.getCredentialById("cred_repo_1"))
-        assertTrue(repository.getAllCredentialsFlow().first().isEmpty())
+        // Any credential is compatible if no requirement is specified
+        assertTrue(CredentialType.isCompatibleWith(CredentialType.BEARER_TOKEN, null))
+        assertTrue(CredentialType.isCompatibleWith(CredentialType.BASIC_AUTH, ""))
     }
+
+    @Test
+    fun testCredentialRepositoryCrudOperations() =
+        runTest {
+            val fakeDao = FakeCredentialDao()
+            val repository = RoomCredentialRepository(fakeDao)
+
+            val cred =
+                Credential(
+                    id = "cred_repo_1",
+                    name = "Repo Test Credential",
+                    type = CredentialType.BEARER_TOKEN,
+                    dataMap = mapOf("token" to "bearer_token_xyz"),
+                )
+
+            repository.saveCredential(cred)
+
+            val fetched = repository.getCredentialById("cred_repo_1")
+            assertNotNull(fetched)
+            assertEquals("Repo Test Credential", fetched?.name)
+            assertEquals("bearer_token_xyz", fetched?.dataMap?.get("token"))
+
+            val allList = repository.getAllCredentialsFlow().first()
+            assertEquals(1, allList.size)
+
+            repository.deleteCredential("cred_repo_1")
+            assertNull(repository.getCredentialById("cred_repo_1"))
+            assertTrue(repository.getAllCredentialsFlow().first().isEmpty())
+        }
 }
