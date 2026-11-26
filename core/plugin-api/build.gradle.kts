@@ -4,25 +4,35 @@ plugins {
     `maven-publish`
 }
 
-val sdkVersion =
-    providers.gradleProperty("publishVersion")
-        .orElse(providers.environmentVariable("PUBLISH_VERSION"))
-        .orElse(
-            providers
-                .fileContents(rootProject.layout.projectDirectory.file("app/build.gradle.kts"))
-                .asText
-                .map { text ->
-                    Regex("""versionName\s*=\s*"([^"]+)"""")
-                        .find(text)
-                        ?.groupValues
-                        ?.get(1)
-                        ?: "3.0.0"
-                },
-        )
-        .get()
-        .removePrefix("v")
+val isJitPack =
+    providers.environmentVariable("JITPACK").orNull == "true" ||
+        providers.gradleProperty("jitpack").orNull == "true"
+val defaultAppVersion = providers.gradleProperty("ZOPHOP_VERSION").orElse("3.0.0")
 
-group = "dev.zophop"
+val sdkVersion =
+    if (isJitPack) {
+        providers.gradleProperty("version")
+            .orElse(providers.environmentVariable("VERSION"))
+            .orElse(defaultAppVersion)
+            .get()
+    } else {
+        providers.gradleProperty("publishVersion")
+            .orElse(providers.environmentVariable("PUBLISH_VERSION"))
+            .orElse(defaultAppVersion)
+            .get()
+            .removePrefix("v")
+    }
+
+val sdkGroup =
+    if (isJitPack) {
+        providers.gradleProperty("publishGroup")
+            .orElse("com.github.aman400.zophop")
+            .get()
+    } else {
+        "dev.zophop"
+    }
+
+group = sdkGroup
 version = sdkVersion
 
 android {
@@ -73,7 +83,7 @@ dependencies {
 publishing {
     publications {
         register<MavenPublication>("release") {
-            groupId = "dev.zophop"
+            groupId = sdkGroup
             artifactId = "plugin-api"
             version = sdkVersion
 

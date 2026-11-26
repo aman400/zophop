@@ -1,5 +1,7 @@
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.ProjectLayout
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.TaskAction
 import javax.inject.Inject
 
@@ -18,12 +20,12 @@ abstract class SyncVersionTask @Inject constructor(
     private val layout: ProjectLayout
 ) : DefaultTask() {
 
+    @get:Input
+    abstract val appVersion: Property<String>
+
     @TaskAction
     fun sync() {
-        val appBuildFile = layout.projectDirectory.file("app/build.gradle.kts").asFile
-        val versionNameRegex = Regex("""versionName\s*=\s*"([^"]+)"""")
-        val matchResult = versionNameRegex.find(appBuildFile.readText())
-        val versionName = matchResult?.groupValues?.get(1) ?: "2.0.0"
+        val versionName = appVersion.get()
 
         logger.lifecycle("Syncing version '$versionName' across project documentation and release guides...")
 
@@ -36,7 +38,7 @@ abstract class SyncVersionTask @Inject constructor(
             logger.lifecycle("Updated DOCUMENTATION.md -> v$versionName")
         }
 
-        // 3. Update RELEASE_GUIDE.md
+        // 2. Update RELEASE_GUIDE.md
         val releaseGuideFile = layout.projectDirectory.file("RELEASE_GUIDE.md").asFile
         if (releaseGuideFile.exists()) {
             val updated = releaseGuideFile.readText()
@@ -47,13 +49,15 @@ abstract class SyncVersionTask @Inject constructor(
             logger.lifecycle("Updated RELEASE_GUIDE.md -> VERSION=\"$versionName\"")
         }
 
-        // 4. Update docs/index.html (updates single const APP_VERSION variable)
-        val docsIndexFile = layout.projectDirectory.file("docs/index.html").asFile
-        if (docsIndexFile.exists()) {
-            val updated = docsIndexFile.readText()
-                .replace(Regex("""const APP_VERSION = "[^"]+";"""), "const APP_VERSION = \"$versionName\";")
-            docsIndexFile.writeText(updated)
-            logger.lifecycle("Updated docs/index.html -> const APP_VERSION = \"$versionName\"")
+        // 3. Update docs/*.html (updates const APP_VERSION variable across all HTML pages)
+        listOf("docs/index.html", "docs/manual.html", "docs/plugins.html", "docs/releases.html").forEach { path ->
+            val htmlFile = layout.projectDirectory.file(path).asFile
+            if (htmlFile.exists()) {
+                val updated = htmlFile.readText()
+                    .replace(Regex("""const APP_VERSION = "[^"]+";"""), "const APP_VERSION = \"$versionName\";")
+                htmlFile.writeText(updated)
+                logger.lifecycle("Updated $path -> const APP_VERSION = \"$versionName\"")
+            }
         }
 
         logger.lifecycle("✅ Version synchronization complete!")
@@ -62,7 +66,8 @@ abstract class SyncVersionTask @Inject constructor(
 
 tasks.register<SyncVersionTask>("syncVersion") {
     group = "versioning"
-    description = "Synchronizes the app versionName across README.md, DOCUMENTATION.md, RELEASE_GUIDE.md, and docs/index.html"
+    description = "Synchronizes ZOPHOP_VERSION across DOCUMENTATION.md, RELEASE_GUIDE.md, and docs/*.html"
+    appVersion.set(providers.gradleProperty("ZOPHOP_VERSION").orElse("3.0.0"))
 }
 
 subprojects {

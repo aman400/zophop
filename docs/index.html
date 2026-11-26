@@ -3,813 +3,351 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ZopHop — Visual Workflow & OTP Forwarding Automation for Android</title>
-  <meta name="description" content="ZopHop is an open-source Android application to capture OTP SMS and notifications, run visual workflow node graphs, evaluate preconditions, and forward alerts to ntfy, Gotify, and custom webhooks.">
+  <title>ZopHop — Visual Workflow, OTP Forwarding &amp; Plugin Automation for Android</title>
+  <meta name="description" content="ZopHop is an open-source Android automation engine to capture OTP SMS, notifications, calls, and cron triggers, verify chained preconditions, run visual workflow node graphs, and deliver payloads via ntfy, Gotify, HTTP webhooks, SMS, and external AIDL plugins.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="icon" type="image/svg+xml" href="assets/app-icon.svg">
-  <script>
-    const APP_VERSION = "3.0.0";
-    document.addEventListener("DOMContentLoaded", () => {
-      document.querySelectorAll(".app-version").forEach(el => el.textContent = APP_VERSION);
-      document.querySelectorAll(".app-version-v").forEach(el => el.textContent = "v" + APP_VERSION);
-      document.querySelectorAll(".app-apk-name").forEach(el => el.textContent = "ZopHop-v" + APP_VERSION + ".apk");
-      document.querySelectorAll("a.app-apk-link").forEach(el => {
-        el.href = `https://github.com/aman400/zophop/releases/download/v${APP_VERSION}/ZopHop-v${APP_VERSION}.apk`;
-      });
-    });
-  </script>
-  <style>
-    :root {
-      /* App Theme Palette: Emerald (Primary) & Amber (Secondary) & Deep Slate Dark */
-      --bg: #090d16;
-      --bg-aura: radial-gradient(circle at 50% 0%, rgba(16, 185, 129, 0.15) 0%, rgba(245, 158, 11, 0.08) 50%, transparent 85%);
-      --surface: #111827;
-      --surface-card: #1f2937;
-      --surface-border: rgba(16, 185, 129, 0.18);
-      --surface-border-hover: rgba(16, 185, 129, 0.45);
-
-      --primary: #10b981;
-      --primary-dark: #059669;
-      --primary-container: #064e3b;
-      --primary-light: #d1fae5;
-
-      --secondary: #f59e0b;
-      --secondary-dark: #d97706;
-      --secondary-container: #78350f;
-      --secondary-light: #fef3c7;
-
-      --text: #f8fafc;
-      --text-muted: #9ca3af;
-      --text-dim: #64748b;
-
-      --success: #34d399;
-      --error: #fca5a5;
-      --warning: #fbbf24;
-
-      --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      --font-mono: 'JetBrains Mono', Consolas, monospace;
-    }
-
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    html { scroll-behavior: smooth; }
-
-    body {
-      font-family: var(--font-sans);
-      background-color: var(--bg);
-      background-image: var(--bg-aura);
-      background-attachment: fixed;
-      color: var(--text);
-      line-height: 1.65;
-      font-size: 15px;
-      overflow-x: hidden;
-    }
-
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
-      padding: 0 24px;
-    }
-
-    /* Glass Header */
-    header {
-      position: sticky;
-      top: 0;
-      z-index: 1000;
-      background: rgba(9, 13, 22, 0.88);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border-bottom: 1px solid var(--surface-border);
-    }
-    .nav {
-      height: 68px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    .logo {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      text-decoration: none;
-      color: #fff;
-    }
-    .logo-img {
-      width: 36px;
-      height: 36px;
-      border-radius: 8px;
-    }
-    .logo-title {
-      font-weight: 800;
-      font-size: 1.25rem;
-      letter-spacing: -0.4px;
-      background: linear-gradient(135deg, #ffffff 0%, var(--primary) 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
-    .nav-links {
-      display: flex;
-      gap: 22px;
-      align-items: center;
-    }
-    .nav-link {
-      color: var(--text-muted);
-      text-decoration: none;
-      font-weight: 600;
-      font-size: 0.9rem;
-      transition: color 0.2s;
-    }
-    .nav-link:hover { color: var(--primary); }
-
-    /* Buttons */
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 10px 20px;
-      border-radius: 10px;
-      font-weight: 700;
-      font-size: 0.9rem;
-      text-decoration: none;
-      transition: all 0.2s ease;
-      cursor: pointer;
-      border: 1px solid transparent;
-    }
-    .btn-primary {
-      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
-      color: #022c22;
-      box-shadow: 0 4px 20px rgba(16, 185, 129, 0.25);
-    }
-    .btn-primary:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 24px rgba(16, 185, 129, 0.4);
-    }
-    .btn-secondary {
-      background: var(--surface-card);
-      color: var(--text);
-      border-color: var(--surface-border);
-    }
-    .btn-secondary:hover {
-      background: var(--surface-border-hover);
-      color: #fff;
-    }
-    .btn-amber {
-      background: linear-gradient(135deg, var(--secondary) 0%, var(--secondary-dark) 100%);
-      color: #451a03;
-    }
-
-    /* Hero Section */
-    .hero {
-      padding: 70px 0 50px 0;
-      text-align: center;
-    }
-    .hero-brand {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      background: rgba(16, 185, 129, 0.1);
-      border: 1px solid rgba(16, 185, 129, 0.25);
-      padding: 6px 16px;
-      border-radius: 30px;
-      font-size: 0.82rem;
-      font-weight: 700;
-      color: var(--primary);
-      margin-bottom: 24px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .hero-title {
-      font-size: 2.8rem;
-      font-weight: 800;
-      line-height: 1.15;
-      letter-spacing: -1px;
-      margin-bottom: 20px;
-      max-width: 900px;
-      margin-left: auto;
-      margin-right: auto;
-    }
-    .hero-title span {
-      background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
-    .hero-subtitle {
-      font-size: 1.12rem;
-      color: var(--text-muted);
-      max-width: 760px;
-      margin: 0 auto 36px auto;
-    }
-    .hero-actions {
-      display: flex;
-      gap: 16px;
-      justify-content: center;
-      flex-wrap: wrap;
-    }
-
-    /* Badge Bar */
-    .badge-bar {
-      display: flex;
-      justify-content: center;
-      gap: 24px;
-      flex-wrap: wrap;
-      margin-top: 40px;
-      font-size: 0.85rem;
-      font-weight: 600;
-      color: var(--text-muted);
-    }
-    .badge-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      background: var(--surface);
-      padding: 8px 16px;
-      border-radius: 20px;
-      border: 1px solid var(--surface-border);
-    }
-
-    /* SVG Architecture Visualizer */
-    .arch-card {
-      background: var(--surface);
-      border: 1px solid var(--surface-border);
-      border-radius: 16px;
-      padding: 24px;
-      margin: 50px 0;
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
-    }
-    .arch-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 20px;
-    }
-    .arch-title {
-      font-weight: 700;
-      font-size: 1.1rem;
-      color: var(--text);
-    }
-    .arch-svg-container {
-      width: 100%;
-      overflow-x: auto;
-    }
-
-    /* Section Component Styling */
-    section { padding: 60px 0; }
-    .section-tag {
-      color: var(--secondary);
-      font-weight: 700;
-      font-size: 0.82rem;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      margin-bottom: 8px;
-      display: block;
-    }
-    .section-title {
-      font-size: 2rem;
-      font-weight: 800;
-      letter-spacing: -0.5px;
-      margin-bottom: 16px;
-    }
-    .section-subtitle {
-      color: var(--text-muted);
-      font-size: 1.05rem;
-      max-width: 680px;
-      margin-bottom: 40px;
-    }
-
-    /* Grid Layouts */
-    .grid-3 {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-      gap: 24px;
-    }
-    .grid-2 {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
-      gap: 24px;
-    }
-
-    /* Cards */
-    .card {
-      background: var(--surface);
-      border: 1px solid var(--surface-border);
-      border-radius: 16px;
-      padding: 28px;
-      transition: all 0.3s ease;
-      position: relative;
-    }
-    .card:hover {
-      border-color: var(--surface-border-hover);
-      transform: translateY(-4px);
-      box-shadow: 0 12px 30px rgba(16, 185, 129, 0.12);
-    }
-    .card-icon {
-      width: 48px;
-      height: 48px;
-      border-radius: 12px;
-      background: rgba(16, 185, 129, 0.12);
-      color: var(--primary);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 1.4rem;
-      margin-bottom: 20px;
-    }
-    .card-icon.amber {
-      background: rgba(245, 158, 11, 0.12);
-      color: var(--secondary);
-    }
-    .card-title {
-      font-size: 1.2rem;
-      font-weight: 700;
-      margin-bottom: 10px;
-    }
-    .card-text {
-      color: var(--text-muted);
-      font-size: 0.95rem;
-      line-height: 1.6;
-    }
-
-    /* Code Blocks */
-    .code-box {
-      background: #060911;
-      border: 1px solid var(--surface-border);
-      border-radius: 12px;
-      padding: 18px;
-      font-family: var(--font-mono);
-      font-size: 0.88rem;
-      color: var(--primary-light);
-      overflow-x: auto;
-      margin: 16px 0;
-      position: relative;
-    }
-    .code-label {
-      position: absolute;
-      top: 8px;
-      right: 12px;
-      font-size: 0.72rem;
-      font-family: var(--font-sans);
-      color: var(--text-dim);
-      font-weight: 600;
-    }
-
-    /* Tables */
-    .table-container {
-      overflow-x: auto;
-      border-radius: 12px;
-      border: 1px solid var(--surface-border);
-      margin: 20px 0;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      background: var(--surface);
-      text-align: left;
-      font-size: 0.9rem;
-    }
-    th {
-      background: var(--surface-card);
-      padding: 14px 18px;
-      font-weight: 700;
-      color: var(--text);
-      border-bottom: 1px solid var(--surface-border);
-    }
-    td {
-      padding: 14px 18px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-      color: var(--text-muted);
-    }
-    tr:last-child td { border-bottom: none; }
-    td code {
-      font-family: var(--font-mono);
-      background: rgba(16, 185, 129, 0.1);
-      color: var(--primary);
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-size: 0.82rem;
-    }
-
-    /* Accordion & Tabs for Troubleshooting */
-    .tab-nav {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 20px;
-      flex-wrap: wrap;
-    }
-    .tab-btn {
-      background: var(--surface);
-      border: 1px solid var(--surface-border);
-      color: var(--text-muted);
-      padding: 10px 18px;
-      border-radius: 8px;
-      font-weight: 600;
-      cursor: pointer;
-      font-family: var(--font-sans);
-      transition: all 0.2s;
-    }
-    .tab-btn.active, .tab-btn:hover {
-      background: var(--primary-container);
-      color: var(--primary-light);
-      border-color: var(--primary);
-    }
-
-    /* Alerts */
-    .alert {
-      padding: 16px 20px;
-      border-radius: 12px;
-      margin: 16px 0;
-      display: flex;
-      gap: 14px;
-      font-size: 0.92rem;
-      line-height: 1.5;
-    }
-    .alert-note { background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); color: var(--primary-light); }
-    .alert-amber { background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); color: var(--secondary-light); }
-
-    /* Footer */
-    footer {
-      border-top: 1px solid var(--surface-border);
-      padding: 50px 0;
-      margin-top: 80px;
-      color: var(--text-dim);
-      font-size: 0.9rem;
-    }
-    .footer-content {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 20px;
-    }
-
-    @media (max-width: 768px) {
-      .hero-title { font-size: 2rem; }
-      .nav-links { display: none; }
-      .grid-2, .grid-3 { grid-template-columns: 1fr; }
-    }
-  </style>
+  <link rel="stylesheet" href="styles.css">
+  <script>const APP_VERSION = "3.0.0";</script>
+  <script src="docs.js" defer></script>
 </head>
 <body>
 
-  <!-- Glass Navigation Header -->
-  <header>
-    <div class="container nav">
-      <a href="#" class="logo">
+  <!-- Shared Top Navigation -->
+  <header class="site-header">
+    <div class="container nav-bar">
+      <a href="index.html" class="logo">
         <img src="assets/app-icon.svg" alt="ZopHop Logo" class="logo-img">
         <span class="logo-title">ZopHop</span>
+        <span class="logo-ver app-version-v">v3.0.0</span>
       </a>
-      <nav class="nav-links">
-        <a href="#features" class="nav-link">Features</a>
-        <a href="#workflows" class="nav-link">Workflow Engine</a>
-        <a href="#vault" class="nav-link">Encrypted Vault</a>
-        <a href="#setup" class="nav-link">Setup Guide</a>
-        <a href="#presets" class="nav-link">Bank Presets</a>
-        <a href="#troubleshooting" class="nav-link">OEM Battery</a>
+
+      <nav class="nav-pages" aria-label="Documentation Pages">
+        <a href="index.html" class="nav-pill active">Overview</a>
+        <a href="manual.html" class="nav-pill">User Manual</a>
+        <a href="plugins.html" class="nav-pill">Plugin SDK</a>
+        <a href="releases.html" class="nav-pill">Releases</a>
       </nav>
-      <div>
-        <a href="https://github.com/aman400/zophop" target="_blank" class="btn btn-secondary">
-          <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-          GitHub
-        </a>
+
+      <div class="nav-actions">
+        <button id="themeToggle" class="icon-btn" type="button" title="Toggle Dark/Light Theme">☀️</button>
+        <a href="https://github.com/aman400/zophop" target="_blank" class="btn btn-secondary btn-sm">GitHub</a>
       </div>
     </div>
   </header>
 
-  <!-- Hero Section -->
   <div class="container">
+    <!-- Hero -->
     <section class="hero">
-      <div class="hero-brand">🚀 Open-Source Android Forwarding Automation</div>
-      <h1 class="hero-title">Visual Workflow & OTP Forwarding <span>Reimagined</span></h1>
+      <div class="hero-brand">ZopHop <span class="app-version-v">v3.0.0</span> &bull; Open-Source Android Automation</div>
+      <h1 class="hero-title">Visual Workflow, OTP Forwarding &amp; <span>Plugin Automation</span></h1>
       <p class="hero-subtitle">
-        Capture incoming OTP SMS and app push notifications, evaluate network preconditions, execute graph-based visual workflow automation, and deliver encrypted payloads to ntfy, Gotify, and custom HTTP Webhook APIs.
+        Capture SMS, app push notifications, phone calls, and cron schedules. Guard pipelines with chained preconditions, parse JSON &amp; regex payloads, import cURL webhooks, secure secrets inside a biometric AES-256 vault, and extend ZopHop with external AIDL plugins.
       </p>
       <div class="hero-actions">
-        <a href="https://github.com/aman400/zophop/releases" target="_blank" class="btn btn-primary app-apk-link">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
-          Download ZopHop <span class="app-version-v">v2.0.0</span> APK
+        <a href="https://github.com/aman400/zophop/releases/download/v3.0.0/ZopHop-v3.0.0.apk" target="_blank" class="btn btn-primary app-apk-link">
+          <svg width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+          Download <span class="app-apk-name">ZopHop-v3.0.0.apk</span>
         </a>
-        <a href="#workflows" class="btn btn-secondary">Explore Workflow Builder</a>
+        <a href="manual.html" class="btn btn-secondary">Browse Full User Manual</a>
+        <a href="plugins.html" class="btn btn-amber">Plugin SDK &amp; Slack Tutorial</a>
       </div>
 
       <div class="badge-bar">
-        <div class="badge-item">🟢 100% On-Device & Private</div>
-        <div class="badge-item">⚡ Drag & Drop Workflow Engine</div>
-        <div class="badge-item">🔒 Biometric Hardware Vault</div>
-        <div class="badge-item">🌐 ntfy / Gotify / Webhooks</div>
+        <div class="badge-item">100% On-Device &amp; Private</div>
+        <div class="badge-item">20+ Visual Nodes &amp; cURL Import</div>
+        <div class="badge-item">Biometric KeyStore Vault</div>
+        <div class="badge-item">Chained Preconditions &amp; Backoff</div>
+        <div class="badge-item">External AIDL Plugin SDK</div>
+      </div>
+    </section>
+
+    <!-- Documentation Portal Cards -->
+    <section class="section-block" style="padding-top: 20px;">
+      <div class="grid-3">
+        <a href="manual.html" class="card" style="text-decoration:none; color:inherit;">
+          <div class="card-icon">📖</div>
+          <h3 class="card-title">Interactive User Manual →</h3>
+          <p class="card-text">Explore every screen, all 20+ workflow nodes, JSON path &amp; regex rules, preconditions, live stepper logs, Vault security, 7 themes, concurrency tuning &amp; encrypted backups.</p>
+        </a>
+        <a href="plugins.html" class="card" style="text-decoration:none; color:inherit;">
+          <div class="card-icon sky">🧩</div>
+          <h3 class="card-title">Plugin SDK &amp; Slack Example →</h3>
+          <p class="card-text">Learn <code>INodePluginService.aidl</code>, <code>NodePluginModule</code>, <code>HttpCredentialAdapter</code>, Vault <code>_cred_*</code> injection, and build a complete Slack Notification Plugin APK.</p>
+        </a>
+        <a href="releases.html" class="card" style="text-decoration:none; color:inherit;">
+          <div class="card-icon amber">📦</div>
+          <h3 class="card-title">Releases, Telegram APK &amp; AARs →</h3>
+          <p class="card-text">Download <code>ZopHop-Telegram-Plugin-v1.0.apk</code>, build signed local releases, and consume <code>plugin-api</code> publicly via JitPack or offline <code>.aar</code> releases.</p>
+        </a>
       </div>
     </section>
 
     <!-- Architecture Visualizer SVG -->
     <div class="arch-card">
       <div class="arch-header">
-        <div class="arch-title">⚡ End-to-End Event Pipeline Architecture</div>
-        <span style="font-family: var(--font-mono); font-size: 0.8rem; color: var(--primary);">System Flow <span class="app-version-v">v2.0.0</span></span>
+        <div class="arch-title">End-to-End Automation &amp; Plugin Pipeline Architecture</div>
+        <span style="font-family: var(--font-mono); font-size: 0.8rem; color: var(--primary);">Engine Flow <span class="app-version-v">v3.0.0</span></span>
       </div>
       <div class="arch-svg-container">
-        <svg viewBox="0 0 1000 240" width="100%" height="240" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <!-- Connectors -->
-          <path d="M 160 120 L 250 120" stroke="#10b981" stroke-width="3" stroke-dasharray="6 6"/>
-          <path d="M 410 120 L 500 120" stroke="#10b981" stroke-width="3"/>
-          <path d="M 660 120 L 750 120" stroke="#f59e0b" stroke-width="3"/>
+        <svg viewBox="0 0 1080 250" width="100%" height="250" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M 210 125 L 270 125" stroke="#10b981" stroke-width="3" stroke-dasharray="6 6"/>
+          <path d="M 480 125 L 540 125" stroke="#10b981" stroke-width="3"/>
+          <path d="M 760 125 L 820 125" stroke="#f59e0b" stroke-width="3"/>
 
-          <!-- Step 1: Event Capture -->
-          <rect x="10" y="50" width="150" height="140" rx="14" fill="#111827" stroke="#10b981" stroke-width="2"/>
-          <text x="85" y="85" text-anchor="middle" fill="#d1fae5" font-family="Plus Jakarta Sans" font-weight="700" font-size="14">1. Event Capture</text>
-          <rect x="25" y="105" width="120" height="30" rx="6" fill="#064e3b"/>
-          <text x="85" y="125" text-anchor="middle" fill="#34d399" font-family="Plus Jakarta Sans" font-size="12">SmsReceiver</text>
-          <rect x="25" y="145" width="120" height="30" rx="6" fill="#064e3b"/>
-          <text x="85" y="165" text-anchor="middle" fill="#34d399" font-family="Plus Jakarta Sans" font-size="12">NotificationListener</text>
+          <rect x="10" y="35" width="200" height="180" rx="14" fill="#111827" stroke="#10b981" stroke-width="2"/>
+          <text x="110" y="68" text-anchor="middle" fill="#d1fae5" font-family="Roboto, sans-serif" font-weight="700" font-size="14">1. Event Triggers</text>
+          <rect x="26" y="84" width="168" height="26" rx="6" fill="#064e3b"/>
+          <text x="110" y="101" text-anchor="middle" fill="#34d399" font-family="Roboto, sans-serif" font-size="12">SMS / Notification Listener</text>
+          <rect x="26" y="118" width="168" height="26" rx="6" fill="#064e3b"/>
+          <text x="110" y="135" text-anchor="middle" fill="#34d399" font-family="Roboto, sans-serif" font-size="12">Cron Scheduler &amp; Manual</text>
+          <rect x="26" y="152" width="168" height="26" rx="6" fill="#064e3b"/>
+          <text x="110" y="169" text-anchor="middle" fill="#34d399" font-family="Roboto, sans-serif" font-size="12">Phone Call Screening</text>
 
-          <!-- Step 2: Preconditions -->
-          <rect x="250" y="50" width="160" height="140" rx="14" fill="#111827" stroke="#10b981" stroke-width="2"/>
-          <text x="330" y="85" text-anchor="middle" fill="#d1fae5" font-family="Plus Jakarta Sans" font-weight="700" font-size="14">2. Preconditions</text>
-          <text x="330" y="115" text-anchor="middle" fill="#9ca3af" font-family="Plus Jakarta Sans" font-size="12">VPN & Internet Checks</text>
-          <text x="330" y="135" text-anchor="middle" fill="#9ca3af" font-family="Plus Jakarta Sans" font-size="12">HTTP Health Probe</text>
-          <text x="330" y="155" text-anchor="middle" fill="#9ca3af" font-family="Plus Jakarta Sans" font-size="12">Carrier SIM Status</text>
+          <rect x="270" y="35" width="210" height="180" rx="14" fill="#111827" stroke="#10b981" stroke-width="2"/>
+          <text x="375" y="68" text-anchor="middle" fill="#d1fae5" font-family="Roboto, sans-serif" font-weight="700" font-size="14">2. Preconditions</text>
+          <text x="375" y="102" text-anchor="middle" fill="#9ca3af" font-family="Roboto, sans-serif" font-size="12">VPN, Internet &amp; Bluetooth</text>
+          <text x="375" y="124" text-anchor="middle" fill="#9ca3af" font-family="Roboto, sans-serif" font-size="12">Battery, SIM &amp; HTTP Probe</text>
+          <text x="375" y="146" text-anchor="middle" fill="#34d399" font-family="Roboto, sans-serif" font-size="12">Chained Pipelines</text>
+          <text x="375" y="172" text-anchor="middle" fill="#fbbf24" font-family="Roboto, sans-serif" font-size="11">Retry / Queue + 4 Backoffs</text>
 
-          <!-- Step 3: Workflow Graph -->
-          <rect x="500" y="50" width="160" height="140" rx="14" fill="#111827" stroke="#10b981" stroke-width="2"/>
-          <text x="580" y="85" text-anchor="middle" fill="#d1fae5" font-family="Plus Jakarta Sans" font-weight="700" font-size="14">3. Workflow Engine</text>
-          <text x="580" y="115" text-anchor="middle" fill="#34d399" font-family="Plus Jakarta Sans" font-size="12">Regex / JSON Parsers</text>
-          <text x="580" y="135" text-anchor="middle" fill="#34d399" font-family="Plus Jakarta Sans" font-size="12">Condition Evaluator</text>
-          <text x="580" y="155" text-anchor="middle" fill="#34d399" font-family="Plus Jakarta Sans" font-size="12">Template Formatter</text>
+          <rect x="540" y="35" width="220" height="180" rx="14" fill="#111827" stroke="#10b981" stroke-width="2"/>
+          <text x="650" y="68" text-anchor="middle" fill="#d1fae5" font-family="Roboto, sans-serif" font-weight="700" font-size="14">3. Workflow Engine</text>
+          <text x="650" y="102" text-anchor="middle" fill="#34d399" font-family="Roboto, sans-serif" font-size="12">Regex &amp; JSON Path Parser</text>
+          <text x="650" y="124" text-anchor="middle" fill="#34d399" font-family="Roboto, sans-serif" font-size="12">14-Op Condition Branching</text>
+          <text x="650" y="146" text-anchor="middle" fill="#34d399" font-family="Roboto, sans-serif" font-size="12">Hardware &amp; GPS Checks</text>
+          <text x="650" y="172" text-anchor="middle" fill="#9ca3af" font-family="Roboto, sans-serif" font-size="11">1–10 Workers &bull; Live Stepper</text>
 
-          <!-- Step 4: Encrypted Delivery -->
-          <rect x="750" y="50" width="230" height="140" rx="14" fill="#111827" stroke="#f59e0b" stroke-width="2"/>
-          <text x="865" y="85" text-anchor="middle" fill="#fef3c7" font-family="Plus Jakarta Sans" font-weight="700" font-size="14">4. Encrypted Targets</text>
-          <rect x="765" y="105" width="65" height="30" rx="6" fill="#78350f"/>
-          <text x="797" y="125" text-anchor="middle" fill="#fbbf24" font-family="Plus Jakarta Sans" font-size="12">ntfy.sh</text>
-          <rect x="840" y="105" width="65" height="30" rx="6" fill="#78350f"/>
-          <text x="872" y="125" text-anchor="middle" fill="#fbbf24" font-family="Plus Jakarta Sans" font-size="12">Gotify</text>
-          <rect x="915" y="105" width="55" height="30" rx="6" fill="#78350f"/>
-          <text x="942" y="125" text-anchor="middle" fill="#fbbf24" font-family="Plus Jakarta Sans" font-size="12">HTTP</text>
-          <text x="865" y="165" text-anchor="middle" fill="#9ca3af" font-family="Plus Jakarta Sans" font-size="11">AES-256 KeyStore Protection</text>
+          <rect x="820" y="35" width="250" height="180" rx="14" fill="#111827" stroke="#f59e0b" stroke-width="2"/>
+          <text x="945" y="68" text-anchor="middle" fill="#fef3c7" font-family="Roboto, sans-serif" font-weight="700" font-size="14">4. Built-In &amp; AIDL Plugins</text>
+          <rect x="836" y="88" width="66" height="28" rx="6" fill="#78350f"/>
+          <text x="869" y="106" text-anchor="middle" fill="#fbbf24" font-family="Roboto, sans-serif" font-size="12">ntfy</text>
+          <rect x="912" y="88" width="66" height="28" rx="6" fill="#78350f"/>
+          <text x="945" y="106" text-anchor="middle" fill="#fbbf24" font-family="Roboto, sans-serif" font-size="12">Gotify</text>
+          <rect x="988" y="88" width="66" height="28" rx="6" fill="#78350f"/>
+          <text x="1021" y="106" text-anchor="middle" fill="#fbbf24" font-family="Roboto, sans-serif" font-size="12">cURL</text>
+          <rect x="836" y="126" width="104" height="28" rx="6" fill="#1e3a5f"/>
+          <text x="888" y="144" text-anchor="middle" fill="#7dd3fc" font-family="Roboto, sans-serif" font-size="12">Telegram APK</text>
+          <rect x="950" y="126" width="104" height="28" rx="6" fill="#1e3a5f"/>
+          <text x="1002" y="144" text-anchor="middle" fill="#7dd3fc" font-family="Roboto, sans-serif" font-size="12">Custom Slack</text>
+          <text x="945" y="182" text-anchor="middle" fill="#9ca3af" font-family="Roboto, sans-serif" font-size="11">Vault AES-256 + _cred_* Injection</text>
         </svg>
       </div>
     </div>
 
-    <!-- Features Grid -->
-    <section id="features">
-      <span class="section-tag">Core Features</span>
-      <h2 class="section-title">Built for Reliability, Privacy & Complete Control</h2>
+    <!-- Interactive Screenshots & Croppings Gallery -->
+    <section class="section-block" id="screenshots">
+      <span class="section-tag">Visual Tour</span>
+      <h2 class="section-title">App Screenshots &amp; Screen-Croppings</h2>
       <p class="section-subtitle">
-        Everything you need to automate notification forwarding behind private networks, home labs, and self-hosted environments.
+        Captured directly from ZopHop running on Android. Filter by category or click any card to inspect at full resolution.
       </p>
 
-      <div class="grid-3">
-        <div class="card">
-          <div class="card-icon">⚡</div>
-          <h3 class="card-title">Visual Workflow Engine</h3>
-          <p class="card-text">
-            Build graph-based automation using Triggers, Parsers, Condition Evaluators, and Webhook Actions. Includes node failure retry policies and live step progress tracking.
-          </p>
+      <div class="filter-bar">
+        <button class="filter-btn active" data-filter="all" type="button">All Captures</button>
+        <button class="filter-btn" data-filter="workflows" type="button">Workflows &amp; cURL</button>
+        <button class="filter-btn" data-filter="preconditions" type="button">Preconditions &amp; Vault</button>
+        <button class="filter-btn" data-filter="logs" type="button">Logs &amp; Execution</button>
+        <button class="filter-btn" data-filter="settings" type="button">Themes &amp; Settings</button>
+      </div>
+
+      <div class="gallery-grid" id="galleryGrid">
+        <div class="shot-card" data-category="workflows" data-title="Workflows List &amp; Live Status">
+          <div class="shot-media"><img src="assets/screenshots/workflows-list.png" alt="Workflows List Screen" loading="lazy"></div>
+          <div class="shot-meta"><span class="shot-badge">Screen</span><div class="shot-title">Workflows Dashboard</div><div class="shot-caption">Overview cards with trigger badges, precondition links, and instant controls.</div></div>
         </div>
 
-        <div class="card">
-          <div class="card-icon">🌐</div>
-          <h3 class="card-title">Multi-Target Delivery Nodes</h3>
-          <p class="card-text">
-            Configure multiple delivery nodes (ntfy.sh, Gotify, Webhooks) with per-node healthcheck URL probes, required VPN checks, and network capability requirements.
-          </p>
+        <div class="shot-card crop-wide" data-category="workflows" data-title="Workflow Card Detail (Cropped)">
+          <div class="shot-media"><img src="assets/screenshots/crop-workflow-card.png" alt="Cropped Workflow Card" loading="lazy"></div>
+          <div class="shot-meta"><span class="shot-badge crop">Screen Crop</span><div class="shot-title">Clean Workflow Card Hierarchy</div><div class="shot-caption">Node count, link count, attached precondition pill, Logs, Edit, and Delete.</div></div>
         </div>
 
-        <div class="card">
-          <div class="card-icon amber">🔒</div>
-          <h3 class="card-title">Encrypted Vault & Biometric Lock</h3>
-          <p class="card-text">
-            Store Bearer Tokens, API keys, and Basic Auth credentials securely in an AES-256 GCM encrypted vault protected by Android KeyStore and Biometric fingerprint authentication.
-          </p>
+        <div class="shot-card" data-category="workflows" data-title="Visual Pipeline Builder">
+          <div class="shot-media"><img src="assets/screenshots/pipeline-builder.png" alt="Pipeline Builder Screen" loading="lazy"></div>
+          <div class="shot-meta"><span class="shot-badge">Screen</span><div class="shot-title">Visual Pipeline Canvas</div><div class="shot-caption">Connect Triggers, Parsers, Condition checks, and Delivery actions visually.</div></div>
         </div>
 
-        <div class="card">
-          <div class="card-icon">🛡️</div>
-          <h3 class="card-title">Precondition System</h3>
-          <p class="card-text">
-            Verify active VPN connections (Tailscale/WireGuard), internet status, carrier SIM readiness, and HTTP health endpoints before triggering workflows.
-          </p>
+        <div class="shot-card" data-category="workflows" data-title="Node Catalog Picker">
+          <div class="shot-media"><img src="assets/screenshots/node-catalog.png" alt="Node Catalog" loading="lazy"></div>
+          <div class="shot-meta"><span class="shot-badge">Screen</span><div class="shot-title">20+ Built-In &amp; Plugin Nodes</div><div class="shot-caption">Categorized step picker including JSON/Regex parsers and external plugins.</div></div>
         </div>
 
-        <div class="card">
-          <div class="card-icon">📱</div>
-          <h3 class="card-title">SMS & Notification Listener</h3>
-          <p class="card-text">
-            Capture cellular SMS OTP text messages and app push notifications from WhatsApp, Telegram, or banking apps with regex keyword filtering and sender allowlists.
-          </p>
+        <div class="shot-card" data-category="workflows" data-title="HTTP Webhook &amp; cURL Import">
+          <div class="shot-media"><img src="assets/screenshots/http-webhook-config.png" alt="HTTP Webhook Configuration" loading="lazy"></div>
+          <div class="shot-meta"><span class="shot-badge">Screen</span><div class="shot-title">HTTP Webhook Editor</div><div class="shot-caption">Methods, headers, JSON template bodies, and Vault credential adapters.</div></div>
         </div>
 
-        <div class="card">
-          <div class="card-icon amber">⚙️</div>
-          <h3 class="card-title">Resilient WorkManager Queue</h3>
-          <p class="card-text">
-            Configurable parallel execution limits (1–10) and queue sizes (5–100) with automatic exponential backoff retry worker for network recovery.
-          </p>
+        <div class="shot-card crop-wide" data-category="workflows" data-title="One-Tap cURL Import (Cropped)">
+          <div class="shot-media"><img src="assets/screenshots/crop-curl-import.png" alt="cURL Import Crop" loading="lazy"></div>
+          <div class="shot-meta"><span class="shot-badge crop">Screen Crop</span><div class="shot-title">Paste cURL to Auto-Populate Request</div><div class="shot-caption">Parses HTTP method, URL, headers, Basic Auth, and payload straight from cURL.</div></div>
+        </div>
+
+        <div class="shot-card" data-category="preconditions" data-title="Preconditions List">
+          <div class="shot-media"><img src="assets/screenshots/preconditions-list.png" alt="Preconditions List" loading="lazy"></div>
+          <div class="shot-meta"><span class="shot-badge">Screen</span><div class="shot-title">Preconditions &amp; Health Probes</div><div class="shot-caption">VPN, Internet, Bluetooth, Battery, SIM status, HTTP checks &amp; chained pipelines.</div></div>
+        </div>
+
+        <div class="shot-card crop-wide" data-category="preconditions" data-title="Chained Precondition &amp; Retry Policy (Cropped)">
+          <div class="shot-media"><img src="assets/screenshots/crop-precondition-chain.png" alt="Precondition Chain Crop" loading="lazy"></div>
+          <div class="shot-meta"><span class="shot-badge crop">Screen Crop</span><div class="shot-title">Chained Pipelines &amp; Failure Policy</div><div class="shot-caption">Multi-step chained preconditions with live testing and retry/queue behavior.</div></div>
+        </div>
+
+        <div class="shot-card" data-category="preconditions" data-title="Biometric Encrypted Vault">
+          <div class="shot-media"><img src="assets/screenshots/vault-screen.png" alt="Encrypted Vault Screen" loading="lazy"></div>
+          <div class="shot-meta"><span class="shot-badge">Screen</span><div class="shot-title">AES-256 Credential Vault</div><div class="shot-caption">Store Bearer, Basic, Header sets, ntfy/Gotify keys &amp; plugin secrets behind Biometric lock.</div></div>
+        </div>
+
+        <div class="shot-card crop-wide" data-category="preconditions" data-title="Masked Vault Entry Card (Cropped)">
+          <div class="shot-media"><img src="assets/screenshots/crop-vault-card.png" alt="Vault Card Crop" loading="lazy"></div>
+          <div class="shot-meta"><span class="shot-badge crop">Screen Crop</span><div class="shot-title">Zero-Leakage Credential Storage</div><div class="shot-caption">Secrets remain masked in UI/logs and show dependent workflow counts.</div></div>
+        </div>
+
+        <div class="shot-card" data-category="logs" data-title="Execution History &amp; Live Stepper">
+          <div class="shot-media"><img src="assets/screenshots/execution-logs.png" alt="Execution Logs Screen" loading="lazy"></div>
+          <div class="shot-meta"><span class="shot-badge">Screen</span><div class="shot-title">Execution Stepper &amp; Logs</div><div class="shot-caption">Monitor queued, running, failed &amp; completed runs with safe cancel confirmation.</div></div>
+        </div>
+
+        <div class="shot-card crop-wide" data-category="logs" data-title="Live Stepper Progress (Cropped)">
+          <div class="shot-media"><img src="assets/screenshots/crop-execution-stepper.png" alt="Execution Stepper Crop" loading="lazy"></div>
+          <div class="shot-meta"><span class="shot-badge crop">Screen Crop</span><div class="shot-title">Node-by-Node Execution Timeline</div><div class="shot-caption">Inspect per-node latency, status badges, and execution progress.</div></div>
+        </div>
+
+        <div class="shot-card" data-category="logs" data-title="Complete Execution Log Modal">
+          <div class="shot-media"><img src="assets/screenshots/complete-log-dialog.png" alt="Complete Execution Log Dialog" loading="lazy"></div>
+          <div class="shot-meta"><span class="shot-badge">Screen</span><div class="shot-title">Full Execution Log Dialog</div><div class="shot-caption">Filter All/Passed/Errors, copy WF/Exec IDs &amp; view full redacted traces.</div></div>
+        </div>
+
+        <div class="shot-card crop-wide" data-category="logs" data-title="Complete Log Inspector (Cropped)">
+          <div class="shot-media"><img src="assets/screenshots/crop-complete-log.png" alt="Complete Log Crop" loading="lazy"></div>
+          <div class="shot-meta"><span class="shot-badge crop">Screen Crop</span><div class="shot-title">Detailed Node Trace Output</div><div class="shot-caption">Debug regex captures, JSON extractions &amp; webhook requests with tokens masked.</div></div>
+        </div>
+
+        <div class="shot-card" data-category="settings" data-title="Themes &amp; Material You">
+          <div class="shot-media"><img src="assets/screenshots/settings-appearance.png" alt="Appearance Settings" loading="lazy"></div>
+          <div class="shot-meta"><span class="shot-badge">Screen</span><div class="shot-title">Appearance &amp; Theme Studio</div><div class="shot-caption">Light/Dark/System mode, Material You dynamic colors &amp; master automation switch.</div></div>
+        </div>
+
+        <div class="shot-card crop-wide" data-category="settings" data-title="7 Color Palettes (Cropped)">
+          <div class="shot-media"><img src="assets/screenshots/crop-theme-palettes.png" alt="Theme Palettes Crop" loading="lazy"></div>
+          <div class="shot-meta"><span class="shot-badge crop">Screen Crop</span><div class="shot-title">Palette Swatches &amp; Dynamic Color</div><div class="shot-caption">6 curated palettes plus Material You applied live across Compose M3.</div></div>
+        </div>
+
+        <div class="shot-card" data-category="settings" data-title="Concurrency &amp; Queue Controls">
+          <div class="shot-media"><img src="assets/screenshots/settings-concurrency.png" alt="Concurrency Settings" loading="lazy"></div>
+          <div class="shot-meta"><span class="shot-badge">Screen</span><div class="shot-title">Engine Concurrency Tuning</div><div class="shot-caption">Tune max parallel workers (1–10) and queue buffer size (5–100).</div></div>
+        </div>
+
+        <div class="shot-card" data-category="settings" data-title="Encrypted Backups &amp; Plugins">
+          <div class="shot-media"><img src="assets/screenshots/settings-backup-plugins.png" alt="Backups and Plugins Settings" loading="lazy"></div>
+          <div class="shot-meta"><span class="shot-badge">Screen</span><div class="shot-title">Backups &amp; External Plugins</div><div class="shot-caption">Selective password-encrypted backups and installed AIDL plugin management.</div></div>
         </div>
       </div>
     </section>
 
-    <!-- Workflows Section -->
-    <section id="workflows">
-      <span class="section-tag">Visual Automation</span>
-      <h2 class="section-title">Drag & Drop Workflow Graph Nodes</h2>
+    <!-- Plugin SDK Preview -->
+    <section class="section-block" id="plugins-preview">
+      <span class="section-tag">Developer Ecosystem</span>
+      <h2 class="section-title">Build Custom External Plugins via AIDL</h2>
       <p class="section-subtitle">
-        Chain nodes together visually to parse incoming SMS or notification payloads, check conditions, format data, and dispatch alerts.
+        Publish any standalone Android APK implementing <code>INodePluginService</code>. ZopHop discovers it automatically, generates its config UI, injects Vault credentials, and merges its outputs into <code>ExecutionContext</code>.
       </p>
 
       <div class="grid-2">
         <div class="card">
-          <h3 class="card-title" style="color: var(--primary);">⚡ Triggers & Logic Nodes</h3>
-          <ul style="list-style: none; margin-top: 14px; line-height: 2;">
-            <li><strong>SMS Trigger</strong>: Triggers on SMS matching sender allowlists (`*BANK*`) & keyword regex.</li>
-            <li><strong>App Notification Trigger</strong>: Intercepts app push notifications by package name (`com.whatsapp`).</li>
-            <li><strong>Regex Parser</strong>: Extracts verification codes using regex (`\b\d{4,8}\b`) into dynamic keys.</li>
-            <li><strong>JSON Parser</strong>: Parses nested JSON responses (`data.user.id`, `items[0].code`).</li>
-            <li><strong>Condition Evaluator</strong>: Branches execution based on `EQUALS`, `CONTAINS`, `REGEX_MATCH`, `GREATER_THAN`, `IS_EMPTY`.</li>
-          </ul>
+          <h3 class="card-title">Consume the SDK via JitPack (No Token)</h3>
+          <div class="code-box"><span class="code-label">app/build.gradle.kts</span>dependencies {
+    implementation("com.github.aman400.zophop:plugin-api:v3.0.0")
+}</div>
+          <p class="card-text" style="margin-bottom: 14px;">Public Maven artifacts are served via JitPack (no token needed), with standalone <code>.aar</code> files attached to GitHub Releases.</p>
+          <a href="plugins.html" class="btn btn-primary btn-sm">Open Plugin SDK Docs &amp; Slack Tutorial →</a>
         </div>
 
         <div class="card">
-          <h3 class="card-title" style="color: var(--secondary);">📤 Action Nodes & Delivery</h3>
-          <ul style="list-style: none; margin-top: 14px; line-height: 2;">
-            <li><strong>ntfy Push Action</strong>: Sends alerts to ntfy topics with priority, tags, and title headers.</li>
-            <li><strong>Gotify Push Action</strong>: Delivers alerts to Gotify servers with application tokens.</li>
-            <li><strong>HTTP Webhook Action</strong>: Sends `POST`, `PUT`, `GET` HTTP requests with custom JSON body and vault auth headers.</li>
-            <li><strong>Send System Notification</strong>: Displays local system notification alerts on Android.</li>
-            <li><strong>Send Outgoing SMS</strong>: Transmits outgoing SMS messages to configured recipients.</li>
-          </ul>
+          <h3 class="card-title">Slack Plugin Manifest Preview</h3>
+          <div class="code-box"><span class="code-label">SlackPluginModule.kt</span>NodePluginManifest(
+    typeId = "dev.zophop.plugin.slack.SLACK_ACTION",
+    displayName = "Slack Notification",
+    category = NodeCategory.ACTION,
+    requiredCredentialType = "SLACK_AUTH",
+    supportsCredentials = true,
+    outputVariables = listOf("slack_ts", "slack_channel")
+)</div>
         </div>
       </div>
     </section>
 
-    <!-- Preconditions & Vault Section -->
-    <section id="vault">
-      <span class="section-tag">Security & Protection</span>
-      <h2 class="section-title">Hardware-Backed Credential Vault</h2>
-      <div class="alert alert-note">
-        🔒 <strong>AES-256 GCM KeyStore Protection</strong>: All access tokens, Bearer keys, and credentials are encrypted at rest. Unlocking vault secret entries or modifying security policies requires Biometric or Device Lock authentication.
-      </div>
-
-      <div class="table-container">
-        <table>
-          <thead>
-            <tr>
-              <th>Credential Type</th>
-              <th>Supported Injection</th>
-              <th>Target Compatibility</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>BEARER_TOKEN</code></td>
-              <td><code>Authorization: Bearer &lt;token&gt;</code></td>
-              <td>HTTP Webhooks, ntfy.sh</td>
-            </tr>
-            <tr>
-              <td><code>BASIC_AUTH</code></td>
-              <td><code>Authorization: Basic &lt;base64&gt;</code></td>
-              <td>HTTP Webhooks, Self-Hosted Proxies</td>
-            </tr>
-            <tr>
-              <td><code>HEADER_SET</code></td>
-              <td>Custom Key-Value Header Pairs</td>
-              <td>Reverse Proxies, Cloudflare Workers</td>
-            </tr>
-            <tr>
-              <td><code>NTFY_AUTH</code> / <code>GOTIFY_AUTH</code></td>
-              <td>Publisher ACL Token / App Token</td>
-              <td>ntfy.sh & Gotify Servers</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <!-- Setup & Installation Section -->
-    <section id="setup">
-      <span class="section-tag">Getting Started</span>
-      <h2 class="section-title">Installation & First-Time Setup</h2>
-
-      <div class="card" style="margin-bottom: 24px;">
-        <h3 class="card-title">Step 1: Install APK & Grant Android Permissions</h3>
-        <p class="card-text" style="margin-bottom: 14px;">
-          Download <code class="app-apk-name">ZopHop-v2.0.0.apk</code> and install on Android 8.0+. When Google Play Protect prompt appears, tap <strong>"More details"</strong> → <strong>"Install anyway"</strong>.
-        </p>
-        <div class="code-box">
-          <span class="code-label">ADB Shell</span>
-          # Optional: Grant runtime SMS permission via ADB on test devices<br>
-          adb shell pm grant dev.zophop android.permission.RECEIVE_SMS
-        </div>
-      </div>
-
-      <div class="card">
-        <h3 class="card-title">Step 2: Server Deployment Examples</h3>
-        <p class="card-text" style="margin-bottom: 14px;">Run ntfy or Gotify using Docker Compose:</p>
-
-        <div class="code-box">
-          <span class="code-label">docker-compose.yml (ntfy)</span>
-          version: '3.8'<br>
-          services:<br>
-          &nbsp;&nbsp;ntfy:<br>
-          &nbsp;&nbsp;&nbsp;&nbsp;image: binwiederhier/ntfy<br>
-          &nbsp;&nbsp;&nbsp;&nbsp;command: [serve]<br>
-          &nbsp;&nbsp;&nbsp;&nbsp;environment:<br>
-          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;NTFY_BASE_URL: https://ntfy.example.com<br>
-          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;NTFY_AUTH_DEFAULT_ACCESS: deny-all<br>
-          &nbsp;&nbsp;&nbsp;&nbsp;ports: ["8080:80"]
-        </div>
-      </div>
-    </section>
-
-    <!-- Bank SMS Presets -->
-    <section id="presets">
-      <span class="section-tag">Filter Presets</span>
-      <h2 class="section-title">Indian Banking & OTP Filter Presets</h2>
-
-      <div class="table-container">
-        <table>
-          <thead>
-            <tr>
-              <th>Bank / Service</th>
-              <th>Sender Pattern</th>
-              <th>Regex Extractor</th>
-              <th>Template Payload</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>HDFC Bank</td>
-              <td><code>*HDFCBK*</code></td>
-              <td><code>\b\d{6}\b</code></td>
-              <td><code>[${sender}] OTP: ${code}</code></td>
-            </tr>
-            <tr>
-              <td>ICICI Bank</td>
-              <td><code>*ICICIB*</code></td>
-              <td><code>\b\d{6}\b</code></td>
-              <td><code>[${sender}] OTP: ${code}</code></td>
-            </tr>
-            <tr>
-              <td>State Bank of India (SBI)</td>
-              <td><code>*SBINBK*</code></td>
-              <td><code>\b\d{6}\b</code></td>
-              <td><code>[${sender}] OTP: ${code}</code></td>
-            </tr>
-            <tr>
-              <td>Axis Bank</td>
-              <td><code>*AXISBK*</code></td>
-              <td><code>\b\d{6}\b</code></td>
-              <td><code>[${sender}] OTP: ${code}</code></td>
-            </tr>
-            <tr>
-              <td>Google 2FA</td>
-              <td><code>Google</code></td>
-              <td><code>G-(\d{6})</code></td>
-              <td><code>[Google] Code: ${code}</code></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <!-- OEM Battery Optimization Troubleshooting -->
-    <section id="troubleshooting">
-      <span class="section-tag">Troubleshooting</span>
-      <h2 class="section-title">OEM Background & Battery Optimization Fixes</h2>
-      <p class="section-subtitle">
-        Aggressive OEM power managers can delay background SMS receivers. Configure autostart and battery exemption for your phone model:
-      </p>
+    <!-- Interactive OEM Battery Tabs -->
+    <section class="section-block" id="troubleshooting" data-tab-group="oem-home">
+      <span class="section-tag">Reliability Tuning</span>
+      <h2 class="section-title">OEM Background &amp; Battery Optimization Fixes</h2>
+      <p class="section-subtitle">Select your device brand for the exact settings to prevent background SMS/notification delays:</p>
 
       <div class="tab-nav">
-        <button class="tab-btn active">Xiaomi / POCO</button>
-        <button class="tab-btn">Samsung</button>
-        <button class="tab-btn">OnePlus / Oppo</button>
-        <button class="tab-btn">Pixel / Stock</button>
+        <button class="tab-btn active" data-tab="h-xiaomi" type="button">Xiaomi / POCO</button>
+        <button class="tab-btn" data-tab="h-samsung" type="button">Samsung</button>
+        <button class="tab-btn" data-tab="h-oneplus" type="button">OnePlus / Oppo / Realme</button>
+        <button class="tab-btn" data-tab="h-pixel" type="button">Pixel / Stock Android</button>
       </div>
 
-      <div class="card">
-        <h3 class="card-title">📱 Xiaomi / Redmi / POCO (MIUI & HyperOS)</h3>
-        <ol style="margin-left: 20px; line-height: 2; color: var(--text-muted);">
-          <li><strong>Autostart Permission</strong>: Open Security App → Permissions → Autostart → Toggle ON for ZopHop.</li>
-          <li><strong>No Restrictions</strong>: Open Settings → Apps → Manage Apps → ZopHop → Battery Saver → Select <strong>No Restrictions</strong>.</li>
-          <li><strong>Lock in Recents</strong>: Open Recent Apps → Press & hold ZopHop window → Tap Lock Icon 🔒.</li>
+      <div class="card tab-panel active" id="h-xiaomi">
+        <h3 class="card-title">Xiaomi / Redmi / POCO (MIUI &amp; HyperOS)</h3>
+        <ol style="margin-left: 20px; line-height: 1.9; color: var(--text-muted);">
+          <li><strong>Autostart</strong>: Security App → Permissions → Background autostart → Toggle ON for ZopHop.</li>
+          <li><strong>Unrestricted Battery</strong>: Settings → Apps → Manage Apps → ZopHop → Battery Saver → <strong>No Restrictions</strong>.</li>
+          <li><strong>Lock in Recents</strong>: Open Recents → Press &amp; hold ZopHop → Tap Lock.</li>
+        </ol>
+      </div>
+      <div class="card tab-panel" id="h-samsung">
+        <h3 class="card-title">Samsung Galaxy (One UI)</h3>
+        <ol style="margin-left: 20px; line-height: 1.9; color: var(--text-muted);">
+          <li>Settings → Apps → ZopHop → Battery → Select <strong>Unrestricted</strong>.</li>
+          <li>Settings → Device care → Battery → Background usage limits → <strong>Never auto sleeping apps</strong> → Add ZopHop.</li>
+        </ol>
+      </div>
+      <div class="card tab-panel" id="h-oneplus">
+        <h3 class="card-title">OnePlus / Oppo / Realme (OxygenOS &amp; ColorOS)</h3>
+        <ol style="margin-left: 20px; line-height: 1.9; color: var(--text-muted);">
+          <li>Settings → Apps → App Management → ZopHop → Battery usage → Enable <strong>Allow background activity</strong> &amp; <strong>Allow auto launch</strong>.</li>
+        </ol>
+      </div>
+      <div class="card tab-panel" id="h-pixel">
+        <h3 class="card-title">Google Pixel / Stock Android</h3>
+        <ol style="margin-left: 20px; line-height: 1.9; color: var(--text-muted);">
+          <li>Settings → Apps → ZopHop → App battery usage → Allow background usage → <strong>Unrestricted</strong>.</li>
         </ol>
       </div>
     </section>
   </div>
 
-  <!-- Footer -->
-  <footer>
+  <!-- Lightbox Modal -->
+  <div class="lightbox" id="lightbox" aria-hidden="true">
+    <div class="lightbox-dialog">
+      <div class="lightbox-top">
+        <strong id="lightboxTitle">Screenshot Preview</strong>
+        <button class="lightbox-close" id="lightboxClose" type="button">Close (Esc)</button>
+      </div>
+      <div class="lightbox-body">
+        <img id="lightboxImg" src="" alt="Preview">
+        <p class="lightbox-caption" id="lightboxCaption"></p>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-footer">
     <div class="container footer-content">
       <div>
-        <p><strong>ZopHop Forwarder <span class="app-version-v">v2.0.0</span></strong> — Built for Android 8.0+ (API 26–37)</p>
-        <p style="margin-top: 4px;">Open-source software released under MIT License.</p>
+        <p><strong>ZopHop Automation Engine <span class="app-version-v">v3.0.0</span></strong> — Built for Android 8.0+ (API 26–37)</p>
+        <p style="margin-top: 4px;">Open-source software released under the MIT License.</p>
       </div>
-      <div style="display: flex; gap: 16px;">
-        <a href="https://ntfy.sh" target="_blank" class="nav-link">ntfy.sh</a>
-        <a href="https://gotify.net" target="_blank" class="nav-link">Gotify</a>
-        <a href="https://github.com/aman400/zophop" target="_blank" class="nav-link">GitHub Repository</a>
+      <div class="footer-links">
+        <a href="manual.html">User Manual</a>
+        <a href="plugins.html">Plugin SDK</a>
+        <a href="releases.html">Releases</a>
+        <a href="https://github.com/aman400/zophop" target="_blank">GitHub</a>
       </div>
     </div>
   </footer>
-
 </body>
 </html>

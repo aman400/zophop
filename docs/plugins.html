@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZopHop Plugin SDK — AIDL Bridges, Models &amp; Slack Plugin Guide</title>
+  <meta name="description" content="Build external ZopHop workflow plugins using com.github.aman400.zophop:plugin-api (via JitPack). Complete reference for INodePluginService.aidl, NodePluginModule, NodeExecutor, HttpCredentialAdapter, NodePluginManifest, Vault injection, and a full Slack Notification Plugin example.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/svg+xml" href="assets/app-icon.svg">
+  <link rel="stylesheet" href="styles.css">
+  <script>const APP_VERSION = "3.0.0";</script>
+  <script src="docs.js" defer></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="container nav-bar">
+      <a href="index.html" class="logo">
+        <img src="assets/app-icon.svg" alt="ZopHop Logo" class="logo-img">
+        <span class="logo-title">ZopHop</span>
+        <span class="logo-ver app-version-v">v3.0.0</span>
+      </a>
+
+      <nav class="nav-pages" aria-label="Documentation Pages">
+        <a href="index.html" class="nav-pill">Overview</a>
+        <a href="manual.html" class="nav-pill">User Manual</a>
+        <a href="plugins.html" class="nav-pill active">Plugin SDK</a>
+        <a href="releases.html" class="nav-pill">Releases</a>
+      </nav>
+
+      <div class="nav-actions">
+        <button id="sidebarToggle" class="icon-btn mobile-menu-btn" type="button" title="Toggle Table of Contents">☰</button>
+        <button id="themeToggle" class="icon-btn" type="button" title="Toggle Dark/Light Theme">☀️</button>
+        <a href="https://github.com/aman400/zophop" target="_blank" class="btn btn-secondary btn-sm">GitHub</a>
+      </div>
+    </div>
+  </header>
+
+  <div class="container">
+    <div class="docs-shell">
+      <aside class="docs-sidebar" id="docsSidebar">
+        <input type="search" id="sidebarSearch" class="sidebar-search" placeholder="Search SDK docs...">
+
+        <div class="sidebar-group-title">SDK Architecture</div>
+        <ul class="sidebar-nav">
+          <li><a href="#sdk-intro" class="sidebar-link active" data-keywords="overview sdk plugin api">SDK Overview</a></li>
+          <li><a href="#architecture" class="sidebar-link" data-keywords="unified registry external spi aidl discovery">1. Architecture &amp; Lifecycle</a></li>
+          <li><a href="#dependencies" class="sidebar-link" data-keywords="gradle maven jitpack aar">2. Dependencies (JitPack / AAR)</a></li>
+        </ul>
+
+        <div class="sidebar-group-title">Bridges &amp; Contracts</div>
+        <ul class="sidebar-nav">
+          <li><a href="#bridges" class="sidebar-link" data-keywords="aidl inodepluginservice nodepluginmodule nodeexecutor httpcredentialadapter">3. Interfaces &amp; AIDL Bridges</a></li>
+          <li><a href="#models" class="sidebar-link" data-keywords="manifest configfieldspec credentialspec category serialization">4. SDK Data Models</a></li>
+          <li><a href="#context-logs" class="sidebar-link" data-keywords="_cred_ vault executioncontext interpolate executionlogformatter">5. Vault Injection &amp; Logs</a></li>
+          <li><a href="#security" class="sidebar-link" data-keywords="binder callinguid signature permission exported">6. Security &amp; Caller Verification</a></li>
+        </ul>
+
+        <div class="sidebar-group-title">Complete Example</div>
+        <ul class="sidebar-nav">
+          <li><a href="#slack-example" class="sidebar-link" data-keywords="slack webhook bot api example tutorial">7. Slack Plugin Tutorial</a></li>
+          <li><a href="#testing-plugins" class="sidebar-link" data-keywords="logcat mockwebserver debug test">8. Testing &amp; Debugging</a></li>
+        </ul>
+      </aside>
+
+      <main class="docs-content">
+        <div class="doc-hero" id="sdk-intro">
+          <span class="section-tag">Developer SDK Reference</span>
+          <h1 class="section-title">ZopHop Node Plugin SDK</h1>
+          <p class="section-subtitle" style="margin-bottom: 18px;">
+            Extend ZopHop with custom <strong>Triggers</strong>, <strong>Parsers</strong>, <strong>Logic Checks</strong>, or <strong>Delivery Actions</strong> without recompiling the main app. Distribute plugins as standalone APKs over <strong>AIDL IPC</strong> or bundle them in-process via Java <code>ServiceLoader</code>.
+          </p>
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <span class="pill">JitPack: com.github.aman400.zophop:plugin-api:<span class="app-version-v">v3.0.0</span></span>
+            <span class="pill amber">Offline .aar Assets</span>
+            <span class="pill sky">AIDL API v1</span>
+          </div>
+        </div>
+
+        <!-- Section 1: Architecture -->
+        <section class="doc-section" id="architecture">
+          <h2>1. Architecture &amp; Discovery Lifecycle</h2>
+          <p><code>UnifiedPluginRegistry</code> merges built-in SPI modules (<code>BuiltInPluginRegistry</code>) and external APK services (<code>ExternalPluginRegistry</code>), deduplicating by <code>typeId</code> or <code>(displayName + category)</code>.</p>
+
+          <div class="arch-card" style="margin:18px 0;">
+            <div class="arch-svg-container">
+              <svg viewBox="0 0 1000 250" width="100%" height="250" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="240" y="14" width="520" height="58" rx="12" fill="#111827" stroke="#10b981" stroke-width="2"/>
+                <text x="500" y="38" text-anchor="middle" fill="#d1fae5" font-family="Roboto, sans-serif" font-weight="700" font-size="14">UnifiedPluginRegistry (Host App)</text>
+                <text x="500" y="58" text-anchor="middle" fill="#9ca3af" font-family="Roboto, sans-serif" font-size="12">Merges Built-In + External • Feeds Node Catalog &amp; CredentialSpecRegistry</text>
+
+                <path d="M 380 72 L 235 122" stroke="#10b981" stroke-width="2.5"/>
+                <path d="M 620 72 L 765 122" stroke="#38bdf8" stroke-width="2.5"/>
+
+                <rect x="35" y="122" width="400" height="108" rx="14" fill="#111827" stroke="#10b981" stroke-width="2"/>
+                <text x="235" y="150" text-anchor="middle" fill="#34d399" font-family="Roboto, sans-serif" font-weight="700" font-size="13">BuiltInPluginRegistry (In-Process SPI)</text>
+                <text x="235" y="176" text-anchor="middle" fill="#9ca3af" font-family="Roboto, sans-serif" font-size="12">ServiceLoader / META-INF/services NodePluginModule</text>
+                <text x="235" y="200" text-anchor="middle" fill="#9ca3af" font-family="Roboto, sans-serif" font-size="12">createExecutor() • getHttpCredentialAdapters()</text>
+
+                <rect x="565" y="122" width="400" height="108" rx="14" fill="#111827" stroke="#38bdf8" stroke-width="2"/>
+                <text x="765" y="150" text-anchor="middle" fill="#7dd3fc" font-family="Roboto, sans-serif" font-weight="700" font-size="13">ExternalPluginRegistry &amp; Executor (AIDL IPC)</text>
+                <text x="765" y="176" text-anchor="middle" fill="#9ca3af" font-family="Roboto, sans-serif" font-size="12">Queries ACTION_NODE_SERVICE (5s discovery, 15s exec)</text>
+                <text x="765" y="200" text-anchor="middle" fill="#fbbf24" font-family="Roboto, sans-serif" font-size="12">Injects _cred_* from Vault • Merges outputDataMap</text>
+              </svg>
+            </div>
+          </div>
+
+          <ol>
+            <li><strong>Intent Query</strong>: ZopHop queries <code>PackageManager</code> for <code>dev.zophop.plugin.ACTION_NODE_SERVICE</code>, skipping itself and user-disabled plugin packages.</li>
+            <li><strong>Manifest Exchange (5s timeout)</strong>: ZopHop calls <code>getPluginApiVersion()</code> and <code>getManifests()</code> returning <code>Parcelable</code> <code>NodePluginManifest</code> descriptors.</li>
+            <li><strong>Credential Registration</strong>: <code>CredentialSpecRegistry</code> indexes any attached <code>credentialSpec</code> so users can create secrets in ZopHop's Encrypted Vault.</li>
+            <li><strong>Execution &amp; Output Propagation (15s timeout)</strong>: <code>ExternalPluginExecutor</code> injects Vault fields as <code>_cred_&lt;key&gt;</code> into <code>inputContextJson</code>, invokes <code>executeNode(...)</code>, and writes returned <code>outputDataMap</code> keys back into <code>ExecutionContext</code>.</li>
+          </ol>
+        </section>
+
+        <!-- Section 2: Dependencies -->
+        <section class="doc-section" id="dependencies" data-tab-group="sdk-deps">
+          <h2>2. Adding Plugin SDK Dependencies</h2>
+          <p>Use <strong>JitPack</strong> for zero-token public Maven resolution, or offline <code>.aar</code> files from <a href="https://github.com/aman400/zophop/releases" target="_blank">GitHub Releases</a>.</p>
+
+          <div class="tab-nav">
+            <button class="tab-btn active" data-tab="dep-jitpack" type="button">Option A: JitPack (Public, No Token)</button>
+            <button class="tab-btn" data-tab="dep-aar" type="button">Option B: Local .aar Files (Offline)</button>
+          </div>
+
+          <div class="tab-panel active" id="dep-jitpack">
+            <div class="code-box"><span class="code-label">settings.gradle.kts</span>dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+        maven { url = uri("https://jitpack.io") }
+    }
+}</div>
+            <div class="code-box"><span class="code-label">app/build.gradle.kts</span>dependencies {
+    implementation("com.github.aman400.zophop:plugin-api:v3.0.0")
+    // core-model is pulled transitively via plugin-api
+    implementation("androidx.core:core-ktx:1.15.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+}</div>
+            <div class="alert alert-note">
+              <span>🌐</span>
+              <div><strong>No authentication required</strong>: JitPack serves public artifacts built directly from ZopHop release tags via <code>jitpack.yml</code>.</div>
+            </div>
+          </div>
+
+          <div class="tab-panel" id="dep-aar">
+            <p>Place <code>zophop-plugin-api-v3.0.0.aar</code> and <code>zophop-core-model-v3.0.0.aar</code> inside <code>app/libs/</code>:</p>
+            <div class="code-box"><span class="code-label">app/build.gradle.kts</span>dependencies {
+    implementation(files("libs/zophop-plugin-api-v3.0.0.aar"))
+    implementation(files("libs/zophop-core-model-v3.0.0.aar"))
+    implementation("androidx.core:core-ktx:1.15.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+}</div>
+          </div>
+        </section>
+
+        <!-- Section 3: Bridges & AIDL Contracts -->
+        <section class="doc-section" id="bridges" data-tab-group="sdk-bridges">
+          <h2>3. Core Interfaces, Bridges &amp; AIDL Contracts</h2>
+
+          <div class="tab-nav">
+            <button class="tab-btn active" data-tab="br-aidl" type="button">INodePluginService.aidl</button>
+            <button class="tab-btn" data-tab="br-module" type="button">NodePluginModule</button>
+            <button class="tab-btn" data-tab="br-executor" type="button">NodeExecutor &amp; Result</button>
+            <button class="tab-btn" data-tab="br-http" type="button">HttpCredentialAdapter</button>
+          </div>
+
+          <div class="tab-panel active" id="br-aidl">
+            <p>The cross-process Binder IPC contract implemented by every external plugin <code>Service</code>:</p>
+            <div class="code-box"><span class="code-label">INodePluginService.aidl</span>package dev.zophop.plugin.api;
+import dev.zophop.plugin.api.NodePluginManifest;
+
+interface INodePluginService {
+    int getPluginApiVersion();
+    List&lt;NodePluginManifest&gt; getManifests();
+    String executeNode(String nodeId, String configJson, String inputContextJson);
+}</div>
+            <h4><code>executeNode</code> JSON Return Contract</h4>
+            <div class="table-container">
+              <table>
+                <thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+                <tbody>
+                  <tr><td><code>isSuccess</code></td><td><code>Boolean</code></td><td>Yes</td><td><code>true</code> if execution succeeded; <code>false</code> if failed or ignored.</td></tr>
+                  <tr><td><code>isIgnored</code></td><td><code>Boolean</code></td><td>Optional</td><td>Set <code>true</code> (with <code>isSuccess = false</code>) when a Trigger filters out an event cleanly.</td></tr>
+                  <tr><td><code>outputPort</code></td><td><code>String</code></td><td>Optional</td><td>Branch port (<code>"main"</code>, <code>"true"</code>, or <code>"false"</code>). Defaults to <code>"main"</code>.</td></tr>
+                  <tr><td><code>logMessage</code></td><td><code>String</code></td><td>Recommended</td><td>Human-readable or <code>ExecutionLogFormatter</code> log shown in ZopHop UI.</td></tr>
+                  <tr><td><code>errorReason</code></td><td><code>String</code></td><td>On failure</td><td>Diagnostic reason shown in error/ignored states.</td></tr>
+                  <tr><td><code>outputDataMap</code></td><td><code>JsonObject</code></td><td>Optional</td><td>Key-value outputs merged back into <code>ExecutionContext</code> for downstream nodes.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="tab-panel" id="br-module">
+            <p>SPI module interface used directly by bundled plugins via <code>META-INF/services/dev.zophop.plugin.api.NodePluginModule</code> and as an organizational pattern in external APKs:</p>
+            <div class="code-box"><span class="code-label">NodePluginModule.kt</span>interface NodePluginModule {
+    val moduleId: String
+
+    fun createExecutor(
+        typeId: String,
+        okHttpClient: OkHttpClient,
+        credentialRepository: Any?,
+    ): NodeExecutor? = null
+
+    fun getManifests(): List&lt;NodePluginManifest&gt;
+    fun getCredentialSpecs(): List&lt;CredentialSpec&gt; = emptyList()
+    fun validateConfig(typeId: String, configJson: String): String? = null
+    fun getHttpCredentialAdapters(): List&lt;HttpCredentialAdapter&gt; = emptyList()
+}</div>
+          </div>
+
+          <div class="tab-panel" id="br-executor">
+            <p>Clean coroutine interface sharing logic across unit tests, bundled plugins, and AIDL services:</p>
+            <div class="code-box"><span class="code-label">NodeExecutor.kt</span>sealed class NodeExecutionResult {
+    data class Success(
+        val outputPort: String = "main",
+        val logMessage: String = "Node executed successfully",
+    ) : NodeExecutionResult()
+
+    data class Failed(val reason: String) : NodeExecutionResult()
+    data class Ignored(val reason: String = "Event filtered out by trigger rules") : NodeExecutionResult()
+}
+
+interface NodeExecutor {
+    suspend fun execute(
+        node: WorkflowNode,
+        context: ExecutionContext,
+        appContext: Context?,
+    ): NodeExecutionResult
+}</div>
+          </div>
+
+          <div class="tab-panel" id="br-http">
+            <p>Allows bundled plugin credential types to integrate directly inside ZopHop's built-in <strong>HTTP Webhook Action</strong> using <code>HttpHeaderConfigHelper.ensureHeaderPresent(...)</code>:</p>
+            <div class="code-box"><span class="code-label">HttpCredentialAdapter.kt</span>interface HttpCredentialAdapter {
+    val supportedCredentialType: String
+    fun getSecretHeaderName(dataMap: Map&lt;String, String&gt;): String? = null
+    fun configureHttpNode(dataMap: Map&lt;String, String&gt;, currentConfig: Map&lt;String, String&gt;): Map&lt;String, String&gt;
+    fun fillMissingHttpNodeConfig(dataMap: Map&lt;String, String&gt;, currentConfig: Map&lt;String, String&gt;): Map&lt;String, String&gt;
+    fun applyToRequest(builder: Request.Builder, dataMap: Map&lt;String, String&gt;, context: ExecutionContext)
+}</div>
+          </div>
+        </section>
+
+        <!-- Section 4: Data Models -->
+        <section class="doc-section" id="models">
+          <h2>4. SDK Data Models Reference</h2>
+
+          <h3><code>NodePluginManifest</code> &amp; <code>NodeCategory</code></h3>
+          <p><code>NodeCategory</code> values: <code>TRIGGER</code>, <code>EXTRACTION</code>, <code>LOGIC</code>, <code>ACTION</code>.</p>
+          <div class="table-container">
+            <table>
+              <thead><tr><th>Property</th><th>Type</th><th>Purpose</th></tr></thead>
+              <tbody>
+                <tr><td><code>typeId</code></td><td><code>String</code></td><td>Unique reverse-DNS node ID (e.g., <code>"dev.zophop.plugin.slack.SLACK_ACTION"</code>).</td></tr>
+                <tr><td><code>displayName</code> / <code>description</code></td><td><code>String</code></td><td>Title and subtitle displayed in ZopHop's Step Picker &amp; Pipeline Builder.</td></tr>
+                <tr><td><code>category</code></td><td><code>NodeCategory</code></td><td><code>TRIGGER</code>, <code>EXTRACTION</code>, <code>LOGIC</code>, or <code>ACTION</code>.</td></tr>
+                <tr><td><code>apiVersion</code></td><td><code>Int</code></td><td>Set to <code>NodePluginManifest.CURRENT_API_VERSION</code> (<code>1</code>).</td></tr>
+                <tr><td><code>requiredPermissions</code></td><td><code>List&lt;String&gt;</code></td><td>Android permissions needed by your node.</td></tr>
+                <tr><td><code>requiredCredentialType</code> / <code>credentialSpec</code></td><td><code>String?</code> / <code>CredentialSpec?</code></td><td>Auto-registers a custom Vault credential type and links it to this node.</td></tr>
+                <tr><td><code>supportsCredentials</code></td><td><code>Boolean</code></td><td>Displays the Vault credential selector in the Node Editor.</td></tr>
+                <tr><td><code>configSchema</code></td><td><code>List&lt;ConfigFieldSpec&gt;</code></td><td>Declarative UI form fields rendered automatically by ZopHop.</td></tr>
+                <tr><td><code>outputVariables</code></td><td><code>List&lt;String&gt;</code></td><td>Keys written to context — exposed as clickable <code>${var}</code> chips in downstream nodes!</td></tr>
+                <tr><td><code>defaultConfigJson</code></td><td><code>String?</code></td><td>Default JSON configuration populated on node creation.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3><code>ConfigFieldSpec</code> UI Primitives &amp; <code>CredentialSpec</code></h3>
+          <ul>
+            <li><code>ConfigFieldSpec.TextField(key, label, tooltip, placeholder, singleLine, minLines, isTestField, isSecret)</code> — Set <code>isSecret = true</code> to mask sensitive fields.</li>
+            <li><code>ConfigFieldSpec.DropdownField(key, label, tooltip, options: List&lt;Pair&lt;String, String&gt;&gt;)</code> — Dropdown selector storing option keys.</li>
+            <li><code>ConfigFieldSpec.CodeTemplateField(key, label, tooltip, minLines, singleLine, maxLength)</code> — Multi-line template editor with automatic <code>${variable}</code> quick-insert chips.</li>
+            <li><code>CredentialSpec(typeId, displayName, description, fields)</code> — Registers custom Vault forms. <code>CredentialType.isCompatibleWith(...)</code> also permits generic <code>BEARER_TOKEN</code> as a fallback.</li>
+            <li><code>core:model</code> helpers: <code>WorkflowNode</code>, <code>WorkflowConnection</code>, <code>AppJson</code>, <code>parseJsonObjectSafe(...)</code>, and null-safe <code>optString</code> / <code>optBoolean</code> / <code>optInt</code> extensions.</li>
+          </ul>
+        </section>
+
+        <!-- Section 5: Vault Injection & Logs -->
+        <section class="doc-section" id="context-logs">
+          <h2>5. Credential Injection, Context &amp; Structured Logs</h2>
+          <ol>
+            <li><strong>Vault Injection (<code>_cred_*</code>)</strong>: When a user attaches a Vault credential to your node, ZopHop copies every key-value pair in <code>credential.dataMap</code> into <code>inputContextJson</code> prefixed with <code>_cred_</code> (e.g., <code>botToken</code> → <code>_cred_botToken</code>, generic Bearer → <code>_cred_token</code>).</li>
+            <li><strong>Context Interpolation</strong>: Reconstruct <code>ExecutionContext</code> from <code>inputContextJson</code> and call <code>context.interpolate(template)</code> to expand <code>${var}</code> and <code>{var}</code> placeholders.</li>
+            <li><strong>Redacted Logs</strong>: Use <code>ExecutionLogFormatter.formatHeadersBlock(...)</code> and <code>ExecutionLogFormatter.buildStructuredLog(...)</code> so ZopHop's Complete Execution Log modal displays collapsible sections with <code>Authorization</code>, tokens, and cookies automatically masked.</li>
+          </ol>
+          <div class="code-box"><span class="code-label">Context &amp; Logging</span>val inputMap = mutableMapOf&lt;String, Any&gt;()
+for ((k, v) in parseJsonObjectSafe(inputContextJson)) inputMap[k] = v.optString()
+val context = ExecutionContext(inputMap)
+
+val rendered = context.interpolate(template)
+val log = ExecutionLogFormatter.buildStructuredLog(
+    summary = "Slack notification delivered (${resp.code})",
+    sections = listOf("Request" to reqLog, "Response" to respLog),
+)</div>
+        </section>
+
+        <!-- Section 6: Security -->
+        <section class="doc-section" id="security">
+          <h2>6. Security, Caller Verification &amp; Permissions</h2>
+          <p>Because your plugin <code>Service</code> uses <code>android:exported="true"</code>, always verify <code>Binder.getCallingUid()</code> inside <code>executeNode(...)</code> so third-party apps cannot abuse your service:</p>
+          <div class="code-box"><span class="code-label">Caller Verification</span>private fun isTrustedZopHopCaller(): Boolean {
+    val callingUid = Binder.getCallingUid()
+    if (callingUid == Process.myUid()) return true
+    val packages = packageManager.getPackagesForUid(callingUid) ?: return false
+    return packages.any { it == "dev.zophop" || it == "dev.zophop.debug" }
+    // For production release plugins, also verify SigningInfo SHA-256 or checkSignatures().
+}</div>
+        </section>
+
+        <!-- Section 7: Complete Slack Plugin Tutorial (Tabbed Files) -->
+        <section class="doc-section" id="slack-example" data-tab-group="slack-files">
+          <h2>7. Complete Example: Slack Notification Plugin</h2>
+          <p>A production-ready standalone plugin APK (<code>dev.zophop.plugin.slack</code>) supporting both <strong>Slack Incoming Webhooks</strong> and <strong>Slack Bot API (<code>chat.postMessage</code>)</strong>, complete with Vault credentials, dynamic config fields, <code>slack_ts</code> / <code>slack_channel</code> outputs, and redacted structured logs.</p>
+
+          <div class="tab-nav">
+            <button class="tab-btn active" data-tab="sl-gradle" type="button">Gradle Setup</button>
+            <button class="tab-btn" data-tab="sl-manifest" type="button">AndroidManifest.xml</button>
+            <button class="tab-btn" data-tab="sl-service" type="button">SlackNodePluginService.kt</button>
+            <button class="tab-btn" data-tab="sl-spi" type="button">META-INF/services</button>
+          </div>
+
+          <div class="tab-panel active" id="sl-gradle">
+            <div class="code-box"><span class="code-label">settings.gradle.kts</span>pluginManagement {
+    repositories { google(); mavenCentral(); gradlePluginPortal() }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+        maven { url = uri("https://jitpack.io") }
+    }
+}
+rootProject.name = "ZopHopSlackPlugin"
+include(":app")</div>
+            <div class="code-box"><span class="code-label">app/build.gradle.kts</span>plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+}
+android {
+    namespace = "dev.zophop.plugin.slack"
+    compileSdk = 36
+    defaultConfig {
+        applicationId = "dev.zophop.plugin.slack"
+        minSdk = 26; targetSdk = 36; versionCode = 1; versionName = "1.0.0"
+    }
+    compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
+    kotlinOptions { jvmTarget = "17" }
+    packaging {
+        resources { merges += "META-INF/services/dev.zophop.plugin.api.NodePluginModule" }
+    }
+}
+dependencies {
+    implementation("com.github.aman400.zophop:plugin-api:v3.0.0")
+    implementation("androidx.core:core-ktx:1.15.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+}</div>
+          </div>
+
+          <div class="tab-panel" id="sl-manifest">
+            <div class="code-box"><span class="code-label">app/src/main/AndroidManifest.xml</span>&lt;?xml version="1.0" encoding="utf-8"?&gt;
+&lt;manifest xmlns:android="http://schemas.android.com/apk/res/android"&gt;
+    &lt;uses-permission android:name="android.permission.INTERNET" /&gt;
+
+    &lt;application
+        android:label="ZopHop Slack Plugin"
+        android:icon="@android:drawable/ic_menu_send"&gt;
+
+        &lt;service
+            android:name=".SlackNodePluginService"
+            android:exported="true"&gt;
+            &lt;intent-filter&gt;
+                &lt;action android:name="dev.zophop.plugin.ACTION_NODE_SERVICE" /&gt;
+            &lt;/intent-filter&gt;
+        &lt;/service&gt;
+    &lt;/application&gt;
+&lt;/manifest&gt;</div>
+          </div>
+
+          <div class="tab-panel" id="sl-service">
+            <div class="code-box"><span class="code-label">SlackNodePluginService.kt</span>package dev.zophop.plugin.slack
+
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.os.Binder
+import android.os.IBinder
+import android.os.Process
+import dev.zophop.domain.model.WorkflowNode
+import dev.zophop.domain.model.optBoolean
+import dev.zophop.domain.model.optString
+import dev.zophop.domain.model.parseJsonObjectSafe
+import dev.zophop.plugin.api.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.IOException
+import java.util.concurrent.TimeUnit
+
+class SlackActionExecutor(
+    private val okHttpClient: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
+        .build(),
+) : NodeExecutor {
+
+    override suspend fun execute(node: WorkflowNode, context: ExecutionContext, appContext: Context?): NodeExecutionResult {
+        val config = parseJsonObjectSafe(node.configJson)
+        val deliveryMode = config.optString("deliveryMode", "WEBHOOK").uppercase().trim()
+        val template = config.optString("messageTemplate", "\${body}").ifBlank { "\${body}" }
+        val message = context.interpolate(template)
+        val username = context.interpolate(config.optString("username", "")).trim()
+        val channel = context.interpolate(config.optString("channel", "")).trim()
+
+        return if (deliveryMode == "BOT_API") {
+            sendViaBotApi(config, context, channel, message, username)
+        } else {
+            sendViaWebhook(config, context, message, username, channel)
+        }
+    }
+
+    private fun sendViaWebhook(config: JsonObject, context: ExecutionContext, message: String, username: String, channel: String): NodeExecutionResult {
+        val webhookUrl = context.getString("_cred_webhookUrl", "")
+            .ifBlank { context.interpolate(config.optString("webhookUrl", "")) }.trim()
+        if (!webhookUrl.startsWith("https://hooks.slack.com/")) {
+            return NodeExecutionResult.Failed("Invalid or missing Slack Incoming Webhook URL")
+        }
+        val payload = buildJsonObject {
+            put("text", message)
+            if (username.isNotBlank()) put("username", username)
+            if (channel.isNotBlank()) put("channel", channel)
+        }.toString()
+
+        val request = Request.Builder()
+            .url(webhookUrl)
+            .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
+            .build()
+
+        return executeHttpCall(request, "https://hooks.slack.com/services/***", payload, context, channel.ifBlank { "webhook-default" })
+    }
+
+    private fun sendViaBotApi(config: JsonObject, context: ExecutionContext, channel: String, message: String, username: String): NodeExecutionResult {
+        val botToken = context.getString("_cred_botToken", "")
+            .ifBlank { context.getString("_cred_token", "").ifBlank { config.optString("botToken", "") } }.trim()
+        if (botToken.isBlank()) return NodeExecutionResult.Failed("Slack Bot Token is empty.")
+        if (channel.isBlank()) return NodeExecutionResult.Failed("Slack Channel ID or #channel is required.")
+
+        val payload = buildJsonObject {
+            put("channel", channel)
+            put("text", message)
+            if (username.isNotBlank()) put("username", username)
+        }.toString()
+
+        val request = Request.Builder()
+            .url("https://slack.com/api/chat.postMessage")
+            .addHeader("Authorization", "Bearer $botToken")
+            .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
+            .build()
+
+        return executeHttpCall(request, "https://slack.com/api/chat.postMessage", payload, context, channel, isBotApi = true, secretToRedact = botToken)
+    }
+
+    private fun executeHttpCall(
+        request: Request,
+        safeTarget: String,
+        payload: String,
+        context: ExecutionContext,
+        fallbackChannel: String,
+        isBotApi: Boolean = false,
+        secretToRedact: String = "",
+    ): NodeExecutionResult {
+        val startNs = System.nanoTime()
+        return try {
+            okHttpClient.newCall(request).execute().use { resp ->
+                val elapsedMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(0L)
+                val rawBody = resp.body?.string().orEmpty()
+                val safeBody = if (secretToRedact.isNotBlank()) rawBody.replace(secretToRedact, "***") else rawBody
+                val headersBlock = ExecutionLogFormatter.formatHeadersBlock(
+                    (0 until request.headers.size).map { i -> request.headers.name(i) to request.headers.value(i) },
+                )
+                val reqSec = "Method: POST\nURL: $safeTarget\n--- Headers ---\n$headersBlock\n--- Body ---\n${ExecutionLogFormatter.previewText(payload, 500)}"
+                val respSec = "${resp.code} ${resp.message} (${elapsedMs}ms)\n${ExecutionLogFormatter.previewText(safeBody, 400)}"
+
+                if (!resp.isSuccessful) return NodeExecutionResult.Failed("Slack HTTP error (${resp.code}): $safeBody")
+                if (isBotApi) {
+                    val json = parseJsonObjectSafe(rawBody)
+                    if (!json.optBoolean("ok", false)) return NodeExecutionResult.Failed("Slack API error: ${json.optString("error", "unknown")}")
+                    context.set("slack_ts", json.optString("ts", ""))
+                    context.set("slack_channel", json.optString("channel", fallbackChannel))
+                } else {
+                    context.set("slack_ts", System.currentTimeMillis().toString())
+                    context.set("slack_channel", fallbackChannel)
+                }
+                NodeExecutionResult.Success(
+                    logMessage = ExecutionLogFormatter.buildStructuredLog(
+                        summary = "Slack notification sent to $fallbackChannel (${elapsedMs}ms)",
+                        sections = listOf("Request" to reqSec, "Response" to respSec),
+                    ),
+                )
+            }
+        } catch (e: IOException) {
+            val msg = e.message.orEmpty().let { if (secretToRedact.isNotBlank()) it.replace(secretToRedact, "***") else it }
+            NodeExecutionResult.Failed("Slack network exception: $msg")
+        }
+    }
+}
+
+object SlackPluginModule : NodePluginModule {
+    override val moduleId = "slack-plugin-module"
+    const val TYPE_ID = "dev.zophop.plugin.slack.SLACK_ACTION"
+
+    override fun createExecutor(typeId: String, okHttpClient: OkHttpClient, credentialRepository: Any?): NodeExecutor? =
+        if (typeId.contains("SLACK_ACTION")) SlackActionExecutor(okHttpClient) else null
+
+    override fun getManifests() = listOf(
+        NodePluginManifest(
+            typeId = TYPE_ID,
+            displayName = "Slack Notification",
+            description = "Posts formatted alerts to Slack via Incoming Webhook or Bot API",
+            category = NodeCategory.ACTION,
+            requiredPermissions = listOf(android.Manifest.permission.INTERNET),
+            requiredCredentialType = "SLACK_AUTH",
+            supportsCredentials = true,
+            outputVariables = listOf("slack_ts", "slack_channel"),
+            defaultConfigJson = """{"deliveryMode":"WEBHOOK","messageTemplate":"*[\${'$'}{sender}]* \${'$'}{body}"}""",
+            credentialSpec = CredentialSpec(
+                typeId = "SLACK_AUTH",
+                displayName = "Slack Bot / Webhook",
+                description = "Slack Bot OAuth Token (xoxb-...) or Incoming Webhook URL",
+                fields = listOf(
+                    ConfigFieldSpec.TextField(key = "webhookUrl", label = "Incoming Webhook URL", isSecret = true),
+                    ConfigFieldSpec.TextField(key = "botToken", label = "Bot OAuth Token (xoxb-...)", isSecret = true),
+                ),
+            ),
+            configSchema = listOf(
+                ConfigFieldSpec.DropdownField("deliveryMode", "Delivery Method", options = listOf("WEBHOOK" to "Incoming Webhook", "BOT_API" to "Slack Bot API")),
+                ConfigFieldSpec.TextField("webhookUrl", "Webhook URL (Optional override)", isSecret = true),
+                ConfigFieldSpec.TextField("botToken", "Bot Token (Optional override)", isSecret = true),
+                ConfigFieldSpec.TextField("channel", "Channel (Required for Bot API)", placeholder = "#otp-alerts or C0123456"),
+                ConfigFieldSpec.TextField("username", "Bot Display Name (Optional)", placeholder = "ZopHop"),
+                ConfigFieldSpec.CodeTemplateField("messageTemplate", "Slack Message Template", minLines = 3),
+            ),
+        ),
+    )
+}
+
+class SlackNodePluginService : Service() {
+    private val binder = object : INodePluginService.Stub() {
+        override fun getPluginApiVersion() = NodePluginManifest.CURRENT_API_VERSION
+        override fun getManifests() = SlackPluginModule.getManifests()
+        override fun executeNode(nodeId: String, configJson: String, inputContextJson: String): String = runBlocking(Dispatchers.IO) {
+            if (!isTrustedZopHopCaller()) return@runBlocking failJson("Unauthorized caller")
+            try {
+                val node = WorkflowNode(id = nodeId, name = "Slack Notification", type = SlackPluginModule.TYPE_ID, configJson = configJson)
+                val inputMap = parseJsonObjectSafe(inputContextJson).mapValues { it.value.optString() }.toMutableMap&lt;String, Any&gt;()
+                val context = ExecutionContext(inputMap)
+                when (val result = SlackActionExecutor().execute(node, context, this@SlackNodePluginService)) {
+                    is NodeExecutionResult.Success -&gt; buildJsonObject {
+                        put("isSuccess", true)
+                        put("outputPort", result.outputPort)
+                        put("logMessage", result.logMessage)
+                        put("outputDataMap", buildJsonObject {
+                            put("slack_ts", context.getString("slack_ts"))
+                            put("slack_channel", context.getString("slack_channel"))
+                        })
+                    }.toString()
+                    is NodeExecutionResult.Failed -&gt; failJson(result.reason)
+                    is NodeExecutionResult.Ignored -&gt; buildJsonObject { put("isSuccess", false); put("isIgnored", true); put("errorReason", result.reason) }.toString()
+                }
+            } catch (e: SerializationException) { failJson("JSON error: ${e.message}") }
+            catch (e: IOException) { failJson("Network error: ${e.message}") }
+        }
+    }
+
+    private fun isTrustedZopHopCaller(): Boolean {
+        val callingUid = Binder.getCallingUid()
+        if (callingUid == Process.myUid()) return true
+        return packageManager.getPackagesForUid(callingUid)?.any { it == "dev.zophop" || it == "dev.zophop.debug" } == true
+    }
+
+    private fun failJson(reason: String) = buildJsonObject { put("isSuccess", false); put("errorReason", reason) }.toString()
+    override fun onBind(intent: Intent?): IBinder = binder
+}</div>
+          </div>
+
+          <div class="tab-panel" id="sl-spi">
+            <p>Optional for bundled in-process usage — create <code>app/src/main/resources/META-INF/services/dev.zophop.plugin.api.NodePluginModule</code>:</p>
+            <div class="code-box"><span class="code-label">META-INF/services</span>dev.zophop.plugin.slack.SlackPluginModule</div>
+          </div>
+        </section>
+
+        <!-- Section 8: Testing & Debugging -->
+        <section class="doc-section" id="testing-plugins">
+          <h2>8. Testing &amp; Debugging Your Plugin</h2>
+          <ol>
+            <li>Install both APKs (<code>./gradlew assembleDebug &amp;&amp; adb install -r app/build/outputs/apk/debug/app-debug.apk</code>).</li>
+            <li>Open ZopHop → <strong>Settings &amp; Permissions → Installed Node Plugins</strong> to confirm your plugin is discovered, and open <strong>Vault → Add Credential</strong> to confirm <code>SLACK_AUTH</code> appears.</li>
+            <li>Run a <strong>Test Run</strong> inside Pipeline Builder and inspect <strong>View Full Log</strong> to verify <code>Authorization: Bearer ***</code> redaction and <code>slack_ts</code> / <code>slack_channel</code> outputs.</li>
+            <li>Unit test <code>SlackActionExecutor(mockClient)</code> using OkHttp <code>MockWebServer</code> on JVM without needing an emulator.</li>
+          </ol>
+          <div class="code-box"><span class="code-label">Logcat Debug</span># Monitor plugin binding, Parcelable mismatches &amp; security rejections
+adb logcat -s ExternalPluginRegistry:W ExternalPluginExecutor:W</div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <footer class="site-footer">
+    <div class="container footer-content">
+      <div>
+        <p><strong>ZopHop Automation Engine <span class="app-version-v">v3.0.0</span></strong> — Android 8.0+ (API 26–37)</p>
+        <p style="margin-top: 4px;">Open-source software released under the MIT License.</p>
+      </div>
+      <div class="footer-links">
+        <a href="index.html">Overview</a>
+        <a href="manual.html">User Manual</a>
+        <a href="plugins.html">Plugin SDK</a>
+        <a href="releases.html">Releases</a>
+        <a href="https://github.com/aman400/zophop" target="_blank">GitHub</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

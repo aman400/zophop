@@ -1,0 +1,17 @@
+jdk:
+  - openjdk17
+
+before_install:
+  - |
+    SDK_MGR=""
+    if [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+      SDK_MGR="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+    elif [ -x "$ANDROID_HOME/tools/bin/sdkmanager" ]; then
+      SDK_MGR="$ANDROID_HOME/tools/bin/sdkmanager"
+    fi
+    if [ -n "$SDK_MGR" ]; then
+      yes | "$SDK_MGR" --licenses > /dev/null 2>&1 || true
+    fi
+
+install:
+  - ./gradlew :core:model:publishReleasePublicationToMavenLocal :core:plugin-api:publishReleasePublicationToMavenLocal --stacktrace

@@ -18,8 +18,8 @@ android {
         applicationId = "dev.zophop"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "3.0.0"
+        versionCode = providers.gradleProperty("ZOPHOP_VERSION_CODE").map { it.toInt() }.orElse(3).get()
+        versionName = providers.gradleProperty("ZOPHOP_VERSION").orElse("3.0.0").get()
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
