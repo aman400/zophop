@@ -115,15 +115,16 @@ fun NodeConfigBottomSheet(
         }
     var pluginInfo by remember { mutableStateOf<dev.zophop.domain.engine.plugin.ExternalPluginServiceInfo?>(null) }
     var pluginManifest by remember { mutableStateOf<dev.zophop.plugin.api.NodePluginManifest?>(null) }
-
-    androidx.compose.runtime.LaunchedEffect(node.type) {
-        pluginManifest = unifiedRegistry.getManifestByTypeId(node.type)
-        val plugins = externalPluginRegistry.discoverPlugins()
-        pluginInfo = plugins.find { it.manifest.typeId == node.type }
-    }
+    var hasResolvedManifest by remember { mutableStateOf(false) }
 
     var permissionInstructionData by remember { mutableStateOf<PermissionInstructionData?>(null) }
     var permissionCheckTrigger by remember { mutableIntStateOf(0) }
+
+    androidx.compose.runtime.LaunchedEffect(node.type, permissionCheckTrigger) {
+        pluginManifest = unifiedRegistry.getManifestByTypeId(node.type)
+        pluginInfo = findExternalPluginForNode(externalPluginRegistry, node.type)
+        hasResolvedManifest = true
+    }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -217,28 +218,13 @@ fun NodeConfigBottomSheet(
     var configStateMap by remember(initialConfigMap) { mutableStateOf<Map<String, String>>(initialConfigMap) }
 
     androidx.compose.runtime.LaunchedEffect(pluginManifest, credentials) {
-        pluginManifest?.let { manifest ->
-            val updated = fillMissingDropdownDefaults(manifest, configStateMap)
-            if (updated !== configStateMap) {
-                configStateMap = updated
-            }
-        }
-        val currentCredId = configStateMap["credentialId"]?.trim().orEmpty()
-        if (currentCredId.isNotBlank()) {
-            val matchedCred = credentials.find { it.id == currentCredId }
-            if (matchedCred != null) {
-                val filled =
-                    WorkflowUiHelper.fillMissingCredentialDefaults(
-                        nodeType = node.type,
-                        pluginManifest = pluginManifest,
-                        currentConfig = configStateMap,
-                        credential = matchedCred,
-                    )
-                if (filled != configStateMap) {
-                    configStateMap = filled
-                }
-            }
-        }
+        configStateMap =
+            hydrateMissingConfigDefaults(
+                nodeType = node.type,
+                pluginManifest = pluginManifest,
+                credentials = credentials,
+                currentConfig = configStateMap,
+            )
     }
     var credentialId by remember(configStateMap) { mutableStateOf(configStateMap["credentialId"] ?: "") }
 
@@ -343,6 +329,10 @@ fun NodeConfigBottomSheet(
                         permissionSummary = summary,
                         onRequestPermission = requestPermissionAction,
                     )
+                }
+
+                if (isExternalPluginMissing(hasResolvedManifest, pluginManifest, node.type)) {
+                    NodeConfigMissingPluginBanner(nodeType = node.type)
                 }
 
                 if (isHttpActionNode) {
@@ -974,6 +964,45 @@ private fun NodeConfigPermissionBanner(
 }
 
 @Composable
+private fun NodeConfigMissingPluginBanner(nodeType: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.6f),
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Warning,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.tertiary,
+                modifier = Modifier.size(18.dp),
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = "External plugin not installed",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+                Text(
+                    text = "Step type '$nodeType' requires its external plugin APK to edit settings or run. " +
+                        "Existing configuration and attached credentials remain preserved.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.9f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun NodeConfigCredentialSelector(
     credentials: List<Credential>,
     credentialId: String,
@@ -998,6 +1027,60 @@ private fun NodeConfigCredentialSelector(
         tooltipText = "Attach saved vault credentials for authenticated server requests.",
         modifier = Modifier.fillMaxWidth(),
     )
+}
+
+private suspend fun findExternalPluginForNode(
+    externalPluginRegistry: dev.zophop.domain.engine.plugin.ExternalPluginRegistry,
+    nodeType: String,
+): dev.zophop.domain.engine.plugin.ExternalPluginServiceInfo? {
+    val plugins = externalPluginRegistry.discoverPlugins()
+    return plugins.find {
+        it.manifest.typeId.equals(nodeType, ignoreCase = true) ||
+            it.manifest.typeId.endsWith(".$nodeType", ignoreCase = true) ||
+            nodeType.endsWith(".${it.manifest.typeId}", ignoreCase = true)
+    }
+}
+
+private fun isExternalPluginMissing(
+    hasResolvedManifest: Boolean,
+    pluginManifest: dev.zophop.plugin.api.NodePluginManifest?,
+    nodeType: String,
+): Boolean =
+    hasResolvedManifest &&
+        pluginManifest == null &&
+        dev.zophop.domain.engine.plugin.BuiltInPluginRegistry
+            .getBuiltInManifestByTypeId(nodeType) == null
+
+private fun hydrateMissingConfigDefaults(
+    nodeType: String,
+    pluginManifest: dev.zophop.plugin.api.NodePluginManifest?,
+    credentials: List<Credential>,
+    currentConfig: Map<String, String>,
+): Map<String, String> {
+    var updated = currentConfig
+    if (pluginManifest != null) {
+        val withDropdowns = fillMissingDropdownDefaults(pluginManifest, updated)
+        if (withDropdowns !== updated) {
+            updated = withDropdowns
+        }
+    }
+    val currentCredId = updated["credentialId"]?.trim().orEmpty()
+    if (currentCredId.isNotBlank()) {
+        val matchedCred = credentials.find { it.id == currentCredId }
+        if (matchedCred != null) {
+            val filled =
+                WorkflowUiHelper.fillMissingCredentialDefaults(
+                    nodeType = nodeType,
+                    pluginManifest = pluginManifest,
+                    currentConfig = updated,
+                    credential = matchedCred,
+                )
+            if (filled != updated) {
+                updated = filled
+            }
+        }
+    }
+    return updated
 }
 
 private fun fillMissingDropdownDefaults(

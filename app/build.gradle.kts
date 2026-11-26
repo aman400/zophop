@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.hilt)
 }
 
 android {
@@ -18,8 +19,8 @@ android {
         applicationId = "dev.zophop"
         minSdk = 26
         targetSdk = 36
-        versionCode = providers.gradleProperty("ZOPHOP_VERSION_CODE").map { it.toInt() }.orElse(3).get()
-        versionName = providers.gradleProperty("ZOPHOP_VERSION").orElse("3.0.0").get()
+        versionCode = providers.gradleProperty("ZOPHOP_VERSION_CODE").map { it.toInt() }.orElse(1).get()
+        versionName = providers.gradleProperty("ZOPHOP_VERSION").orElse("1.0.0").get()
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -93,7 +94,7 @@ androidComponents {
     }
     onVariants { variant ->
         val suffix = if (variant.buildType == "debug") "-Debug" else ""
-        val verName = android.defaultConfig.versionName ?: "2.0.0"
+        val verName = android.defaultConfig.versionName ?: "1.0.0"
         variant.outputs.forEach { output ->
             output.outputFileName.set("ZopHop$suffix-v$verName.apk")
         }
@@ -152,11 +153,18 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.kotlinx.serialization.json)
 
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.compiler)
+    implementation(libs.androidx.hilt.work)
+    ksp(libs.androidx.hilt.compiler)
+
     testImplementation(libs.junit)
     testImplementation(libs.androidx.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.work.testing)
     testImplementation(libs.androidx.compose.ui.test.junit4)
+    testImplementation(libs.hilt.android.testing)
+    kspTest(libs.hilt.compiler)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

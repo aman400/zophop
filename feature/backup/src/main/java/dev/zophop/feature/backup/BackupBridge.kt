@@ -33,4 +33,10 @@ interface BackupBridge {
      * Returns true if biometric lock is enabled in app security settings.
      */
     fun isBiometricLockEnabled(): Boolean = false
+
+    /**
+     * Returns the subset of [nodeTypes] that are not currently available on this device
+     * (neither built-in nor provided by an enabled external plugin).
+     */
+    suspend fun getMissingNodeTypes(nodeTypes: Collection<String>): Set<String> = emptySet()
 }

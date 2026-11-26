@@ -5,6 +5,7 @@ import android.content.ClipData
 import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -236,6 +237,8 @@ fun ExportBackupBottomSheet(
                         Toast.makeText(context, "Export failed: $msg", Toast.LENGTH_LONG).show()
                     },
                 )
+            } else if (uri != null) {
+                Toast.makeText(context, "Export data expired, please try saving again", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -551,6 +554,7 @@ fun ImportBackupBottomSheet(
     var isImporting by remember { mutableStateOf(false) }
     var importResult by remember { mutableStateOf<ImportResult?>(null) }
     var parseError by remember { mutableStateOf<String?>(null) }
+    var missingNodeTypes by remember { mutableStateOf<Set<String>>(emptySet()) }
 
     fun syncDependenciesForWorkflows(newSelectedWfIds: Set<String>, data: ParsedBackupData) {
         val related = BackupDependencyResolver.resolveWorkflowDependencies(
@@ -571,7 +575,12 @@ fun ImportBackupBottomSheet(
             try {
                 parseError = null
                 val parsed = backupService.parseImport(text)
+                if (parsed.isEmpty) {
+                    parseError = "No workflows, credentials, or rules found in the backup."
+                    return@launch
+                }
                 parsedData = parsed
+                missingNodeTypes = backupService.findMissingNodeTypes(parsed)
                 isUnlocked = !parsed.isEncrypted
                 val allWfIds = parsed.workflows.map { it.id }.toSet()
                 selectedWorkflowIds = allWfIds
@@ -602,6 +611,7 @@ fun ImportBackupBottomSheet(
             try {
                 val decrypted = backupService.decryptImport(currentParsed, unlockPassword)
                 parsedData = decrypted
+                missingNodeTypes = backupService.findMissingNodeTypes(decrypted)
                 isUnlocked = true
                 passwordError = null
                 val allWfIds = decrypted.workflows.map { it.id }.toSet()
@@ -706,8 +716,13 @@ fun ImportBackupBottomSheet(
                 },
                 conflictStrategy = conflictStrategy,
                 onSelectConflictStrategy = { conflictStrategy = it },
-                onPickFile = { openDocumentLauncher.launch(arrayOf("application/json", "text/*")) },
+                onPickFile = {
+                    openDocumentLauncher.launch(
+                        arrayOf("application/json", "text/*", "application/octet-stream"),
+                    )
+                },
                 onPaste = { processImportJson(readTextFromClipboard(context)) },
+                missingNodeTypes = missingNodeTypes,
                 parseError = parseError,
                 isImporting = isImporting,
             )
@@ -725,6 +740,13 @@ fun ImportBackupBottomSheet(
                 onChangeFile = {
                     parsedData = null
                     parseError = null
+                    missingNodeTypes = emptySet()
+                    unlockPassword = ""
+                    isUnlocked = false
+                    passwordError = null
+                    selectedWorkflowIds = emptySet()
+                    selectedCredentialIds = emptySet()
+                    selectedPreconditionIds = emptySet()
                 },
                 onImport = { handleExecuteImport() },
             )
@@ -748,6 +770,13 @@ internal fun canBypassBiometricPrompt(
                 canAuthenticateResult == BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE
         )
 
+private tailrec fun Context.findFragmentActivity(): FragmentActivity? =
+    when (this) {
+        is FragmentActivity -> this
+        is ContextWrapper -> baseContext.findFragmentActivity()
+        else -> null
+    }
+
 fun requestBiometricUnlock(
     context: Context,
     title: String,
@@ -767,7 +796,7 @@ fun requestBiometricUnlock(
     val biometricManager = BiometricManager.from(context)
     val canAuthenticate = biometricManager.canAuthenticate(authenticators)
 
-    val activity = context as? FragmentActivity
+    val activity = context.findFragmentActivity()
     when {
         canBypassBiometricPrompt(isDeviceSecure = keyguardManager?.isDeviceSecure, canAuthenticateResult = canAuthenticate) ->
             onSuccess()
@@ -1131,6 +1160,7 @@ private fun ImportBottomSheetBody(
     onSelectConflictStrategy: (ImportConflictStrategy) -> Unit,
     onPickFile: () -> Unit,
     onPaste: () -> Unit,
+    missingNodeTypes: Set<String> = emptySet(),
     parseError: String?,
     isImporting: Boolean,
 ) {
@@ -1168,6 +1198,7 @@ private fun ImportBottomSheetBody(
                 onToggleAllPreconditions = onToggleAllPreconditions,
                 conflictStrategy = conflictStrategy,
                 onSelectConflictStrategy = onSelectConflictStrategy,
+                missingNodeTypes = missingNodeTypes,
             )
         }
 
@@ -1391,7 +1422,12 @@ private fun saveExportJsonToUri(
     onFailure: (String) -> Unit,
 ) {
     try {
-        context.contentResolver.openOutputStream(uri)?.use { os ->
+        val outputStream = context.contentResolver.openOutputStream(uri)
+        if (outputStream == null) {
+            onFailure("Unable to open output stream for selected file")
+            return
+        }
+        outputStream.use { os ->
             os.write(json.toByteArray(Charsets.UTF_8))
         }
         onSuccess()
@@ -1720,6 +1756,7 @@ private fun ImportReviewContent(
     onToggleAllPreconditions: (Boolean) -> Unit,
     conflictStrategy: ImportConflictStrategy,
     onSelectConflictStrategy: (ImportConflictStrategy) -> Unit,
+    missingNodeTypes: Set<String> = emptySet(),
 ) {
     val relatedDependencies = remember(selectedWorkflowIds, parsedData) {
         BackupDependencyResolver.resolveWorkflowDependencies(
@@ -1735,6 +1772,10 @@ private fun ImportReviewContent(
             credentialsCount = parsedData.credentials.size,
             preconditionsCount = parsedData.preconditions.size,
         )
+
+        if (missingNodeTypes.isNotEmpty()) {
+            ImportMissingPluginsBanner(missingNodeTypes = missingNodeTypes)
+        }
 
         if (parsedData.isEncrypted && !isUnlocked) {
             ImportUnlockCard(
@@ -1757,9 +1798,18 @@ private fun ImportReviewContent(
             onToggleAll = onToggleAllWorkflows,
         ) {
             parsedData.workflows.forEach { wf ->
+                val wfNodeTypes = BackupDependencyResolver.findAllNodeTypes(listOf(wf))
+                val missingInWf = wfNodeTypes.filter { it in missingNodeTypes }
+                val wfSubtitle =
+                    if (missingInWf.isNotEmpty()) {
+                        val names = missingInWf.joinToString(", ") { it.substringAfterLast(".") }
+                        "${wf.nodes.size} nodes • Missing plugin: $names"
+                    } else {
+                        "${wf.nodes.size} nodes"
+                    }
                 ImportItemRow(
                     title = wf.name,
-                    subtitle = "${wf.nodes.size} nodes",
+                    subtitle = wfSubtitle,
                     checked = wf.id in selectedWorkflowIds,
                     onToggle = { onToggleWorkflow(wf.id) },
                 )
@@ -1964,6 +2014,42 @@ private fun ImportConflictOptionRow(
         Column {
             Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+        }
+    }
+}
+
+@Composable
+private fun ImportMissingPluginsBanner(missingNodeTypes: Set<String>) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.6f),
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(
+                Icons.Default.Warning,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.tertiary,
+                modifier = Modifier.size(18.dp),
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = "External plugin(s) not installed",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+                Text(
+                    text = "Missing: ${missingNodeTypes.joinToString(", ") { it.substringAfterLast(".") }}. " +
+                        "Workflows and credentials will still import, but affected steps require the corresponding plugin APK to run.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+            }
         }
     }
 }

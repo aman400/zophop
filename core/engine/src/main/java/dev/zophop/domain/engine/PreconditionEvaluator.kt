@@ -9,6 +9,7 @@ import android.telephony.TelephonyManager
 import dev.zophop.data.CredentialRepository
 import dev.zophop.domain.engine.plugin.BuiltInPluginRegistry
 import dev.zophop.domain.engine.plugin.CoreEngineNodesModule
+import dev.zophop.domain.engine.plugin.ExternalPluginRegistry
 import dev.zophop.domain.model.Precondition
 import dev.zophop.domain.model.Workflow
 import dev.zophop.domain.model.calculateRetryDelaySeconds
@@ -688,7 +689,12 @@ open class PreconditionEvaluator(
         val engine = WorkflowEngine(
             preconditionEvaluator = scopedEvaluator,
             credentialRepository = credentialRepository,
-            executorFactory = NodeExecutorFactory(okHttpClient, credentialRepository),
+            executorFactory =
+                NodeExecutorFactory(
+                    okHttpClient = okHttpClient,
+                    credentialRepository = credentialRepository,
+                    pluginRegistry = context?.let { ExternalPluginRegistry(it) },
+                ),
         )
         var capturedSteps = emptyList<NodeExecutionStep>()
 

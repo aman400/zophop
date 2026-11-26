@@ -3,15 +3,13 @@ package dev.zophop.service
 import android.app.Notification
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
-import dev.zophop.data.AppDatabase
+import dagger.hilt.android.AndroidEntryPoint
 import dev.zophop.data.DefaultWorkflowInitializer
-import dev.zophop.data.EncryptedSettingsRepository
-import dev.zophop.data.RoomCredentialRepository
-import dev.zophop.data.RoomWorkflowRepository
+import dev.zophop.data.SettingsRepository
 import dev.zophop.data.WorkflowExecutionLogEntity
+import dev.zophop.data.WorkflowRepository
 import dev.zophop.domain.engine.ExecutionJobRegistry
 import dev.zophop.domain.engine.NodeExecutionStep
-import dev.zophop.domain.engine.PreconditionEvaluator
 import dev.zophop.domain.engine.WorkflowEngine
 import dev.zophop.domain.engine.WorkflowExecutionResult
 import dev.zophop.domain.engine.toJsonString
@@ -25,8 +23,22 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import javax.inject.Inject
 
+@AndroidEntryPoint
 class ZopHopNotificationListenerService : NotificationListenerService() {
+    @Inject
+    lateinit var settingsRepository: SettingsRepository
+
+    @Inject
+    lateinit var workflowRepository: WorkflowRepository
+
+    @Inject
+    lateinit var workflowInitializer: DefaultWorkflowInitializer
+
+    @Inject
+    lateinit var workflowEngine: WorkflowEngine
+
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private data class NotificationData(
@@ -39,7 +51,7 @@ class ZopHopNotificationListenerService : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         val data = extractNotificationData(sbn) ?: return
         serviceScope.launch {
-            val enabled = EncryptedSettingsRepository(applicationContext).getSettings().globalWorkflowsEnabled
+            val enabled = settingsRepository.getSettings().globalWorkflowsEnabled
             if (enabled) {
                 processNotificationWorkflows(data)
             }
@@ -68,11 +80,7 @@ class ZopHopNotificationListenerService : NotificationListenerService() {
     }
 
     private suspend fun processNotificationWorkflows(data: NotificationData) {
-        val db = AppDatabase.getInstance(applicationContext)
-        val workflowRepository = RoomWorkflowRepository(db.workflowDao(), db.preconditionDao())
-        val credentialRepository = RoomCredentialRepository(db.credentialDao())
-
-        DefaultWorkflowInitializer(workflowRepository).checkAndInitialize()
+        workflowInitializer.checkAndInitialize()
         dev.zophop.domain.engine.plugin.BuiltInPluginRegistry.discoverBundledModules()
 
         val activeWorkflows = workflowRepository.getActiveWorkflows()
@@ -81,10 +89,7 @@ class ZopHopNotificationListenerService : NotificationListenerService() {
         }
         if (notifWorkflows.isEmpty()) return
 
-        val evaluator = PreconditionEvaluator(applicationContext, credentialRepository = credentialRepository)
-        val engine = WorkflowEngine(evaluator, credentialRepository)
-
-        val showWorkflowNotifications = EncryptedSettingsRepository(applicationContext).getSettings().showWorkflowNotifications
+        val showWorkflowNotifications = settingsRepository.getSettings().showWorkflowNotifications
         val baseContextMap = mapOf(
             "package_name" to data.packageName,
             "title" to data.title,
@@ -118,7 +123,7 @@ class ZopHopNotificationListenerService : NotificationListenerService() {
                 )
                 workflowRepository.saveExecutionLog(initialLog)
 
-                val result = engine.executeWorkflowWithProgress(
+                val result = workflowEngine.executeWorkflowWithProgress(
                     workflow = workflow,
                     context = workflowContext,
                     appContext = applicationContext,

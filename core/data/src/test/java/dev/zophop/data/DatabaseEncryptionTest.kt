@@ -24,6 +24,17 @@ class DatabaseEncryptionTest {
     }
 
     @Test
+    fun testEncryptProducesUniqueCiphertextPerCall() {
+        val originalToken = "sk_live_same_secret_value"
+        val first = DatabaseEncryption.encrypt(originalToken)
+        val second = DatabaseEncryption.encrypt(originalToken)
+
+        assertNotEquals("Each encryption call must use a fresh provider-generated IV", first, second)
+        assertEquals(originalToken, DatabaseEncryption.decrypt(first))
+        assertEquals(originalToken, DatabaseEncryption.decrypt(second))
+    }
+
+    @Test
     fun testDecryptLegacyUnencryptedValueReturnsAsIs() {
         val legacyPlaintext = "plain_token_12345"
         val result = DatabaseEncryption.decrypt(legacyPlaintext)

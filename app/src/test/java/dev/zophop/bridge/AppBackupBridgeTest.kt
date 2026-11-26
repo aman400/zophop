@@ -174,4 +174,60 @@ class AppBackupBridgeTest {
         val decrypted = bridge.decryptLocalStorageValue(encrypted)
         assertEquals(plain, decrypted)
     }
+
+    @Test
+    fun testGetMissingNodeTypes_distinguishesBuiltInDiscoveredAndMissingExternalPlugins() = runTest {
+        val smtpManifest =
+            dev.zophop.plugin.api.NodePluginManifest(
+                typeId = "dev.zophop.plugin.smtp.SMTP_ACTION",
+                displayName = "Send Email (SMTP)",
+                description = "SMTP email",
+                category = dev.zophop.plugin.api.NodeCategory.ACTION,
+            )
+        var discoveredCalled = false
+        val fakeExternalRegistry =
+            object : dev.zophop.domain.engine.plugin.ExternalPluginRegistry(context = null) {
+                private var plugins = emptyList<dev.zophop.domain.engine.plugin.ExternalPluginServiceInfo>()
+
+                override suspend fun discoverPlugins(): List<dev.zophop.domain.engine.plugin.ExternalPluginServiceInfo> {
+                    discoveredCalled = true
+                    plugins =
+                        listOf(
+                            dev.zophop.domain.engine.plugin.ExternalPluginServiceInfo(
+                                packageName = "dev.zophop.plugin.smtp",
+                                serviceClassName = "dev.zophop.plugin.smtp.SmtpNodePluginService",
+                                manifest = smtpManifest,
+                                apiVersion = 1,
+                            ),
+                        )
+                    return plugins
+                }
+
+                override fun getPluginByTypeId(typeId: String): dev.zophop.domain.engine.plugin.ExternalPluginServiceInfo? =
+                    plugins.find {
+                        it.manifest.typeId.equals(typeId, ignoreCase = true) ||
+                            it.manifest.typeId.endsWith(".$typeId", ignoreCase = true)
+                    }
+            }
+
+        val bridge = AppBackupBridge(
+            workflowRepository = FakeWorkflowRepo(),
+            credentialRepository = FakeCredentialRepo(),
+            preconditionRepository = FakePreconditionRepo(),
+            externalPluginRegistry = fakeExternalRegistry,
+        )
+
+        val missing =
+            bridge.getMissingNodeTypes(
+                listOf(
+                    "HTTP_ACTION",
+                    "SMS_TRIGGER",
+                    "dev.zophop.plugin.smtp.SMTP_ACTION",
+                    "dev.zophop.plugin.telegram.TELEGRAM_ACTION",
+                ),
+            )
+
+        assertTrue(discoveredCalled)
+        assertEquals(setOf("dev.zophop.plugin.telegram.TELEGRAM_ACTION"), missing)
+    }
 }

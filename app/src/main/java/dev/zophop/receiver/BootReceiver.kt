@@ -5,7 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
-import dev.zophop.data.EncryptedSettingsRepository
+import dagger.hilt.android.AndroidEntryPoint
+import dev.zophop.data.SettingsRepository
 import dev.zophop.service.SmsForwarderService
 import dev.zophop.worker.ForwardingManager
 import dev.zophop.worker.WorkflowQueueManager
@@ -15,9 +16,20 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import javax.inject.Inject
 import kotlin.time.Duration.Companion.milliseconds
 
+@AndroidEntryPoint
 class BootReceiver : BroadcastReceiver() {
+    @Inject
+    lateinit var settingsRepository: SettingsRepository
+
+    @Inject
+    lateinit var forwardingManager: ForwardingManager
+
+    @Inject
+    lateinit var workflowQueueManager: WorkflowQueueManager
+
     @Suppress("TooGenericExceptionCaught")
     override fun onReceive(
         context: Context,
@@ -29,20 +41,19 @@ class BootReceiver : BroadcastReceiver() {
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
             try {
-                val settings = EncryptedSettingsRepository(appContext).getSettings()
+                val settings = settingsRepository.getSettings()
                 if (settings.isEnabled && Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) {
                     SmsForwarderService.startService(appContext)
                 }
 
                 if (settings.isEnabled || settings.globalWorkflowsEnabled) {
-                    val manager = ForwardingManager.getInstance(appContext)
-                    manager.scheduleWorkManagerRetry()
+                    forwardingManager.scheduleWorkManagerRetry()
                     withTimeoutOrNull(8_000.milliseconds) {
                         if (settings.isEnabled) {
-                            manager.processPendingQueue()
+                            forwardingManager.processPendingQueue()
                         }
                         if (settings.globalWorkflowsEnabled) {
-                            WorkflowQueueManager.processQueuedWorkflows(appContext)
+                            workflowQueueManager.processQueuedWorkflows()
                         }
                     }
                 }

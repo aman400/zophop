@@ -4,6 +4,9 @@ import android.content.Context
 import android.content.Intent
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import dagger.hilt.android.testing.HiltAndroidRule
+import dagger.hilt.android.testing.HiltAndroidTest
+import dagger.hilt.android.testing.HiltTestApplication
 import dev.zophop.domain.engine.ExecutionJobRegistry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -11,6 +14,7 @@ import kotlinx.coroutines.launch
 import org.junit.After
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
@@ -23,14 +27,19 @@ import org.robolectric.annotation.Config
  * - Target cancellation: Explicit cancellation of specific workflow IDs
  * - Safety on invalid actions, null intents, and malformed extras
  */
+@HiltAndroidTest
 @RunWith(AndroidJUnit4::class)
-@Config(manifest = Config.NONE)
+@Config(manifest = Config.NONE, application = HiltTestApplication::class)
 class WorkflowCancelReceiverSecurityTest {
+    @get:Rule
+    val hiltRule = HiltAndroidRule(this)
+
     private lateinit var context: Context
     private lateinit var receiver: WorkflowCancelReceiver
 
     @Before
     fun setUp() {
+        hiltRule.inject()
         context = ApplicationProvider.getApplicationContext()
         receiver = WorkflowCancelReceiver()
         ExecutionJobRegistry.cancelAllJobs()

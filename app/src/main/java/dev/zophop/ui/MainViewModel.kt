@@ -9,6 +9,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.zophop.core.ui.AppThemeMode
 import dev.zophop.core.ui.AppThemePalette
 import dev.zophop.data.AppDatabase
@@ -23,6 +24,7 @@ import dev.zophop.data.PreconditionRepository
 import dev.zophop.data.RoomCredentialRepository
 import dev.zophop.data.RoomPreconditionRepository
 import dev.zophop.data.RoomWorkflowRepository
+import dev.zophop.data.SettingsRepository
 import dev.zophop.data.WorkflowExecutionLogEntity
 import dev.zophop.data.WorkflowRepository
 import dev.zophop.data.toDomain
@@ -36,6 +38,7 @@ import dev.zophop.domain.engine.PreconditionResult
 import dev.zophop.domain.engine.WorkflowEngine
 import dev.zophop.domain.engine.WorkflowExecutionResult
 import dev.zophop.domain.engine.markStepsAsCancelled
+import dev.zophop.domain.engine.plugin.ExternalPluginRegistry
 import dev.zophop.domain.engine.toJsonString
 import dev.zophop.domain.engine.toNodeExecutionSteps
 import dev.zophop.domain.model.Credential
@@ -49,6 +52,7 @@ import dev.zophop.filter.SmsFilter
 import dev.zophop.plugin.api.ExecutionContext
 import dev.zophop.service.SmsForwarderService
 import dev.zophop.worker.ForwardingManager
+import dev.zophop.worker.WorkflowQueueManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -63,6 +67,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
+import javax.inject.Inject
 import kotlin.time.Duration.Companion.milliseconds
 
 private const val PRECONDITION_TEST_CANCELLED_REASON = "Precondition test cancelled by user"
@@ -103,20 +108,119 @@ data class MainUiState(
         get() = nodes.filter { it.isEnabled && it.serverUrl.isNotBlank() }
 }
 
-class MainViewModel(
+@Suppress("ktlint:standard:annotation")
+@HiltViewModel
+class MainViewModel @Inject constructor(
     application: Application,
+    private val settingsRepo: SettingsRepository,
+    private val db: AppDatabase,
+    private val forwardingManager: ForwardingManager,
+    val workflowRepository: WorkflowRepository,
+    val credentialRepository: CredentialRepository,
+    val preconditionRepository: PreconditionRepository,
+    private val workflowInitializer: DefaultWorkflowInitializer,
+    private val externalPluginRegistry: ExternalPluginRegistry,
+    private val preconditionEvaluator: PreconditionEvaluator,
+    private val workflowEngine: WorkflowEngine,
+    private val workflowQueueManager: WorkflowQueueManager,
+    val backupBridge: dev.zophop.feature.backup.BackupBridge,
+    val backupService: dev.zophop.feature.backup.BackupService,
 ) : AndroidViewModel(application) {
-    private val settingsRepo = EncryptedSettingsRepository(application)
-    private val db = AppDatabase.getInstance(application)
-    private val forwardingManager = ForwardingManager.getInstance(application)
-    val workflowRepository: WorkflowRepository = RoomWorkflowRepository(db.workflowDao(), db.preconditionDao())
-    val credentialRepository: CredentialRepository = RoomCredentialRepository(db.credentialDao())
-    val preconditionRepository: PreconditionRepository = RoomPreconditionRepository(db.preconditionDao())
-    private val workflowInitializer = DefaultWorkflowInitializer(workflowRepository)
+    constructor(application: Application) : this(
+        application = application,
+        settingsRepo = EncryptedSettingsRepository(application),
+        db = AppDatabase.getInstance(application),
+        forwardingManager = ForwardingManager.getInstance(application),
+        workflowRepository =
+            RoomWorkflowRepository(
+                AppDatabase.getInstance(application).workflowDao(),
+                AppDatabase.getInstance(application).preconditionDao(),
+            ),
+        credentialRepository =
+            RoomCredentialRepository(AppDatabase.getInstance(application).credentialDao()),
+        preconditionRepository =
+            RoomPreconditionRepository(AppDatabase.getInstance(application).preconditionDao()),
+        workflowInitializer =
+            DefaultWorkflowInitializer(
+                RoomWorkflowRepository(
+                    AppDatabase.getInstance(application).workflowDao(),
+                    AppDatabase.getInstance(application).preconditionDao(),
+                ),
+            ),
+        externalPluginRegistry = ExternalPluginRegistry(application),
+        preconditionEvaluator =
+            PreconditionEvaluator(
+                application,
+                credentialRepository =
+                    RoomCredentialRepository(AppDatabase.getInstance(application).credentialDao()),
+            ),
+        workflowEngine =
+            WorkflowEngine(
+                PreconditionEvaluator(
+                    application,
+                    credentialRepository =
+                        RoomCredentialRepository(AppDatabase.getInstance(application).credentialDao()),
+                ),
+                RoomCredentialRepository(AppDatabase.getInstance(application).credentialDao()),
+            ),
+        workflowQueueManager =
+            WorkflowQueueManager(
+                db = AppDatabase.getInstance(application),
+                workflowRepository =
+                    RoomWorkflowRepository(
+                        AppDatabase.getInstance(application).workflowDao(),
+                        AppDatabase.getInstance(application).preconditionDao(),
+                    ),
+                settingsRepository = EncryptedSettingsRepository(application),
+                workflowEngine =
+                    WorkflowEngine(
+                        PreconditionEvaluator(
+                            application,
+                            credentialRepository =
+                                RoomCredentialRepository(AppDatabase.getInstance(application).credentialDao()),
+                        ),
+                        RoomCredentialRepository(AppDatabase.getInstance(application).credentialDao()),
+                    ),
+                appContext = application,
+            ),
+        backupBridge =
+            dev.zophop.bridge.AppBackupBridge(
+                workflowRepository =
+                    RoomWorkflowRepository(
+                        AppDatabase.getInstance(application).workflowDao(),
+                        AppDatabase.getInstance(application).preconditionDao(),
+                    ),
+                credentialRepository =
+                    RoomCredentialRepository(AppDatabase.getInstance(application).credentialDao()),
+                preconditionRepository =
+                    RoomPreconditionRepository(AppDatabase.getInstance(application).preconditionDao()),
+                currentWorkflows = { emptyList() },
+                currentCredentials = { emptyList() },
+                currentPreconditions = { emptyList() },
+                isBiometricEnabled = { EncryptedSettingsRepository(application).getSettings().lockCredentialsWithBiometric },
+                externalPluginRegistry = ExternalPluginRegistry(application),
+            ),
+        backupService =
+            dev.zophop.feature.backup.DefaultBackupService(
+                dev.zophop.bridge.AppBackupBridge(
+                    workflowRepository =
+                        RoomWorkflowRepository(
+                            AppDatabase.getInstance(application).workflowDao(),
+                            AppDatabase.getInstance(application).preconditionDao(),
+                        ),
+                    credentialRepository =
+                        RoomCredentialRepository(AppDatabase.getInstance(application).credentialDao()),
+                    preconditionRepository =
+                        RoomPreconditionRepository(AppDatabase.getInstance(application).preconditionDao()),
+                    currentWorkflows = { emptyList() },
+                    currentCredentials = { emptyList() },
+                    currentPreconditions = { emptyList() },
+                    isBiometricEnabled = { EncryptedSettingsRepository(application).getSettings().lockCredentialsWithBiometric },
+                    externalPluginRegistry = ExternalPluginRegistry(application),
+                ),
+            ),
+    )
 
-    private val externalPluginRegistry =
-        dev.zophop.domain.engine.plugin
-            .ExternalPluginRegistry(application)
     private val _discoveredPlugins = MutableStateFlow<List<dev.zophop.domain.engine.plugin.ExternalPluginServiceInfo>>(emptyList())
     val discoveredPlugins: StateFlow<List<dev.zophop.domain.engine.plugin.ExternalPluginServiceInfo>> = _discoveredPlugins.asStateFlow()
 
@@ -257,7 +361,7 @@ class MainViewModel(
     fun processQueueNow() {
         viewModelScope.launch(Dispatchers.IO) {
             forwardingManager.processPendingQueue()
-            dev.zophop.worker.WorkflowQueueManager.processQueuedWorkflows(getApplication())
+            workflowQueueManager.processQueuedWorkflows()
         }
     }
 
@@ -270,7 +374,7 @@ class MainViewModel(
                 } catch (_: Exception) {
                     null
                 }
-            val failedNodeId = dev.zophop.worker.WorkflowQueueManager.resolveRetryStartNodeId(workflow, steps)
+            val failedNodeId = WorkflowQueueManager.resolveRetryStartNodeId(workflow, steps)
             workflowRepository.deleteExecutionLogById(log.id)
             retryWorkflowFromFailedNode(
                 workflow = workflow,
@@ -341,7 +445,7 @@ class MainViewModel(
         checkPermissionsAndStatus()
         viewModelScope.launch(Dispatchers.IO) {
             workflowInitializer.checkAndInitialize()
-            dev.zophop.worker.WorkflowQueueManager.reconcileStaleRunningLogs(workflowRepository)
+            WorkflowQueueManager.reconcileStaleRunningLogs(workflowRepository)
         }
         viewModelScope.launch {
             ActiveExecutionTracker.executions.collect { executions ->
@@ -637,7 +741,7 @@ class MainViewModel(
                     _activeExecutionState.value = null
                 }
             }
-            dev.zophop.worker.WorkflowQueueManager.cancelPendingLogsForWorkflow(
+            WorkflowQueueManager.cancelPendingLogsForWorkflow(
                 workflowRepository = workflowRepository,
                 workflowId = workflowId,
                 reason = "Execution cancelled by user",
@@ -694,11 +798,9 @@ class MainViewModel(
             viewModelScope.launch(Dispatchers.IO) {
                 var latestSteps: List<NodeExecutionStep> = emptyList()
                 try {
-                    val context = getApplication<Application>()
-                    val evaluator = PreconditionEvaluator(context, credentialRepository = credentialRepository)
                     val domainPrecondition = entity.toDomain()
                     val result =
-                        evaluator.evaluate(domainPrecondition) { steps ->
+                        preconditionEvaluator.evaluate(domainPrecondition) { steps ->
                             if (!isActive) return@evaluate
                             latestSteps = steps
                             viewModelScope.launch(Dispatchers.Main) {
@@ -798,8 +900,6 @@ class MainViewModel(
                 workflowRepository.saveExecutionLog(initialLog)
 
                 val context = getApplication<Application>()
-                val evaluator = PreconditionEvaluator(context, credentialRepository = credentialRepository)
-                val engine = WorkflowEngine(evaluator, credentialRepository)
 
                 val triggerNode =
                     workflow.nodes.firstOrNull { node ->
@@ -850,7 +950,7 @@ class MainViewModel(
                     )
 
                 val result =
-                    engine.executeWorkflowWithProgress(
+                    workflowEngine.executeWorkflowWithProgress(
                         workflow = workflow,
                         context = execContext,
                         appContext = context,
@@ -1131,20 +1231,6 @@ class MainViewModel(
         } catch (_: Exception) {
         }
     }
-
-    val backupBridge: dev.zophop.feature.backup.BackupBridge =
-        dev.zophop.bridge.AppBackupBridge(
-            workflowRepository = workflowRepository,
-            credentialRepository = credentialRepository,
-            preconditionRepository = preconditionRepository,
-            currentWorkflows = { workflows.value },
-            currentCredentials = { credentials.value },
-            currentPreconditions = { preconditions.value },
-            isBiometricEnabled = { _uiState.value.lockCredentialsWithBiometric },
-        )
-
-    val backupService: dev.zophop.feature.backup.BackupService =
-        dev.zophop.feature.backup.DefaultBackupService(backupBridge)
 
     suspend fun exportBackupJson(options: dev.zophop.feature.backup.ExportOptions): String =
         backupService.exportBackup(options)

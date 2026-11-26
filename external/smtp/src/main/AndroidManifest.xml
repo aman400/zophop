@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.zophop.plugin.smtp">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:label="ZopHop SMTP Email Plugin"
+        android:icon="@android:drawable/ic_dialog_email">
+        <service
+            android:name=".SmtpNodePluginService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="dev.zophop.plugin.ACTION_NODE_SERVICE" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>

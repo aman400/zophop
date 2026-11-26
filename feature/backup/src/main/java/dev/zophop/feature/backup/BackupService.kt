@@ -28,4 +28,6 @@ interface BackupService {
     suspend fun decryptImport(data: ParsedBackupData, password: CharSequence): ParsedBackupData
 
     suspend fun executeImport(data: ParsedBackupData, strategy: ImportConflictStrategy): ImportResult
+
+    suspend fun findMissingNodeTypes(data: ParsedBackupData): Set<String> = emptySet()
 }

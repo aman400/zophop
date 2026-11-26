@@ -5,19 +5,25 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.util.Log
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.zophop.worker.ForwardingManager
+import dev.zophop.worker.WorkflowQueueManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import javax.inject.Inject
 
 private const val TAG = "ConnectivityMonitor"
 
-class ConnectivityMonitor(
-    private val context: Context,
+@Suppress("ktlint:standard:annotation")
+class ConnectivityMonitor @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val forwardingManager: ForwardingManager,
+    private val workflowQueueManager: WorkflowQueueManager,
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var scope: CoroutineScope? = null
     private val connectivityManager =
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
 
@@ -36,10 +42,10 @@ class ConnectivityMonitor(
         }
 
     private fun triggerFlush() {
-        scope.launch {
+        scope?.launch {
             try {
-                ForwardingManager.getInstance(context).processPendingQueue()
-                dev.zophop.worker.WorkflowQueueManager.processQueuedWorkflows(context)
+                forwardingManager.processPendingQueue()
+                workflowQueueManager.processQueuedWorkflows()
             } catch (e: IllegalStateException) {
                 Log.w(TAG, "Error processing queue on connectivity change: ${e.message}", e)
             } catch (e: SecurityException) {
@@ -49,6 +55,8 @@ class ConnectivityMonitor(
     }
 
     fun register() {
+        scope?.cancel()
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         try {
             connectivityManager?.registerDefaultNetworkCallback(networkCallback)
         } catch (e: SecurityException) {
@@ -57,7 +65,8 @@ class ConnectivityMonitor(
     }
 
     fun unregister() {
-        scope.cancel()
+        scope?.cancel()
+        scope = null
         try {
             connectivityManager?.unregisterNetworkCallback(networkCallback)
         } catch (e: IllegalArgumentException) {

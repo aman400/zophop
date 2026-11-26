@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="icon" type="image/svg+xml" href="assets/app-icon.svg">
   <link rel="stylesheet" href="styles.css">
-  <script>const APP_VERSION = "3.0.0";</script>
+  <script src="version.js" defer></script>
   <script src="docs.js" defer></script>
 </head>
 <body>
@@ -21,7 +21,7 @@
       <a href="index.html" class="logo">
         <img src="assets/app-icon.svg" alt="ZopHop Logo" class="logo-img">
         <span class="logo-title">ZopHop</span>
-        <span class="logo-ver app-version-v">v3.0.0</span>
+        <span class="logo-ver app-version-v">v1.0.0</span>
       </a>
 
       <nav class="nav-pages" aria-label="Documentation Pages">
@@ -41,15 +41,15 @@
   <div class="container">
     <!-- Hero -->
     <section class="hero">
-      <div class="hero-brand">ZopHop <span class="app-version-v">v3.0.0</span> &bull; Open-Source Android Automation</div>
+      <div class="hero-brand">ZopHop <span class="app-version-v">v1.0.0</span> &bull; Open-Source Android Automation</div>
       <h1 class="hero-title">Visual Workflow, OTP Forwarding &amp; <span>Plugin Automation</span></h1>
       <p class="hero-subtitle">
         Capture SMS, app push notifications, phone calls, and cron schedules. Guard pipelines with chained preconditions, parse JSON &amp; regex payloads, import cURL webhooks, secure secrets inside a biometric AES-256 vault, and extend ZopHop with external AIDL plugins.
       </p>
       <div class="hero-actions">
-        <a href="https://github.com/aman400/zophop/releases/download/v3.0.0/ZopHop-v3.0.0.apk" target="_blank" class="btn btn-primary app-apk-link">
+        <a href="https://github.com/aman400/zophop/releases/download/v1.0.0/ZopHop-v1.0.0.apk" target="_blank" class="btn btn-primary app-apk-link">
           <svg width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
-          Download <span class="app-apk-name">ZopHop-v3.0.0.apk</span>
+          Download <span class="app-apk-name">ZopHop-v1.0.0.apk</span>
         </a>
         <a href="manual.html" class="btn btn-secondary">Browse Full User Manual</a>
         <a href="plugins.html" class="btn btn-amber">Plugin SDK &amp; Slack Tutorial</a>
@@ -79,8 +79,8 @@
         </a>
         <a href="releases.html" class="card" style="text-decoration:none; color:inherit;">
           <div class="card-icon amber">📦</div>
-          <h3 class="card-title">Releases, Telegram APK &amp; AARs →</h3>
-          <p class="card-text">Download <code>ZopHop-Telegram-Plugin-v1.0.apk</code>, build signed local releases, and consume <code>plugin-api</code> publicly via JitPack or offline <code>.aar</code> releases.</p>
+          <h3 class="card-title">Releases, External APKs &amp; AARs →</h3>
+          <p class="card-text">Download <code class="app-telegram-apk-name">ZopHop-Telegram-Plugin-v1.0.0.apk</code> and <code class="app-smtp-apk-name">ZopHop-SMTP-Plugin-v1.0.0.apk</code>, build signed local releases, and consume <code>plugin-api</code> publicly via JitPack or offline <code>.aar</code> releases.</p>
         </a>
       </div>
     </section>
@@ -89,7 +89,7 @@
     <div class="arch-card">
       <div class="arch-header">
         <div class="arch-title">End-to-End Automation &amp; Plugin Pipeline Architecture</div>
-        <span style="font-family: var(--font-mono); font-size: 0.8rem; color: var(--primary);">Engine Flow <span class="app-version-v">v3.0.0</span></span>
+        <span style="font-family: var(--font-mono); font-size: 0.8rem; color: var(--primary);">Engine Flow <span class="app-version-v">v1.0.0</span></span>
       </div>
       <div class="arch-svg-container">
         <svg viewBox="0 0 1080 250" width="100%" height="250" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -129,7 +129,7 @@
           <rect x="988" y="88" width="66" height="28" rx="6" fill="#78350f"/>
           <text x="1021" y="106" text-anchor="middle" fill="#fbbf24" font-family="Roboto, sans-serif" font-size="12">cURL</text>
           <rect x="836" y="126" width="104" height="28" rx="6" fill="#1e3a5f"/>
-          <text x="888" y="144" text-anchor="middle" fill="#7dd3fc" font-family="Roboto, sans-serif" font-size="12">Telegram APK</text>
+          <text x="888" y="144" text-anchor="middle" fill="#7dd3fc" font-family="Roboto, sans-serif" font-size="12">Telegram / SMTP</text>
           <rect x="950" y="126" width="104" height="28" rx="6" fill="#1e3a5f"/>
           <text x="1002" y="144" text-anchor="middle" fill="#7dd3fc" font-family="Roboto, sans-serif" font-size="12">Custom Slack</text>
           <text x="945" y="182" text-anchor="middle" fill="#9ca3af" font-family="Roboto, sans-serif" font-size="11">Vault AES-256 + _cred_* Injection</text>
@@ -258,7 +258,7 @@
         <div class="card">
           <h3 class="card-title">Consume the SDK via JitPack (No Token)</h3>
           <div class="code-box"><span class="code-label">app/build.gradle.kts</span>dependencies {
-    implementation("com.github.aman400.zophop:plugin-api:v3.0.0")
+    implementation("com.github.aman400.zophop:plugin-api:<span class="app-version-v">v1.0.0</span>")
 }</div>
           <p class="card-text" style="margin-bottom: 14px;">Public Maven artifacts are served via JitPack (no token needed), with standalone <code>.aar</code> files attached to GitHub Releases.</p>
           <a href="plugins.html" class="btn btn-primary btn-sm">Open Plugin SDK Docs &amp; Slack Tutorial →</a>
@@ -338,7 +338,7 @@
   <footer class="site-footer">
     <div class="container footer-content">
       <div>
-        <p><strong>ZopHop Automation Engine <span class="app-version-v">v3.0.0</span></strong> — Built for Android 8.0+ (API 26–37)</p>
+        <p><strong>ZopHop Automation Engine <span class="app-version-v">v1.0.0</span></strong> — Built for Android 8.0+ (API 26–37)</p>
         <p style="margin-top: 4px;">Open-source software released under the MIT License.</p>
       </div>
       <div class="footer-links">
