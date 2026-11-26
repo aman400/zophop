@@ -1,5 +1,6 @@
 package dev.zophop.core.ui.components
 
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -45,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -58,6 +60,7 @@ fun HeaderInputEditor(
     onHeadersChanged: (String) -> Unit,
     availableVariables: List<String> = emptyList(),
     attachedCredential: Credential? = null,
+    isLockEnabled: Boolean = false,
 ) {
     KeyValueInputEditor(
         title = "HTTP Headers",
@@ -72,6 +75,7 @@ fun HeaderInputEditor(
         availableVariables = availableVariables,
         attachedCredential = attachedCredential,
         allowSecretToggle = true,
+        isLockEnabled = isLockEnabled,
     )
 }
 
@@ -166,7 +170,9 @@ fun KeyValueInputEditor(
     availableVariables: List<String> = emptyList(),
     attachedCredential: Credential? = null,
     allowSecretToggle: Boolean = true,
+    isLockEnabled: Boolean = false,
 ) {
+    val context = LocalContext.current
     var items by remember(inputString) {
         mutableStateOf(parseInputToKeyValueItems(inputString))
     }
@@ -287,12 +293,21 @@ fun KeyValueInputEditor(
                     }
                 },
                 onToggleReveal = {
-                    revealedIndices =
-                        if (revealedIndices.contains(index)) {
-                            revealedIndices - index
-                        } else {
-                            revealedIndices + index
-                        }
+                    if (revealedIndices.contains(index)) {
+                        revealedIndices = revealedIndices - index
+                    } else if (isLockEnabled) {
+                        BiometricAuthHelper.requestBiometricUnlock(
+                            context = context,
+                            title = "Unlock Vault Credential",
+                            subtitle = "Authenticate using biometrics or device PIN/pattern to view secret value",
+                            onSuccess = { revealedIndices = revealedIndices + index },
+                            onError = { message ->
+                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                            },
+                        )
+                    } else {
+                        revealedIndices = revealedIndices + index
+                    }
                 },
                 onRemove = {
                     val updated = items.toMutableList().apply { removeAt(index) }

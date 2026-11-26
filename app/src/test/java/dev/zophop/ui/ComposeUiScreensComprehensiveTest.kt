@@ -13,6 +13,7 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.fragment.app.FragmentActivity
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.work.Configuration
@@ -33,24 +34,29 @@ class TestApp :
     Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
-        val componentName = ComponentName(packageName, ComponentActivity::class.java.name)
-        val hasComponentActivity =
-            runCatching { packageManager.getActivityInfo(componentName, 0) }.isSuccess
-        if (!hasComponentActivity) {
-            val activityInfo =
-                ActivityInfo().apply {
-                    packageName = this@TestApp.packageName
-                    name = ComponentActivity::class.java.name
-                    exported = true
+        listOf(
+            ComponentActivity::class.java.name,
+            FragmentActivity::class.java.name,
+        ).forEach { activityClassName ->
+            val componentName = ComponentName(packageName, activityClassName)
+            val hasActivity =
+                runCatching { packageManager.getActivityInfo(componentName, 0) }.isSuccess
+            if (!hasActivity) {
+                val activityInfo =
+                    ActivityInfo().apply {
+                        packageName = this@TestApp.packageName
+                        name = activityClassName
+                        exported = true
+                    }
+                Shadows.shadowOf(packageManager).apply {
+                    addOrUpdateActivity(activityInfo)
+                    addIntentFilterForActivity(
+                        componentName,
+                        IntentFilter(Intent.ACTION_MAIN).apply {
+                            addCategory(Intent.CATEGORY_LAUNCHER)
+                        },
+                    )
                 }
-            Shadows.shadowOf(packageManager).apply {
-                addOrUpdateActivity(activityInfo)
-                addIntentFilterForActivity(
-                    componentName,
-                    IntentFilter(Intent.ACTION_MAIN).apply {
-                        addCategory(Intent.CATEGORY_LAUNCHER)
-                    },
-                )
             }
         }
     }

@@ -7,11 +7,10 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.biometric.BiometricManager
-import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -67,7 +66,6 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.core.net.toUri
-import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -130,36 +128,15 @@ fun SettingsScreen(
     }
 
     fun authenticateSecurityToggle(targetState: Boolean) {
-        if (BiometricAuthHelper.canBypassWhenNoLockEnrolled(context)) {
-            viewModel.toggleLockCredentialsWithBiometric(targetState)
-            return
-        }
-        val authenticators = BiometricAuthHelper.allowedAuthenticators()
-        val biometricManager = BiometricManager.from(context)
-        val activity = context as? FragmentActivity
-        if (activity != null && biometricManager.canAuthenticate(authenticators) == BiometricManager.BIOMETRIC_SUCCESS) {
-            val executor = ContextCompat.getMainExecutor(context)
-            val prompt =
-                BiometricPrompt(
-                    activity,
-                    executor,
-                    object : BiometricPrompt.AuthenticationCallback() {
-                        override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                            super.onAuthenticationSucceeded(result)
-                            viewModel.toggleLockCredentialsWithBiometric(targetState)
-                        }
-                    },
-                )
-            val promptInfo =
-                BiometricPrompt.PromptInfo
-                    .Builder()
-                    .setTitle("Vault Security Lock")
-                    .setSubtitle("Authenticate using biometrics or device lock to change vault security settings.")
-                    .setAllowedAuthenticators(authenticators)
-                    .build()
-
-            prompt.authenticate(promptInfo)
-        }
+        BiometricAuthHelper.requestBiometricUnlock(
+            context = context,
+            title = "Vault Security Lock",
+            subtitle = "Authenticate using biometrics or device lock to change vault security settings.",
+            onSuccess = { viewModel.toggleLockCredentialsWithBiometric(targetState) },
+            onError = { message ->
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            },
+        )
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
