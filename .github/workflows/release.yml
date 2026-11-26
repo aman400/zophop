@@ -66,8 +66,8 @@ jobs:
           cp "app/build/outputs/apk/release/ZopHop-v${APP_VERSION}.apk" release-assets/
           cp "external/telegram/build/outputs/apk/release/ZopHop-Telegram-Plugin-v${APP_VERSION}.apk" release-assets/
           cp "external/smtp/build/outputs/apk/release/ZopHop-SMTP-Plugin-v${APP_VERSION}.apk" release-assets/
-          cp core/plugin-api/build/outputs/aar/plugin-api-release.aar "release-assets/zophop-plugin-api-v${APP_VERSION}.aar"
-          cp core/model/build/outputs/aar/model-release.aar "release-assets/zophop-core-model-v${APP_VERSION}.aar"
+          cp "core/plugin-api/build/outputs/aar/zophop-plugin-api-v${APP_VERSION}.aar" release-assets/
+          cp "core/model/build/outputs/aar/zophop-core-model-v${APP_VERSION}.aar" release-assets/
 
           ls -lh release-assets/
 

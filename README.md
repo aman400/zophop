@@ -86,7 +86,7 @@ Generated outputs:
 - Main app: `app/build/outputs/apk/release/ZopHop-v3.1.0.apk`
 - Telegram plugin: `external/telegram/build/outputs/apk/release/ZopHop-Telegram-Plugin-v3.1.0.apk`
 - SMTP Email plugin: `external/smtp/build/outputs/apk/release/ZopHop-SMTP-Plugin-v3.1.0.apk`
-- SDK AARs: `core/plugin-api/build/outputs/aar/plugin-api-release.aar`, `core/model/build/outputs/aar/model-release.aar`
+- SDK AARs: `core/plugin-api/build/outputs/aar/zophop-plugin-api-v3.1.0.aar`, `core/model/build/outputs/aar/zophop-core-model-v3.1.0.aar`
 
 ### 2. Install via ADB or Sideload
 ```bash

@@ -61,6 +61,13 @@ kotlin {
     }
 }
 
+tasks.withType<Zip>().configureEach {
+    when (name) {
+        "bundleReleaseAar" -> archiveFileName.set("zophop-core-model-v$sdkVersion.aar")
+        "bundleDebugAar" -> archiveFileName.set("zophop-core-model-Debug-v$sdkVersion.aar")
+    }
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     api(libs.kotlinx.serialization.json)

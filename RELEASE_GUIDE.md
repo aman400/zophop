@@ -36,8 +36,8 @@ The signed release binaries and AAR libraries are generated at:
 app/build/outputs/apk/release/ZopHop-v3.1.0.apk
 external/telegram/build/outputs/apk/release/ZopHop-Telegram-Plugin-v3.1.0.apk
 external/smtp/build/outputs/apk/release/ZopHop-SMTP-Plugin-v3.1.0.apk
-core/plugin-api/build/outputs/aar/plugin-api-release.aar
-core/model/build/outputs/aar/model-release.aar
+core/plugin-api/build/outputs/aar/zophop-plugin-api-v3.1.0.aar
+core/model/build/outputs/aar/zophop-core-model-v3.1.0.aar
 ```
 
 ---
